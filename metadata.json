@@ -1,0 +1,6 @@
+{
+  "name": "City Healer",
+  "description": "City Healer is a next-generation AI-powered Healthcare Operating System for India connecting patients, hospitals, doctors, pharmacies, and emergency services into one intelligent digital ecosystem.",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
