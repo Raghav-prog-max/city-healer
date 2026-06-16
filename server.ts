@@ -4,17 +4,48 @@ import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import dns from "dns";
+import admin from "firebase-admin";
 
 // Fix node localhost resolution issues
 dns.setDefaultResultOrder("ipv4first");
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Unused file path helpers removed to allow safe CommonJS transpilation
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+// Initialize Firebase Admin SDK
+try {
+  admin.initializeApp({
+    projectId: "dev-function-g8gvj"
+  });
+  console.log("[Firebase Admin] Initialized successfully for secure session verification.");
+} catch (error) {
+  console.error("[Firebase Admin Error] Failed to initialize:", error);
+}
+
+// Global Firebase Session Authentication Middleware
+const authenticateUser = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return next();
+  }
+
+  const token = authHeader.split("Bearer ")[1];
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    (req as any).user = decodedToken;
+    console.log(`[Firebase Admin Session] Validated session for UID: ${decodedToken.uid}, Email: ${decodedToken.email}`);
+    next();
+  } catch (error) {
+    console.warn("[Firebase Admin Session] Rejected invalid token in request:", error);
+    return res.status(401).json({ error: "Invalid session or authentication token" });
+  }
+};
+
+app.use(authenticateUser);
 
 // Initialize Gemini Client
 const apiKey = process.env.GEMINI_API_KEY;

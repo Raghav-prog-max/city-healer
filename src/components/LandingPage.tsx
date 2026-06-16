@@ -668,7 +668,7 @@ export function LandingPage({ onNavigate, hospitals }: LandingProps) {
             </div>
             <div>
               <span className="font-heading text-lg font-black tracking-wider text-[#0F172A]">
-                CITY <span className="text-[#22C55E]">HEALER</span>
+                <span className="text-[#22C55E]">CITY HEALER</span>
               </span>
               <p className="text-[9px] text-[#0EA5E9] font-semibold tracking-widest leading-none">CONNECTED GRID</p>
             </div>
@@ -1463,7 +1463,7 @@ export function LandingPage({ onNavigate, hospitals }: LandingProps) {
                   <Activity className="h-5 w-5 text-[#22C55E]" />
                 </div>
                 <span className="font-heading text-md font-black tracking-wider text-white">
-                  CITY <span className="text-[#0EA5E9]">HEALER</span>
+                  <span className="text-[#22C55E]">CITY HEALER</span>
                 </span>
               </div>
               <p className="text-xs text-slate-500">

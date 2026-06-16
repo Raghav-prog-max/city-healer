@@ -1,15 +1,33 @@
 /**
  * Client API Helpers for City Healer Full-Stack Integration
  */
+import { auth } from "../firebase";
 
 export async function apiFetch<T>(url: string, options?: RequestInit, retries = 3, delayMs = 300): Promise<T> {
   let lastError: any = null;
+  
+  // Synchronously fetch current Firebase ID Token if signed in
+  let token: string | null = null;
+  try {
+    if (auth.currentUser) {
+      token = await auth.currentUser.getIdToken();
+    }
+  } catch (e) {
+    console.warn("[API Token Retrieval] Failed to fetch credentials:", e);
+  }
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
+      const authHeaders: Record<string, string> = {};
+      if (token) {
+        authHeaders["Authorization"] = `Bearer ${token}`;
+      }
+
       const response = await fetch(url, {
         ...options,
         headers: {
           "Content-Type": "application/json",
+          ...authHeaders,
           ...options?.headers,
         },
       });

@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common standard library
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Helper to validate User entity
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() <= 128
+        && data.name is string && data.name.size() <= 150
+        && data.email is string && data.email.size() <= 150
+        && (data.phone == null || (data.phone is string && data.phone.size() <= 50))
+        && data.role is string && (data.role == 'PATIENT' || data.role == 'DOCTOR' || data.role == 'HOSPITAL' || data.role == 'ADMIN')
+        && (data.age == null || data.age is number)
+        && (data.gender == null || (data.gender is string && data.gender.size() <= 50))
+        && (data.bloodGroup == null || (data.bloodGroup is string && data.bloodGroup.size() <= 10))
+        && (data.policyNo == null || (data.policyNo is string && data.policyNo.size() <= 100));
+    }
+
+    // Users Collection rules
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && incoming().createdAt == request.time;
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && incoming().updatedAt == request.time && incoming().createdAt == existing().createdAt && incoming().uid == existing().uid && incoming().role == existing().role;
+      allow delete: if false; // profiles are permanent
+    }
+
+    // Health check channel rules
+    match /test/{docId} {
+      allow read: if true;
+    }
+  }
+}

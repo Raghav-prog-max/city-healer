@@ -5,6 +5,50 @@
   --font-serif: "Cormorant Garamond", Georgia, serif;
   --font-heading: "Cormorant Garamond", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-tertiary: var(--bg-tertiary);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-border-primary: var(--border-primary);
+}
+
+:root {
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f5f9;
+  
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  
+  --border-primary: #e2e8f0;
+  --border-secondary: #cbd5e1;
+  
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --input-text: #0f172a;
+  --input-placeholder: #94a3b8;
+}
+
+:root.dark, .dark {
+  --bg-primary: #020617;
+  --bg-secondary: #0f172a;
+  --bg-tertiary: #1e293b;
+  
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  
+  --border-primary: #1e293b;
+  --border-secondary: #334155;
+  
+  --input-bg: #1e293b;
+  --input-border: #334155;
+  --input-text: #f8fafc;
+  --input-placeholder: #64748b;
 }
 
 /* Custom Scrollbar */
@@ -45,7 +89,78 @@ html, body {
 }
 
 body {
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* Global inputs, textareas and select dropdown accessibility rules */
+input, textarea, select {
+  background-color: var(--input-bg);
+  color: var(--input-text);
+  border-width: 1px;
+  border-color: var(--input-border);
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--input-placeholder);
+}
+
+select option {
+  color: var(--input-text) !important;
+  background-color: var(--input-bg) !important;
+}
+
+/* Fallback adaptive selectors for nested light theme classes in dark mode */
+.dark {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.dark .bg-white,
+.dark .card,
+.dark [class*="bg-slate-50"],
+.dark [class*="bg-slate-100"],
+.dark [class*="bg-slate-150"] {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  color: var(--text-primary) !important;
+}
+
+.dark p,
+.dark span:not(.text-white):not([class*="text-emerald"]):not([class*="text-rose"]):not([class*="text-amber"]):not([class*="text-teal"]):not([class*="text-blue"]):not([class*="text-cyan"]):not([class*="text-purple"]) {
+  color: var(--text-secondary) !important;
+}
+
+.dark label {
+  color: var(--text-muted) !important;
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: var(--input-bg) !important;
+  color: var(--input-text) !important;
+  border-color: var(--input-border) !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--input-placeholder) !important;
+}
+
+.dark select option {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
 }
 

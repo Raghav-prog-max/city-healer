@@ -1,0 +1,29 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account registration details and authorization roles",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique Firebase Auth user ID" },
+        "name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "description": "Email address of the user" },
+        "phone": { "type": "string", "description": "Mobile contact number" },
+        "role": { "type": "string", "enum": ["PATIENT", "DOCTOR", "HOSPITAL", "ADMIN"], "description": "System role" },
+        "age": { "type": "number", "description": "Age of the user" },
+        "gender": { "type": "string", "description": "Gender of the user" },
+        "bloodGroup": { "type": "string", "description": "Blood group" },
+        "policyNo": { "type": "string", "description": "Insurance policy number" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Profile creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Most recent update timestamp" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Storage collection mapping registered users and roles"
+    }
+  }
+}

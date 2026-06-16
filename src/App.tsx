@@ -90,6 +90,70 @@ import {
 } from "recharts";
 import { api } from "./utils/api";
 import { getTranslation, LanguageCode, translations } from "./utils/i18n";
+import { auth, db } from "./firebase";
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  sendPasswordResetEmail, 
+  signOut, 
+  onAuthStateChanged 
+} from "firebase/auth";
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  serverTimestamp, 
+  getDocFromServer
+} from "firebase/firestore";
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 import {
   Hospital,
   Doctor,
@@ -123,7 +187,8 @@ export default function App() {
   const [verifResult, setVerifResult] = useState<{ status: "idle" | "verifying" | "pass" | "fail"; score?: number; message?: string } | null>(null);
 
   // --- CUSTOM ADDIITIONAL STATE FOR ALL LISTED FEATURES ---
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [authMode, setAuthMode] = useState<"LOGIN" | "SIGNUP" | "FORGOT" | "OTP_VERIFY">("LOGIN");
   const [authEmail, setAuthEmail] = useState("raghavramghat@gmail.com");
   const [authPhone, setAuthPhone] = useState("+91 98101 22334");
@@ -131,6 +196,7 @@ export default function App() {
   const [authOtpSent, setAuthOtpSent] = useState<string>("");
   const [authOtpInput, setAuthOtpInput] = useState("");
   const [authRoleSelection, setAuthRoleSelection] = useState<"PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN">("PATIENT");
+  const [authPasscode, setAuthPasscode] = useState<string>("CityHealerPass123!");
   const [jwtToken, setJwtToken] = useState<string>("");
 
   // Family profile selector state (converted from static array to support adding new patients dynamically)
@@ -504,6 +570,14 @@ export default function App() {
     localStorage.setItem("ggh-app-dark-mode", String(nextVal));
     showToast(`🌙 Dark mode ${nextVal ? "enabled" : "disabled"}`);
   };
+
+  useEffect(() => {
+    if (isAppDarkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [isAppDarkMode]);
   const [showBiometricVerifyModal, setShowBiometricVerifyModal] = useState<boolean>(false);
   const [biometricVerifyType, setBiometricVerifyType] = useState<"FINGERPRINT" | "FACE">("FINGERPRINT");
   const [biometricVerifyStatus, setBiometricVerifyStatus] = useState<"IDLE" | "SCANNING" | "SUCCESS" | "FAILED">("IDLE");
@@ -1164,67 +1238,161 @@ export default function App() {
     showToast(`Successfully logged ${vitalInputType.toUpperCase()} vitals data points!`);
   };
 
+  // Scope loadData at component level so it can be re-triggered on network sync re-activation
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const safeFetch = async <T,>(promise: Promise<T>, fallback: T, name: string): Promise<T> => {
+        try {
+          return await promise;
+        } catch (e) {
+          console.warn(`[Clinical Fetch Warning] Failed to load ${name} dynamically. Falling back to default:`, e);
+          return fallback;
+        }
+      };
+
+      const [hData, dData, aData, qData, rData, mData, oData, alData] = await Promise.all([
+        safeFetch(api.getHospitals(), [], "hospitals"),
+        safeFetch(api.getDoctors(), [], "doctors"),
+        safeFetch(api.getAppointments(), [], "appointments"),
+        safeFetch(api.getQueue(), [], "queueToken"),
+        safeFetch(api.getRecords(), [], "records"),
+        safeFetch(api.getMedicines(), [], "medicines"),
+        safeFetch(api.getOrders(), [], "orders"),
+        safeFetch(api.getEmergencyAlerts(), [], "alerts")
+      ]);
+
+      setHospitals(hData);
+      setDoctors(dData);
+      setAppointments(aData);
+      setQueueTokens(qData);
+      setRecords(rData);
+      setMedicines(mData);
+      setOrders(oData);
+      setAlerts(alData);
+    } catch (err) {
+      console.error("Clinical system failed baseline parameters fetch:", err);
+      showToast("Error loading healthcare registry.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Fetch baseline state on startup and setup long-polling emulator
   useEffect(() => {
-    async function loadData() {
+    // Validate connection on startup per mandatory constraint
+    const testConnection = async () => {
       try {
-        setLoading(true);
-        const safeFetch = async <T,>(promise: Promise<T>, fallback: T, name: string): Promise<T> => {
-          try {
-            return await promise;
-          } catch (e) {
-            console.warn(`[Clinical Fetch Warning] Failed to load ${name} dynamically. Falling back to default:`, e);
-            return fallback;
-          }
-        };
-
-        const [hData, dData, aData, qData, rData, mData, oData, alData] = await Promise.all([
-          safeFetch(api.getHospitals(), [], "hospitals"),
-          safeFetch(api.getDoctors(), [], "doctors"),
-          safeFetch(api.getAppointments(), [], "appointments"),
-          safeFetch(api.getQueue(), [], "queueToken"),
-          safeFetch(api.getRecords(), [], "records"),
-          safeFetch(api.getMedicines(), [], "medicines"),
-          safeFetch(api.getOrders(), [], "orders"),
-          safeFetch(api.getEmergencyAlerts(), [], "alerts")
-        ]);
-
-        setHospitals(hData);
-        setDoctors(dData);
-        setAppointments(aData);
-        setQueueTokens(qData);
-        setRecords(rData);
-        setMedicines(mData);
-        setOrders(oData);
-        setAlerts(alData);
-      } catch (err) {
-        console.error("Clinical system failed baseline parameters fetch:", err);
-        showToast("Error loading healthcare registry.");
-      } finally {
-        setLoading(false);
+        await getDocFromServer(doc(db, "test", "connection"));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("the client is offline")) {
+          console.error("Please check your Firebase configuration.");
+        }
       }
-    }
-    loadData();
+    };
+    testConnection();
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const userRef = doc(db, "users", firebaseUser.uid);
+          const userSnap = await getDoc(userRef);
+          
+          let profileData;
+          if (userSnap.exists()) {
+            profileData = userSnap.data();
+            setAuthName(profileData.name || firebaseUser.displayName || "City Healer User");
+            setAuthEmail(profileData.email || firebaseUser.email || "");
+            setAuthPhone(profileData.phone || firebaseUser.phoneNumber || "");
+            const userRole = profileData.role || "PATIENT";
+            setActiveRole(userRole);
+            
+            // Route to correct tab based on user's authorized role
+            if (userRole === "ADMIN" || userRole === "HOSPITAL") {
+              setActiveTab("admin");
+            } else if (userRole === "DOCTOR") {
+              setActiveTab("consultation");
+            } else {
+              setActiveTab("overview");
+            }
+          } else {
+            const tempPolicy = `CH-POL-${Math.floor(10000 + Math.random() * 90000)}`;
+            const emailValue = firebaseUser.email || getUserEmailFromInput();
+            
+            profileData = {
+              uid: firebaseUser.uid,
+              name: firebaseUser.displayName || authName.trim() || "City Healer User",
+              email: emailValue,
+              phone: firebaseUser.phoneNumber || authPhone.trim() || "",
+              role: authRoleSelection || "PATIENT",
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              age: 34,
+              gender: "Male",
+              bloodGroup: "O+",
+              policyNo: tempPolicy
+            };
+            
+            await setDoc(userRef, profileData);
+            const userRole = profileData.role;
+            setActiveRole(userRole);
+            setAuthName(profileData.name);
+            setAuthEmail(profileData.email);
+            setAuthPhone(profileData.phone);
+            
+            // Route to correct tab based on new user role
+            if (userRole === "ADMIN" || userRole === "HOSPITAL") {
+              setActiveTab("admin");
+            } else if (userRole === "DOCTOR") {
+              setActiveTab("consultation");
+            } else {
+              setActiveTab("overview");
+            }
+          }
+          
+          setIsAuthenticated(true);
+          const tokenStr = await firebaseUser.getIdToken();
+          setJwtToken(tokenStr);
+          loadData();
+          
+        } catch (err) {
+          console.error("Auth status sync failed:", err);
+          showToast("Clinical profile sync failed. Showing login view.");
+          setIsAuthenticated(false);
+          setJwtToken("");
+        }
+      } else {
+        setIsAuthenticated(false);
+        setJwtToken("");
+      }
+      setAuthLoading(false);
+    });
+
     getUserRealTimeLocation();
 
     // Minor poll loop to keep live hospital metrics synced
     const interval = setInterval(async () => {
-      try {
-        const [hData, alData, qData] = await Promise.all([
-          api.getHospitals(),
-          api.getEmergencyAlerts(),
-          api.getQueue()
-        ]);
-        setHospitals(hData);
-        setAlerts(alData);
-        setQueueTokens(qData);
-      } catch (e) {
-        // Silent recovery
+      if (auth.currentUser) {
+        try {
+          const [hData, alData, qData] = await Promise.all([
+            api.getHospitals(),
+            api.getEmergencyAlerts(),
+            api.getQueue()
+          ]);
+          setHospitals(hData);
+          setAlerts(alData);
+          setQueueTokens(qData);
+        } catch (e) {
+          // Silent recovery
+        }
       }
-    }, 7000);
+    }, 15000);
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, [authRoleSelection]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -1275,7 +1443,45 @@ export default function App() {
       const latestResultIndex = event.results.length - 1;
       const transcript = event.results[latestResultIndex][0].transcript;
       if (transcript) {
-        if (activeTab === "super-app" && superActiveSubTab === "copilot") {
+        if (activeTab === "symptoms") {
+          const lowerText = transcript.trim().toLowerCase();
+          if (
+            lowerText === "clear symptoms" || 
+            lowerText === "clear" || 
+            lowerText === "reset" || 
+            lowerText === "reset symptoms" ||
+            lowerText === "symptoms clear" ||
+            lowerText === "सिट सिम्टम्स मिटाओ" || 
+            lowerText === "सिट" || 
+            lowerText === "मिटाओ" || 
+            lowerText === "क्लियर"
+          ) {
+            setAiSymptoms("");
+            showToast("Symptoms field cleared via voice command.");
+          } else if (
+            lowerText === "run diagnosis" || 
+            lowerText === "diagnose" || 
+            lowerText === "submit" || 
+            lowerText === "run triage" || 
+            lowerText === "एनालाइज" || 
+            lowerText === "जांच करो" || 
+            lowerText === "प्रेडिक्ट"
+          ) {
+            showToast("Submitting symptoms diagnosis via voice command...");
+            try { rec.stop(); } catch(e){}
+            setTimeout(() => {
+              const triggerBtn = document.getElementById("ai-triage-submit-btn");
+              if (triggerBtn) {
+                triggerBtn.click();
+              }
+            }, 300);
+          } else {
+            setAiSymptoms((prev) => {
+              const trimmed = prev.trim();
+              return trimmed ? `${trimmed} ${transcript.trim()}` : transcript.trim();
+            });
+          }
+        } else if (activeTab === "super-app" && superActiveSubTab === "copilot") {
           setCopilotInputText((prev) => {
             const trimmed = prev.trim();
             return trimmed ? `${trimmed} ${transcript.trim()}` : transcript.trim();
@@ -1894,35 +2100,12 @@ export default function App() {
 
   // --- ADDITIONAL CUSTOM LOGIC FOR CITY HEALER ---
   
-  // 1. Simulated Authentication & OTP Flow
-  const triggerSendOTP = () => {
-    if (authMode === "SIGNUP") {
-      if (!authName || !authName.trim()) {
-        showToast("⚠️ Registration requires a valid Full Name.");
-        return;
-      }
-      if (!authEmail || !authEmail.trim() || !authEmail.includes("@")) {
-        showToast("⚠️ Registration requires a valid Email Address.");
-        return;
-      }
-    }
-    if (!authPhone || !authPhone.trim()) {
-      showToast("⚠️ Please provide a valid Mobile Number (OTP Target).");
-      return;
-    }
-    
-    const simulatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    setAuthOtpSent(simulatedOtp);
-    setAuthMode("OTP_VERIFY");
-    showToast(`🔒 City Healer OTP Key dispatched: ${simulatedOtp} (Enter to verify)`);
-  };
-
-  const handleVerifyOTP = () => {
-    if (authOtpInput === authOtpSent || authOtpInput === "123456") {
-      setIsAuthenticated(true);
-      setActiveRole(authRoleSelection);
-      const fakeJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." + btoa(JSON.stringify({ name: authName, email: authEmail, role: authRoleSelection })) + ".signature";
-      setJwtToken(fakeJwtToken);
+  // 1. Genuine Firebase Authentication & Session Verification Flow
+  const handleGoogleLogin = async () => {
+    try {
+      setAuthLoading(true);
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
       
       // Fast route adjustments to showcase views on login based on selected role
       if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
@@ -1933,19 +2116,99 @@ export default function App() {
         setActiveTab("overview");
       }
       
-      showToast(`🔑 Verification successful! JWT Token loaded securely. Role: ${authRoleSelection}`);
-    } else {
-      showToast("Invalid OTP code. Please trace SMS log alert.");
+      showToast(`⚡ Fully Authenticated as ${result.user.displayName || result.user.email}! Welcome.`);
+    } catch (err: any) {
+      console.error("Google Auth failed:", err);
+      showToast("Google sign-in aborted.");
+    } finally {
+      setAuthLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setAuthMode("LOGIN");
-    setAuthOtpInput("");
-    setAuthOtpSent("");
-    setJwtToken("");
-    showToast("Session security terminated.");
+  const getUserEmailFromInput = () => {
+    if (authMode === "SIGNUP" && authEmail && authEmail.trim().includes("@")) {
+      return authEmail.trim();
+    }
+    const cleanPhone = authPhone.trim().replace(/[^0-9]/g, "");
+    return `${cleanPhone || "user"}@cityhealer.com`;
+  };
+
+  const handleFirebaseLogin = async (passcode?: string) => {
+    try {
+      setAuthLoading(true);
+      const email = getUserEmailFromInput();
+      const password = passcode || "CityHealerPass123!";
+      
+      await signInWithEmailAndPassword(auth, email, password);
+      
+      if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
+        setActiveTab("admin");
+      } else if (authRoleSelection === "DOCTOR") {
+        setActiveTab("consultation");
+      } else {
+        setActiveTab("overview");
+      }
+      showToast(`🔑 Verified Session! Welcome back.`);
+    } catch (err: any) {
+      console.warn("Sign In failed, attempting automatic registration:", err.message);
+      // Fallback: If user not found or incorrect passcode, register them seamlessly
+      if (err.code === "auth/user-not-found" || err.message.includes("user-not-found") || err.code === "auth/invalid-credential" || err.message.includes("invalid-credential")) {
+        await handleFirebaseSignUp(passcode);
+      } else {
+        showToast(`Verification failed: ${err.message}`);
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleFirebaseSignUp = async (passcode?: string) => {
+    try {
+      setAuthLoading(true);
+      const email = getUserEmailFromInput();
+      const password = passcode || "CityHealerPass123!";
+      
+      await createUserWithEmailAndPassword(auth, email, password);
+      // Let the onAuthStateChanged listener synchronously synchronize and write the 
+      // Firestore clinical user profile. This avoids double-write update conflicts.
+      
+      if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
+        setActiveTab("admin");
+      } else if (authRoleSelection === "DOCTOR") {
+        setActiveTab("consultation");
+      } else {
+        setActiveTab("overview");
+      }
+      showToast(`⚡ New registration secured! Welcome to Clinical Grid.`);
+    } catch (err: any) {
+      console.error("Firebase Sign Up Error:", err);
+      showToast(`Failed to register account: ${err.message}`);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // Keep simulated triggers compatible
+  const triggerSendOTP = () => {
+    handleFirebaseLogin();
+  };
+
+  const handleVerifyOTP = () => {
+    handleFirebaseLogin();
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setIsAuthenticated(false);
+      setAuthMode("LOGIN");
+      setAuthOtpInput("");
+      setAuthOtpSent("");
+      setJwtToken("");
+      showToast("Session security terminated.");
+    } catch (err) {
+      showToast("Error processing sign-out.");
+    }
   };
 
   // 2. Medication Reminder System Action Handlers
@@ -2167,6 +2430,22 @@ export default function App() {
     return total + (med ? med.price * Number(qty) : 0);
   }, 0);
 
+  if (authLoading) {
+    return (
+      <div className={`min-h-screen w-full flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans transition-colors duration-300 ${isAppDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-[#f8fafc] text-slate-900'}`}>
+        <div className={`absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl transition-opacity duration-300 ${isAppDarkMode ? 'bg-blue-900/20' : 'bg-blue-100/40'}`}></div>
+        <div className={`absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl transition-opacity duration-300 ${isAppDarkMode ? 'bg-cyan-900/20' : 'bg-cyan-100/40'}`}></div>
+        <div className="text-center space-y-4 relative z-10">
+          <div className="relative mx-auto w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25 animate-pulse">
+            <HeartPulse className="w-9 h-9 text-white animate-spin" style={{ animationDuration: '3s' }} />
+          </div>
+          <h2 className={`text-xl font-black tracking-tight ${isAppDarkMode ? 'text-gradient bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-400' : 'text-blue-950'}`}>CITY HEALER</h2>
+          <p className="text-xs font-semibold text-slate-400 animate-pulse">Establishing Secure Clinical Connection...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <div className={`min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden font-sans transition-colors duration-300 ${isAppDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-[#f8fafc] text-slate-900'}`}>
@@ -2244,7 +2523,8 @@ export default function App() {
                   <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Authorization Passcode</label>
                   <input 
                     type="password" 
-                    defaultValue="••••••••"
+                    value={authPasscode}
+                    onChange={(e) => setAuthPasscode(e.target.value)}
                     className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
                       isAppDarkMode 
                         ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900" 
@@ -2264,10 +2544,10 @@ export default function App() {
               </div>
 
               <button 
-                onClick={triggerSendOTP}
+                onClick={() => handleFirebaseLogin(authPasscode)}
                 className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-xs py-3.5 rounded-xl shadow-lg shadow-cyan-500/15 cursor-pointer transition-all active:scale-[0.98]"
               >
-                Request OTP Dispatch
+                Authenticate Session
               </button>
 
               <div className="relative flex py-1 items-center">
@@ -2293,22 +2573,7 @@ export default function App() {
 
               <button 
                 type="button"
-                onClick={() => {
-                  setIsAuthenticated(true);
-                  setActiveRole(authRoleSelection);
-                  const fakeJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." + btoa(JSON.stringify({ name: authName, email: authEmail, role: authRoleSelection })) + ".signature";
-                  setJwtToken(fakeJwtToken);
-                  
-                  if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
-                    setActiveTab("admin");
-                  } else if (authRoleSelection === "DOCTOR") {
-                    setActiveTab("consultation");
-                  } else {
-                    setActiveTab("overview");
-                  }
-                  
-                  showToast(`⚡ Rapid Authorized via Google OAuth! Welcome back, ${authName}. Role: ${authRoleSelection}`);
-                }}
+                onClick={handleGoogleLogin}
                 className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all"
               >
                 <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -3145,10 +3410,10 @@ export default function App() {
                         <select
                           value={dashboardSelectedCity}
                           onChange={(e) => setDashboardSelectedCity(e.target.value)}
-                          className="w-full bg-white border border-slate-200 text-xs font-bold rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-emerald-400 appearance-none cursor-pointer shadow-sm"
+                          className="w-full bg-white border border-slate-200 text-xs font-bold rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-emerald-400 appearance-none cursor-pointer shadow-sm text-slate-900"
                         >
                           {Object.keys(CITIES_DATA).map((city) => (
-                            <option key={city} value={city}>
+                            <option key={city} value={city} className="text-slate-900 bg-white">
                               {city}
                             </option>
                           ))}
@@ -3363,17 +3628,73 @@ export default function App() {
 
                 <div className="grid gap-6 md:grid-cols-3">
                   <form onSubmit={handleCheckSymptoms} className="md:col-span-2 bg-white card border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-black text-slate-700 uppercase tracking-wider">reported physical symptoms</label>
-                      <textarea
-                        id="ai-symptoms-input"
-                        rows={4}
-                        placeholder="Describe exact physical condition (e.g. Sharp pain in central chest moving down the left arm, shallow breathing indices, heavy coughing, high fever or fatigue...)"
-                        value={aiSymptoms}
-                        onChange={(e) => setAiSymptoms(e.target.value)}
-                        className="w-full border border-slate-200 rounded-2xl p-4 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        required
-                      />
+                    <div className="space-y-1.5 relative">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-black text-slate-700 uppercase tracking-wider">reported physical symptoms</label>
+                        
+                        {/* Voice Control Indicator */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={toggleListening}
+                            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all shadow-xs shrink-0 cursor-pointer ${
+                              isListening 
+                                ? "bg-red-500 text-white animate-pulse" 
+                                : "bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-950 dark:text-cyan-400"
+                            }`}
+                          >
+                            {isListening ? (
+                              <>
+                                <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping" />
+                                Listening (Speak now...)
+                              </>
+                            ) : (
+                              <>
+                                <Mic className="h-3 w-3" />
+                                Speak Hands-Free
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="relative">
+                        <textarea
+                          id="ai-symptoms-input"
+                          rows={4}
+                          placeholder={
+                            isListening 
+                              ? "Listening... Speak hands-free. Say 'clear symptoms' to reset, say 'run diagnosis' to submit." 
+                              : "Describe exact physical condition (e.g. Sharp pain in central chest moving down the left arm, shallow breathing indices, heavy coughing, high fever or fatigue...)"
+                          }
+                          value={aiSymptoms}
+                          onChange={(e) => setAiSymptoms(e.target.value)}
+                          className={`w-full border rounded-2xl p-4 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all ${
+                            isListening ? "border-red-400 ring-2 ring-red-100 bg-red-50/5 text-slate-900" : "border-slate-200 text-slate-900"
+                          }`}
+                          required
+                        />
+                        
+                        {isListening && (
+                          <div className="absolute right-3 bottom-3 flex items-center gap-1 py-1 px-2 rounded-lg bg-black/5 dark:bg-white/5 font-mono text-[9px] text-slate-500 dark:text-slate-400 select-none">
+                            <span className="w-1 h-3 bg-red-500 animate-[bounce_0.8s_infinite_100ms] rounded-full"></span>
+                            <span className="w-1 h-4 bg-red-500 animate-[bounce_0.8s_infinite_200ms] rounded-full"></span>
+                            <span className="w-1 h-2 bg-red-500 animate-[bounce_0.8s_infinite_300ms] rounded-full"></span>
+                            <span className="w-1 h-3 bg-red-500 animate-[bounce_0.8s_infinite_400ms] rounded-full"></span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Voice action helpers strip */}
+                      <div className="bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-3 rounded-2xl text-[11px] flex flex-wrap justify-between items-center gap-2">
+                        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                          <Mic className="h-3.5 w-3.5 text-purple-500 shrink-0" />
+                          <span>Voice Commands: say <strong>"clear"</strong> to reset, say <strong>"submit"</strong> or <strong>"diagnose"</strong> to analyze.</span>
+                        </div>
+                        <div className="text-[10px] bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 font-mono font-bold px-2 py-0.5 rounded-md">
+                          Lang: {appLanguage === "hi" ? "Hindi (hi-IN)" : "English (en-US)"}
+                        </div>
+                      </div>
                     </div>
 
                     <div className="space-y-1.5">
@@ -3393,6 +3714,7 @@ export default function App() {
                         *AI assessment is strictly for triage guidance. In life-threatening scenarios, trigger individual SOS immediately.
                       </p>
                       <button
+                        id="ai-triage-submit-btn"
                         type="submit"
                         disabled={aiTesting}
                         className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl shadow active:scale-95 transition-all text-center flex items-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
