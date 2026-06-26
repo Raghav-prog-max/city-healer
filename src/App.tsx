@@ -65,6 +65,7 @@ import {
   Linkedin,
   MessageCircle,
   Sun,
+  Moon,
   Bot,
   IdCard,
   QrCode,
@@ -1100,6 +1101,8 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState("");
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const lastConsultingApptIdRef = useRef<string | null>(null);
 
   // AI Symptom Checker Input & Results
   const [aiSymptoms, setAiSymptoms] = useState("");
@@ -1627,10 +1630,31 @@ export default function App() {
 
   // Scroll chat window to base inside simulation panel
   useEffect(() => {
-    if (chatBottomRef.current) {
-      chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
+    if (!consultingAppt) {
+      lastConsultingApptIdRef.current = null;
+      return;
     }
-  }, [chatMessages]);
+
+    const hasApptChanged = lastConsultingApptIdRef.current !== consultingAppt.id;
+    lastConsultingApptIdRef.current = consultingAppt.id;
+
+    if (chatBottomRef.current) {
+      if (hasApptChanged) {
+        // Always scroll to bottom when switching/opening consultation chat
+        chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
+      } else if (chatContainerRef.current) {
+        const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+        // Check if user is scrolled up (with a margin of error of 80px)
+        const isAtBottom = scrollHeight - scrollTop - clientHeight < 80;
+        if (isAtBottom) {
+          chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+      } else {
+        // Fallback
+        chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
+      }
+    }
+  }, [chatMessages, consultingAppt]);
 
   // Action methods
   const handleSOSSubmit = async (e: React.FormEvent) => {
@@ -3070,7 +3094,7 @@ export default function App() {
         <PageTransition activeTab={activeTab} onChangeTab={(tab) => {
           setActiveTab(tab);
         }} />
-        <LandingPage onNavigate={setActiveTab} hospitals={hospitals} />
+        <LandingPage onNavigate={setActiveTab} hospitals={hospitals} isAppDarkMode={isAppDarkMode} />
       </div>
     );
   }
@@ -3114,9 +3138,9 @@ export default function App() {
             }}
           >
             <motion.div
-              initial={{ scale: 0.95, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 20 }}
+              initial={{ opacity: 0, y: -30, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1, transition: { type: "spring", damping: 25, stiffness: 350 } }}
+              exit={{ opacity: 0, y: 100, scale: 0.95, transition: { duration: 0.25, ease: "easeIn" } }}
               className="bg-white rounded-[32px] border border-slate-100 shadow-2xl p-6 md:p-8 max-w-2xl w-full text-slate-800 space-y-6 max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
@@ -3533,11 +3557,31 @@ export default function App() {
 
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 p-2 rounded-xl transition-all flex items-center justify-center gap-1.5 font-bold text-xs shrink-0 cursor-pointer"
+              className={`border p-2 rounded-xl transition-all flex items-center justify-center gap-1.5 font-bold text-xs shrink-0 cursor-pointer ${
+                isAppDarkMode 
+                  ? "bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800" 
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"
+              }`}
               title="Profile & Security Settings"
             >
               <Settings className="h-4 w-4" />
               <span className="hidden lg:inline">Profile Settings</span>
+            </button>
+
+            <button
+              onClick={handleToggleDarkMode}
+              className={`p-2 rounded-xl transition-all flex items-center justify-center shrink-0 cursor-pointer border ${
+                isAppDarkMode 
+                  ? "bg-slate-900 hover:bg-slate-800 text-amber-400 border-slate-800" 
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"
+              }`}
+              title={isAppDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {isAppDarkMode ? (
+                <Sun className="h-4 w-4 text-amber-400 animate-pulse" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
             </button>
 
             <button
@@ -3570,7 +3614,7 @@ export default function App() {
               >
                 {/* TAB VIEW 1: MASTER OVERVIEW - PREMIUM ANIMATED LANDING PAGE */}
                 {activeTab === "overview" && (
-                  <LandingPage onNavigate={setActiveTab} hospitals={hospitals} />
+                  <LandingPage onNavigate={setActiveTab} hospitals={hospitals} isAppDarkMode={isAppDarkMode} />
                 )}
 
                 {/* TAB VIEW 1: MASTER OVERVIEW - AUTHENTIC CLASSIC BENTO GRID */}
@@ -4715,7 +4759,7 @@ export default function App() {
                       </div>
 
                       {/* Chat screen feed */}
-                      <div className="flex-1 overflow-y-auto space-y-3 p-3 bg-slate-50 rounded-2xl mb-4 border border-slate-100 shadow-inner">
+                      <div ref={chatContainerRef} className="flex-1 overflow-y-auto space-y-3 p-3 bg-slate-50 rounded-2xl mb-4 border border-slate-100 shadow-inner">
                         <div className="p-3 bg-blue-50 text-blue-800 text-[11px] rounded-xl font-medium max-w-md">
                           <strong>City Healer Assistant:</strong> Consultation Room initialized. Send a detailing prompt below. Doctor answers instantly representing specialized evaluation.
                         </div>
@@ -9208,11 +9252,24 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
             {/* ADD PATIENT / FAMILY MEMBER ONBOARD MODAL */}
-            {isAddPatientOpen && (
-              <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 transition-all">
-                <div className={`rounded-3xl border w-full max-w-md p-6 space-y-5 shadow-2xl relative animate-fade-in transition-all duration-300 ${
-                  isAppDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-200 text-slate-800"
-                }`}>
+            <AnimatePresence>
+              {isAddPatientOpen && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+                  onClick={() => setIsAddPatientOpen(false)}
+                >
+                  <motion.div
+                    initial={{ opacity: 0, y: -30, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1, transition: { type: "spring", damping: 25, stiffness: 350 } }}
+                    exit={{ opacity: 0, y: 100, scale: 0.95, transition: { duration: 0.25, ease: "easeIn" } }}
+                    className={`rounded-3xl border w-full max-w-md p-6 space-y-5 shadow-2xl relative transition-all duration-300 ${
+                      isAppDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-200 text-slate-800"
+                    }`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="text-lg font-black tracking-tight">Onboard New Patient</h3>
@@ -9359,21 +9416,34 @@ export default function App() {
                       </button>
                     </div>
                   </form>
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
             )}
+          </AnimatePresence>
 
             {/* PROFILE & SECURITY SETTINGS MODAL */}
-            {isSettingsOpen && (
-              <div id="profile-settings-overlay" className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 transition-all">
-                <div 
-                  id="profile-settings-container" 
-                  className={`rounded-3xl border w-full max-w-lg p-6 md:p-8 space-y-6 shadow-2xl relative animate-fade-in transition-all duration-300 max-h-[85vh] overflow-y-auto ${
-                    isAppDarkMode 
-                      ? "bg-slate-950 border-slate-800 text-slate-100 shadow-cyan-950/20" 
-                      : "bg-white border-slate-200 text-slate-800 shadow-slate-200/50"
-                  }`}
+            <AnimatePresence>
+              {isSettingsOpen && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  id="profile-settings-overlay"
+                  className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+                  onClick={() => setIsSettingsOpen(false)}
                 >
+                  <motion.div
+                    initial={{ opacity: 0, y: -30, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1, transition: { type: "spring", damping: 25, stiffness: 350 } }}
+                    exit={{ opacity: 0, y: 100, scale: 0.95, transition: { duration: 0.25, ease: "easeIn" } }}
+                    id="profile-settings-container" 
+                    className={`rounded-3xl border w-full max-w-lg p-6 md:p-8 space-y-6 shadow-2xl relative transition-all duration-300 max-h-[85vh] overflow-y-auto ${
+                      isAppDarkMode 
+                        ? "bg-slate-950 border-slate-800 text-slate-100 shadow-cyan-950/20" 
+                        : "bg-white border-slate-200 text-slate-800 shadow-slate-200/50"
+                    }`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                   
                   {/* Close Trigger */}
                   <button 
@@ -10017,14 +10087,30 @@ export default function App() {
                       Close Preferences
                     </button>
                   </div>
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
             )}
+          </AnimatePresence>
 
             {/* HIGH FIDELITY SIMULATED BIOMETRIC SECURE GATEWAY OVERLAY */}
-            {showBiometricVerifyModal && (
-              <div id="biometric-verify-overlay" className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-                <div id="biometric-verify-card" className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 text-center text-white shadow-2xl relative overflow-hidden animate-fade-in space-y-6">
+            <AnimatePresence>
+              {showBiometricVerifyModal && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  id="biometric-verify-overlay"
+                  className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-4"
+                  onClick={() => setShowBiometricVerifyModal(false)}
+                >
+                  <motion.div
+                    initial={{ opacity: 0, y: -30, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1, transition: { type: "spring", damping: 25, stiffness: 350 } }}
+                    exit={{ opacity: 0, y: 100, scale: 0.95, transition: { duration: 0.25, ease: "easeIn" } }}
+                    id="biometric-verify-card"
+                    className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 text-center text-white shadow-2xl relative overflow-hidden space-y-6"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                   
                   {/* Subtle holographic beam decorator */}
                   <div className="absolute inset-x-0 top-0 h-[2.5px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-pulse"></div>
@@ -10127,9 +10213,10 @@ export default function App() {
                       </button>
                     )}
                   </div>
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
             )}
+          </AnimatePresence>
           </div>
         )}
       </main>

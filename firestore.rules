@@ -27,7 +27,7 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Helper to validate User entity
+    // Validation helper for User entity
     function isValidUser(data) {
       return data.uid is string && data.uid.size() <= 128
         && data.name is string && data.name.size() <= 150
@@ -40,12 +40,202 @@ service cloud.firestore {
         && (data.policyNo == null || (data.policyNo is string && data.policyNo.size() <= 100));
     }
 
+    // Validation helper for Hospital entity
+    function isValidHospital(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 200
+        && data.address is string && data.address.size() <= 400
+        && data.totalBeds is number && data.availableBeds is number
+        && data.icuBeds is number && data.icuAvailable is number
+        && data.emergencyOccupancy is number
+        && data.lat is number && data.lng is number
+        && data.phone is string && data.phone.size() <= 50
+        && data.rating is number && data.email is string && data.email.size() <= 150
+        && data.specialties is list && data.categories is list;
+    }
+
+    // Validation helper for Doctor entity
+    function isValidDoctor(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 150
+        && data.specialty is string && data.specialty.size() <= 150
+        && data.rating is number && data.experience is number
+        && data.patientsServed is number && data.online is bool
+        && data.queueCount is number && data.hospitalName is string && data.hospitalName.size() <= 200
+        && data.waitTimeMin is number;
+    }
+
+    // Validation helper for Appointment entity
+    function isValidAppointment(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.patientId is string && data.patientId.size() <= 128
+        && data.patientName is string && data.patientName.size() <= 150
+        && data.doctorId is string && data.doctorId.size() <= 128
+        && data.doctorName is string && data.doctorName.size() <= 150
+        && data.specialty is string && data.specialty.size() <= 150
+        && data.date is string && data.date.size() <= 20
+        && data.time is string && data.time.size() <= 20
+        && data.status is string && (data.status == 'PENDING' || data.status == 'ACCEPTED' || data.status == 'DECLINED' || data.status == 'COMPLETED')
+        && data.type is string && (data.type == 'VIRTUAL' || data.type == 'IN_PERSON');
+    }
+
+    // Validation helper for QueueToken entity
+    function isValidQueueToken(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.tokenNumber is string && data.tokenNumber.size() <= 50
+        && data.patientId is string && data.patientId.size() <= 128
+        && data.patientName is string && data.patientName.size() <= 150
+        && data.doctorId is string && data.doctorId.size() <= 128
+        && data.doctorName is string && data.doctorName.size() <= 150
+        && data.estimatedWaitTimeMin is number
+        && data.status is string && (data.status == 'WAITING' || data.status == 'SERVING' || data.status == 'COMPLETED' || data.status == 'SKIPPED')
+        && data.checkpointTime is string && data.checkpointTime.size() <= 20;
+    }
+
+    // Validation helper for MedicalRecord entity
+    function isValidMedicalRecord(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.patientId is string && data.patientId.size() <= 128
+        && data.date is string && data.date.size() <= 20
+        && data.title is string && data.title.size() <= 200
+        && data.doctorName is string && data.doctorName.size() <= 150
+        && data.diagnoseSummary is string && data.diagnoseSummary.size() <= 2000;
+    }
+
+    // Validation helper for Prescription entity
+    function isValidPrescription(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.appointmentId is string && data.appointmentId.size() <= 128
+        && data.patientId is string && data.patientId.size() <= 128
+        && data.patientName is string && data.patientName.size() <= 150
+        && data.doctorId is string && data.doctorId.size() <= 128
+        && data.doctorName is string && data.doctorName.size() <= 150
+        && data.date is string && data.date.size() <= 20
+        && data.diagnosis is string && data.diagnosis.size() <= 1000
+        && data.medicines is list;
+    }
+
+    // Validation helper for MedicineProduct entity
+    function isValidMedicineProduct(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 200
+        && data.category is string && data.category.size() <= 100
+        && data.price is number && data.stock is number
+        && data.description is string && data.description.size() <= 1000
+        && data.requiresPrescription is bool
+        && data.dosageForm is string && data.dosageForm.size() <= 50;
+    }
+
+    // Validation helper for MedicineOrder entity
+    function isValidMedicineOrder(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.patientId is string && data.patientId.size() <= 128
+        && data.patientName is string && data.patientName.size() <= 150
+        && data.totalAmount is number && data.status is string
+        && data.prescriptionAttached is bool
+        && data.deliveryAddress is string && data.deliveryAddress.size() <= 400;
+    }
+
+    // Validation helper for EmergencyAlert entity
+    function isValidEmergencyAlert(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.patientId is string && data.patientId.size() <= 128
+        && data.patientName is string && data.patientName.size() <= 150
+        && data.patientPhone is string && data.patientPhone.size() <= 50
+        && data.lat is number && data.lng is number
+        && data.address is string && data.address.size() <= 400
+        && data.type is string && data.type.size() <= 100
+        && data.status is string && (data.status == 'REPORTED' || data.status == 'DISPATCHED' || data.status == 'RESOLVED')
+        && data.assignedAmbulanceRef is string && data.assignedAmbulanceRef.size() <= 50
+        && data.hospitalName is string && data.hospitalName.size() <= 200;
+    }
+
+    // Validation helper for ActiveChat entity
+    function isValidActiveChat(data) {
+      return data.appointmentId is string && data.appointmentId.size() <= 128
+        && data.messages is list;
+    }
+
+    // ------------------------------------------------------------
+    // Match Rules for Collections
+    // ------------------------------------------------------------
+
     // Users Collection rules
     match /users/{userId} {
       allow get: if isOwner(userId) && isValidId(userId);
       allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && incoming().createdAt == request.time;
       allow update: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && incoming().updatedAt == request.time && incoming().createdAt == existing().createdAt && incoming().uid == existing().uid && incoming().role == existing().role;
-      allow delete: if false; // profiles are permanent
+      allow delete: if false;
+    }
+
+    // Hospitals Collection rules
+    match /hospitals/{hospitalId} {
+      allow read: if isSignedIn();
+      allow write: if false; // System/Admin API handles onboarding & updates securely via server-side Admin SDK
+    }
+
+    // Doctors Collection rules
+    match /doctors/{doctorId} {
+      allow read: if isSignedIn();
+      allow write: if false; // System/Admin API handles practitioner records securely via server-side Admin SDK
+    }
+
+    // Appointments Collection rules
+    match /appointments/{appointmentId} {
+      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid || resource.data.doctorId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(appointmentId) && isValidAppointment(incoming()) && incoming().patientId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(appointmentId) && isValidAppointment(incoming()) && (existing().patientId == request.auth.uid || existing().doctorId == request.auth.uid)
+        && incoming().patientId == existing().patientId && incoming().doctorId == existing().doctorId;
+      allow delete: if false;
+    }
+
+    // QueueTokens Collection rules
+    match /queue/{tokenId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(tokenId) && isValidQueueToken(incoming()) && incoming().patientId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(tokenId) && isValidQueueToken(incoming()) && (existing().patientId == request.auth.uid || existing().doctorId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    // MedicalRecords Collection rules
+    match /records/{recordId} {
+      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(recordId) && isValidMedicalRecord(incoming()) && incoming().patientId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(recordId) && isValidMedicalRecord(incoming()) && existing().patientId == request.auth.uid && incoming().patientId == existing().patientId;
+      allow delete: if isSignedIn() && (existing().patientId == request.auth.uid);
+    }
+
+    // Prescriptions Collection rules
+    match /prescriptions/{prescriptionId} {
+      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid || resource.data.doctorId == request.auth.uid);
+      allow write: if false; // Only written/edited via clinician server routes
+    }
+
+    // Medicines Collection rules
+    match /medicines/{medicineId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Managed by admin/logistics server operations
+    }
+
+    // Medicine Orders Collection rules
+    match /medicineOrders/{orderId} {
+      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(orderId) && isValidMedicineOrder(incoming()) && incoming().patientId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(orderId) && isValidMedicineOrder(incoming()) && existing().patientId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Emergency Alerts Collection rules
+    match /emergencyAlerts/{alertId} {
+      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(alertId) && isValidEmergencyAlert(incoming()) && incoming().patientId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(alertId) && isValidEmergencyAlert(incoming()) && (existing().patientId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    // ActiveChats Collection rules
+    match /activeChats/{appointmentId} {
+      allow read, write: if isSignedIn(); // Individual room visibility checks made via client consultation mapping
     }
 
     // Health check channel rules

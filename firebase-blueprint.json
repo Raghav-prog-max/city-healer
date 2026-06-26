@@ -18,12 +18,237 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "Most recent update timestamp" }
       },
       "required": ["uid", "name", "email", "role"]
+    },
+    "Hospital": {
+      "title": "Hospital Partner",
+      "description": "Hospital clinical capacity, metadata, and geographic coordinates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique hospital ID" },
+        "name": { "type": "string", "description": "Official hospital name" },
+        "address": { "type": "string", "description": "Complete physical address" },
+        "totalBeds": { "type": "number", "description": "Total available beds" },
+        "availableBeds": { "type": "number", "description": "Current free beds" },
+        "icuBeds": { "type": "number", "description": "Total ICU capacity" },
+        "icuAvailable": { "type": "number", "description": "Current free ICU beds" },
+        "emergencyOccupancy": { "type": "number", "description": "Emergency ward occupancy percentage" },
+        "lat": { "type": "number", "description": "Geographic latitude coordinate" },
+        "lng": { "type": "number", "description": "Geographic longitude coordinate" },
+        "phone": { "type": "string", "description": "Emergency contact number" },
+        "rating": { "type": "number", "description": "Patient satisfaction rating" },
+        "specialties": { "type": "array", "description": "Specialized medical department tags" },
+        "categories": { "type": "array", "description": "Classification tags (e.g. Government, Trauma)" },
+        "hasAmbulanceSupport": { "type": "boolean", "description": "Active ambulance fleet availability status" },
+        "ambulanceSupportCount": { "type": "number", "description": "Count of available ambulances" },
+        "isGovernment": { "type": "boolean", "description": "Is government run facility" },
+        "hasTelemedicine": { "type": "boolean", "description": "Offers video virtual consultations" },
+        "hasOpdBooking": { "type": "boolean", "description": "Allows OPD appointments booking" },
+        "email": { "type": "string", "description": "Hospital contact email address" },
+        "doctorsAvailableCount": { "type": "number", "description": "Active onboarding doctors count" }
+      },
+      "required": ["id", "name", "address"]
+    },
+    "Doctor": {
+      "title": "Medical Specialist",
+      "description": "Onboarded clinical doctor profiles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique doctor ID" },
+        "name": { "type": "string", "description": "Doctor full name with prefix" },
+        "specialty": { "type": "string", "description": "Clinical department/specialty" },
+        "rating": { "type": "number", "description": "Doctor review score" },
+        "experience": { "type": "number", "description": "Years of experience" },
+        "patientsServed": { "type": "number", "description": "Total patients consulted" },
+        "online": { "type": "boolean", "description": "Active online consultation availability" },
+        "queueCount": { "type": "number", "description": "Number of patients currently in queue" },
+        "hospitalName": { "type": "string", "description": "Linked hospital partner name" },
+        "waitTimeMin": { "type": "number", "description": "Estimated patient wait time in minutes" },
+        "imageUrl": { "type": "string", "description": "Profile photo avatar path" }
+      },
+      "required": ["id", "name", "specialty", "hospitalName"]
+    },
+    "Appointment": {
+      "title": "Doctor Appointment",
+      "description": "Clinical and virtual consultation booking metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique appointment ID" },
+        "patientId": { "type": "string", "description": "Registered patient user ID" },
+        "patientName": { "type": "string", "description": "Patient display name" },
+        "doctorId": { "type": "string", "description": "Associated clinical doctor ID" },
+        "doctorName": { "type": "string", "description": "Doctor full name" },
+        "specialty": { "type": "string", "description": "Clinical specialty of the consultation" },
+        "date": { "type": "string", "description": "Scheduled appointment date (YYYY-MM-DD)" },
+        "time": { "type": "string", "description": "Scheduled time block" },
+        "status": { "type": "string", "enum": ["PENDING", "ACCEPTED", "DECLINED", "COMPLETED"], "description": "Booking workflow state" },
+        "symptoms": { "type": "string", "description": "Symptom descriptions entered by patient" },
+        "type": { "type": "string", "enum": ["VIRTUAL", "IN_PERSON"], "description": "Consultation format" }
+      },
+      "required": ["id", "patientId", "doctorId", "date", "status"]
+    },
+    "QueueToken": {
+      "title": "Live OPD Queue Token",
+      "description": "Physical outpatient queue registry tokens",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique token reference ID" },
+        "tokenNumber": { "type": "string", "description": "Shorthand prefix code token" },
+        "patientId": { "type": "string", "description": "Registered patient ID" },
+        "patientName": { "type": "string", "description": "Patient full name" },
+        "doctorId": { "type": "string", "description": "Assigned doctor ID" },
+        "doctorName": { "type": "string", "description": "Doctor full name" },
+        "estimatedWaitTimeMin": { "type": "number", "description": "Live updated wait time remaining" },
+        "status": { "type": "string", "enum": ["WAITING", "SERVING", "COMPLETED", "SKIPPED"], "description": "Live queue status" },
+        "checkpointTime": { "type": "string", "description": "Token generation timestamp string" }
+      },
+      "required": ["id", "tokenNumber", "doctorId", "status"]
+    },
+    "MedicalRecord": {
+      "title": "Digital Medical Record",
+      "description": "Diagnostic reports, scan summaries, and health history logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique record ID" },
+        "patientId": { "type": "string", "description": "Linked patient ID" },
+        "date": { "type": "string", "description": "Examination or upload date" },
+        "title": { "type": "string", "description": "Report title/description" },
+        "doctorName": { "type": "string", "description": "Issuing practitioner name" },
+        "diagnoseSummary": { "type": "string", "description": "Brief clinical findings summaries" },
+        "attachmentName": { "type": "string", "description": "Filename of PDF/imaging attachment" }
+      },
+      "required": ["id", "patientId", "title", "date"]
+    },
+    "Prescription": {
+      "title": "Medical Prescription",
+      "description": "Official prescription lists authorized by doctors",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique prescription reference ID" },
+        "appointmentId": { "type": "string", "description": "Linked booking consultation ID" },
+        "patientId": { "type": "string", "description": "Patient user ID" },
+        "patientName": { "type": "string", "description": "Patient full name" },
+        "doctorId": { "type": "string", "description": "Doctor user ID" },
+        "doctorName": { "type": "string", "description": "Doctor full name" },
+        "date": { "type": "string", "description": "Issuing date" },
+        "diagnosis": { "type": "string", "description": "Clinical diagnosis text" },
+        "medicines": { "type": "array", "description": "Assigned medication list with dosages and frequencies" },
+        "instructions": { "type": "string", "description": "General care advice & smog precautions" }
+      },
+      "required": ["id", "patientId", "doctorId", "date", "medicines"]
+    },
+    "MedicineProduct": {
+      "title": "Pharmacy Medicine Item",
+      "description": "Stock inventory item in our nationwide medicine network",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique medication ID" },
+        "name": { "type": "string", "description": "Commercial drug brand name" },
+        "category": { "type": "string", "description": "Drug categorization (e.g. PAINKILLER, ANTIBIOTIC)" },
+        "price": { "type": "number", "description": "Cost in INR per strip/bottle" },
+        "stock": { "type": "number", "description": "Current quantity in inventory" },
+        "description": { "type": "string", "description": "Drug indications and side effect briefs" },
+        "requiresPrescription": { "type": "boolean", "description": "Requires certified doctor prescription upload" },
+        "dosageForm": { "type": "string", "description": "Physical drug type (e.g. Tablet, Syrup)" },
+        "imageUrl": { "type": "string", "description": "Inventory product picture path" },
+        "pillsColor": { "type": "string", "description": "Distinctive pill color" },
+        "pillsShape": { "type": "string", "description": "Distinctive pill shape" },
+        "pillsMarkings": { "type": "string", "description": "Visual markings on pills surface" }
+      },
+      "required": ["id", "name", "category", "price", "stock"]
+    },
+    "MedicineOrder": {
+      "title": "Pharmacy Medicine Order",
+      "description": "Patient pharmacy purchase orders",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique order ID" },
+        "patientId": { "type": "string", "description": "Patient ID" },
+        "patientName": { "type": "string", "description": "Patient name" },
+        "items": { "type": "array", "description": "List of purchase order items" },
+        "totalAmount": { "type": "number", "description": "Total order value in INR" },
+        "status": { "type": "string", "enum": ["PENDING", "PROCESSING", "DISPATCHED", "COMPLETED", "CANCELLED"], "description": "Order dispatch flow state" },
+        "prescriptionAttached": { "type": "boolean", "description": "Has prescription attachment uploaded" },
+        "prescriptionName": { "type": "string", "description": "Filename of verified attached prescription" },
+        "deliveryAddress": { "type": "string", "description": "Complete shipping address" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Order timestamp" }
+      },
+      "required": ["id", "patientId", "items", "totalAmount", "status"]
+    },
+    "EmergencyAlert": {
+      "title": "SOS Emergency Distress Alarm",
+      "description": "Distress alarms dispatched to ambulance fleets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique distress reference code" },
+        "patientId": { "type": "string", "description": "Associated user ID if signed in" },
+        "patientName": { "type": "string", "description": "Distress announcer display name" },
+        "patientPhone": { "type": "string", "description": "Immediate callback contact phone" },
+        "lat": { "type": "number", "description": "Live GPS latitude trigger" },
+        "lng": { "type": "number", "description": "Live GPS longitude trigger" },
+        "address": { "type": "string", "description": "Inferred reverse-geocoded local address" },
+        "type": { "type": "string", "description": "Nature of distress (e.g. CARDIO, RESPIRATORY)" },
+        "status": { "type": "string", "enum": ["REPORTED", "DISPATCHED", "RESOLVED"], "description": "Ambulance workflow state" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "SOS trigger timestamp" },
+        "assignedAmbulanceRef": { "type": "string", "description": "Assigned emergency fleet ambulance code" },
+        "hospitalName": { "type": "string", "description": "Responding medical care center name" }
+      },
+      "required": ["id", "patientPhone", "lat", "lng", "status"]
+    },
+    "ActiveChat": {
+      "title": "Consultation Chat Session",
+      "description": "Chat log documents between patients and practitioners",
+      "type": "object",
+      "properties": {
+        "appointmentId": { "type": "string", "description": "Linked consultation ID" },
+        "messages": { "type": "array", "description": "Sequential array of medical chat messages" }
+      },
+      "required": ["appointmentId", "messages"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
       "description": "Storage collection mapping registered users and roles"
+    },
+    "/hospitals/{hospitalId}": {
+      "schema": "Hospital",
+      "description": "Registry of partnered clinical care facilities and live metrics"
+    },
+    "/doctors/{doctorId}": {
+      "schema": "Doctor",
+      "description": "Registry of medical practitioners across all departments"
+    },
+    "/appointments/{appointmentId}": {
+      "schema": "Appointment",
+      "description": "Live virtual & clinical OPD bookings registry"
+    },
+    "/queue/{tokenId}": {
+      "schema": "QueueToken",
+      "description": "Outpatient clinical queue registries for local clinics"
+    },
+    "/records/{recordId}": {
+      "schema": "MedicalRecord",
+      "description": "Uploaded clinical diagnostic and wellness record histories"
+    },
+    "/prescriptions/{prescriptionId}": {
+      "schema": "Prescription",
+      "description": "Registry of authorized drug scripts mapped by consulting doctors"
+    },
+    "/medicines/{medicineId}": {
+      "schema": "MedicineProduct",
+      "description": "Pharmacy drug catalog and live inventory system"
+    },
+    "/medicineOrders/{orderId}": {
+      "schema": "MedicineOrder",
+      "description": "Nationwide drug home delivery and tracking purchase logs"
+    },
+    "/emergencyAlerts/{alertId}": {
+      "schema": "EmergencyAlert",
+      "description": "Live regional distress signal records and response logs"
+    },
+    "/activeChats/{appointmentId}": {
+      "schema": "ActiveChat",
+      "description": "Live virtual consultation messaging transcripts"
     }
   }
 }

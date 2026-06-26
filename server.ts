@@ -5,6 +5,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import dns from "dns";
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
 
 // Fix node localhost resolution issues
 dns.setDefaultResultOrder("ipv4first");
@@ -16,12 +17,28 @@ const PORT = 3000;
 
 app.use(express.json());
 
+import fs from "fs";
+
 // Initialize Firebase Admin SDK
+let db: admin.firestore.Firestore;
 try {
-  admin.initializeApp({
+  const appInstance = admin.initializeApp({
     projectId: "dev-function-g8gvj"
   });
   console.log("[Firebase Admin] Initialized successfully for secure session verification.");
+  
+  // Read target databaseId from firebase-applet-config.json
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  let databaseId = "(default)";
+  if (fs.existsSync(configPath)) {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    if (config.firestoreDatabaseId) {
+      databaseId = config.firestoreDatabaseId;
+    }
+  }
+  
+  db = getFirestore(appInstance, databaseId);
+  console.log(`[Firebase Admin Firestore] Connected to database: ${databaseId}`);
 } catch (error) {
   console.error("[Firebase Admin Error] Failed to initialize:", error);
 }
@@ -2944,6 +2961,80 @@ let medicineOrders: any[] = [];
 let emergencyAlerts: any[] = [];
 let activeChats: { [appId: string]: any[] } = {};
 
+// Idempotent Seeding Helper to transition from in-memory arrays to persistent Firestore
+async function seedFirestoreIfNeeded() {
+  if (!db) {
+    console.warn("[Firebase Admin Seeding Warning] Firestore DB not initialized, skipping seeding.");
+    return;
+  }
+  console.log("[Firebase Admin Seeding] Checking database seeding status...");
+  try {
+    const hospitalsSnap = await db.collection("hospitals").limit(1).get();
+    if (hospitalsSnap.empty) {
+      console.log("[Firebase Admin Seeding] Hospitals collection is empty, seeding...");
+      let batch = db.batch();
+      let count = 0;
+      for (const h of hospitals) {
+        const docRef = db.collection("hospitals").doc(h.id);
+        batch.set(docRef, h);
+        count++;
+        if (count % 40 === 0) {
+          await batch.commit();
+          batch = db.batch();
+        }
+      }
+      if (count % 40 !== 0) {
+        await batch.commit();
+      }
+      console.log("[Firebase Admin Seeding] Successfully seeded", hospitals.length, "hospitals.");
+    }
+
+    const doctorsSnap = await db.collection("doctors").limit(1).get();
+    if (doctorsSnap.empty) {
+      console.log("[Firebase Admin Seeding] Doctors collection is empty, seeding...");
+      let batch = db.batch();
+      let count = 0;
+      for (const d of doctors) {
+        const docRef = db.collection("doctors").doc(d.id);
+        batch.set(docRef, d);
+        count++;
+        if (count % 40 === 0) {
+          await batch.commit();
+          batch = db.batch();
+        }
+      }
+      if (count % 40 !== 0) {
+        await batch.commit();
+      }
+      console.log("[Firebase Admin Seeding] Successfully seeded", doctors.length, "doctors.");
+    }
+
+    const medicinesSnap = await db.collection("medicines").limit(1).get();
+    if (medicinesSnap.empty) {
+      console.log("[Firebase Admin Seeding] Medicines collection is empty, seeding...");
+      let batch = db.batch();
+      let count = 0;
+      for (const m of medicineProducts) {
+        const docRef = db.collection("medicines").doc(m.id);
+        batch.set(docRef, m);
+        count++;
+        if (count % 40 === 0) {
+          await batch.commit();
+          batch = db.batch();
+        }
+      }
+      if (count % 40 !== 0) {
+        await batch.commit();
+      }
+      console.log("[Firebase Admin Seeding] Successfully seeded", medicineProducts.length, "medicines.");
+    }
+    console.log("[Firebase Admin Seeding] Database verification checks completed successfully.");
+  } catch (error) {
+    console.error("[Firebase Admin Seeding Error] Seeding operation failed:", error);
+  }
+}
+seedFirestoreIfNeeded();
+
 // ----------------------------------------------------------------
 // API Route Implementation
 // ----------------------------------------------------------------
@@ -2954,28 +3045,51 @@ app.get("/api/health", (req, res) => {
 });
 
 // GET hospital bed metrics
-app.get("/api/hospitals", (req, res) => {
-  res.json(hospitals);
+app.get("/api/hospitals", async (req, res) => {
+  try {
+    const snap = await db.collection("hospitals").get();
+    const list = snap.docs.map(doc => doc.data());
+    res.json(list.length > 0 ? list : hospitals);
+  } catch (err: any) {
+    console.warn("[City Healer API Warning] Firestore hospitals fetch failed, falling back:", err.message);
+    res.json(hospitals);
+  }
 });
 
 // Update hospital bed metrics (Administrative simulation)
-app.put("/api/hospitals/:id/beds", (req, res) => {
+app.put("/api/hospitals/:id/beds", async (req, res) => {
   const { id } = req.params;
   const { availableBeds, icuAvailable, emergencyOccupancy } = req.body;
 
-  const hosp = hospitals.find((h) => h.id === id);
-  if (hosp) {
-    if (typeof availableBeds === "number") hosp.availableBeds = Math.max(0, Math.min(hosp.totalBeds, availableBeds));
-    if (typeof icuAvailable === "number") hosp.icuAvailable = Math.max(0, Math.min(hosp.icuBeds, icuAvailable));
-    if (typeof emergencyOccupancy === "number") hosp.emergencyOccupancy = Math.max(0, Math.min(100, emergencyOccupancy));
-    res.json({ success: true, hospital: hosp });
-  } else {
-    res.status(404).json({ error: "Hospital not found" });
+  try {
+    const docRef = db.collection("hospitals").doc(id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return res.status(404).json({ error: "Hospital not found" });
+    }
+    const hosp = docSnap.data()!;
+    const updates: any = {};
+    if (typeof availableBeds === "number") updates.availableBeds = Math.max(0, Math.min(hosp.totalBeds, availableBeds));
+    if (typeof icuAvailable === "number") updates.icuAvailable = Math.max(0, Math.min(hosp.icuBeds, icuAvailable));
+    if (typeof emergencyOccupancy === "number") updates.emergencyOccupancy = Math.max(0, Math.min(100, emergencyOccupancy));
+    
+    await docRef.update(updates);
+    
+    // sync in-memory local variable for queries
+    const localHosp = hospitals.find((h) => h.id === id);
+    if (localHosp) {
+      Object.assign(localHosp, updates);
+    }
+
+    res.json({ success: true, hospital: { ...hosp, ...updates } });
+  } catch (err: any) {
+    console.error("[City Healer API Error] Bed update failed:", err);
+    res.status(500).json({ error: "Bed update failed", message: err.message });
   }
 });
 
 // Register a new hospital dynamically (Onboarding Hub)
-app.post("/api/hospitals", (req, res) => {
+app.post("/api/hospitals", async (req, res) => {
   const {
     name, address, totalBeds, icuBeds, phone, lat, lng, email,
     specialties, categories, hasAmbulanceSupport, ambulanceSupportCount,
@@ -2986,38 +3100,45 @@ app.post("/api/hospitals", (req, res) => {
     return res.status(400).json({ error: "Hospital name and address are required" });
   }
 
-  const generatedId = "hosp-" + (hospitals.length + 1) + "-" + Math.floor(100 + Math.random() * 900);
+  try {
+    const generatedId = "hosp-" + Date.now() + "-" + Math.floor(100 + Math.random() * 900);
 
-  const newHosp = {
-    id: generatedId,
-    name,
-    address,
-    totalBeds: Number(totalBeds) || 120,
-    availableBeds: Number(totalBeds) || 120,
-    icuBeds: Number(icuBeds) || 15,
-    icuAvailable: Number(icuBeds) || 15,
-    emergencyOccupancy: 15, // start clear
-    lat: Number(lat) || (28.5 + Math.random() * 0.2), // reasonable NCR range
-    lng: Number(lng) || (77.1 + Math.random() * 0.3), // reasonable NCR range
-    phone: phone || "+91 (11) 5555-5555",
-    rating: 4.5,
-    specialties: Array.isArray(specialties) && specialties.length > 0 ? specialties : ["General Medicine", "Emergency Care"],
-    categories: Array.isArray(categories) && categories.length > 0 ? categories : ["Private hospitals", "Multi-speciality hospitals"],
-    hasAmbulanceSupport: hasAmbulanceSupport === undefined ? true : !!hasAmbulanceSupport,
-    ambulanceSupportCount: Number(ambulanceSupportCount) || 3,
-    isGovernment: !!isGovernment,
-    hasTelemedicine: hasTelemedicine === undefined ? true : !!hasTelemedicine,
-    hasOpdBooking: hasOpdBooking === undefined ? true : !!hasOpdBooking,
-    email: email || `contact@${name.toLowerCase().replace(/[^a-z0-9]/g, "") || "hospital"}.com`,
-    doctorsAvailableCount: 5
-  };
+    const newHosp = {
+      id: generatedId,
+      name,
+      address,
+      totalBeds: Number(totalBeds) || 120,
+      availableBeds: Number(totalBeds) || 120,
+      icuBeds: Number(icuBeds) || 15,
+      icuAvailable: Number(icuBeds) || 15,
+      emergencyOccupancy: 15, // start clear
+      lat: Number(lat) || (28.5 + Math.random() * 0.2), // reasonable NCR range
+      lng: Number(lng) || (77.1 + Math.random() * 0.3), // reasonable NCR range
+      phone: phone || "+91 (11) 5555-5555",
+      rating: 4.5,
+      specialties: Array.isArray(specialties) && specialties.length > 0 ? specialties : ["General Medicine", "Emergency Care"],
+      categories: Array.isArray(categories) && categories.length > 0 ? categories : ["Private hospitals", "Multi-speciality hospitals"],
+      hasAmbulanceSupport: hasAmbulanceSupport === undefined ? true : !!hasAmbulanceSupport,
+      ambulanceSupportCount: Number(ambulanceSupportCount) || 3,
+      isGovernment: !!isGovernment,
+      hasTelemedicine: hasTelemedicine === undefined ? true : !!hasTelemedicine,
+      hasOpdBooking: hasOpdBooking === undefined ? true : !!hasOpdBooking,
+      email: email || `contact@${name.toLowerCase().replace(/[^a-z0-9]/g, "") || "hospital"}.com`,
+      doctorsAvailableCount: 5
+    };
 
-  hospitals.unshift(newHosp);
-  res.json({ success: true, hospital: newHosp });
+    await db.collection("hospitals").doc(generatedId).set(newHosp);
+    hospitals.unshift(newHosp);
+
+    res.json({ success: true, hospital: newHosp });
+  } catch (err: any) {
+    console.error("[City Healer API Error] Hospital onboarding failed:", err);
+    res.status(500).json({ error: "Hospital onboarding failed", message: err.message });
+  }
 });
 
 // Update standard characteristics of a hospital (Management Console)
-app.put("/api/hospitals/:id", (req, res) => {
+app.put("/api/hospitals/:id", async (req, res) => {
   const { id } = req.params;
   const {
     name, address, totalBeds, availableBeds, icuBeds, icuAvailable,
@@ -3025,69 +3146,104 @@ app.put("/api/hospitals/:id", (req, res) => {
     hasAmbulanceSupport, ambulanceSupportCount, hasTelemedicine, hasOpdBooking, isGovernment
   } = req.body;
 
-  const hosp = hospitals.find((h) => h.id === id);
-  if (!hosp) {
-    return res.status(404).json({ error: "Hospital not found" });
-  }
+  try {
+    const docRef = db.collection("hospitals").doc(id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return res.status(404).json({ error: "Hospital not found" });
+    }
+    const hosp = docSnap.data()!;
+    const updates: any = {};
+    if (name !== undefined) updates.name = name;
+    if (address !== undefined) updates.address = address;
+    if (phone !== undefined) updates.phone = phone;
+    if (email !== undefined) updates.email = email;
+    if (totalBeds !== undefined) {
+      updates.totalBeds = Number(totalBeds) || hosp.totalBeds;
+      if ((updates.availableBeds || hosp.availableBeds) > updates.totalBeds) {
+        updates.availableBeds = updates.totalBeds;
+      }
+    }
+    if (availableBeds !== undefined) updates.availableBeds = Math.max(0, Math.min(updates.totalBeds || hosp.totalBeds, Number(availableBeds)));
+    if (icuBeds !== undefined) {
+      updates.icuBeds = Number(icuBeds) || hosp.icuBeds;
+      if ((updates.icuAvailable || hosp.icuAvailable) > updates.icuBeds) {
+        updates.icuAvailable = updates.icuBeds;
+      }
+    }
+    if (icuAvailable !== undefined) updates.icuAvailable = Math.max(0, Math.min(updates.icuBeds || hosp.icuBeds, Number(icuAvailable)));
+    if (emergencyOccupancy !== undefined) updates.emergencyOccupancy = Math.max(0, Math.min(100, Number(emergencyOccupancy)));
+    if (specialties !== undefined) updates.specialties = Array.isArray(specialties) ? specialties : hosp.specialties;
+    if (categories !== undefined) updates.categories = Array.isArray(categories) ? categories : hosp.categories;
+    if (hasAmbulanceSupport !== undefined) updates.hasAmbulanceSupport = !!hasAmbulanceSupport;
+    if (ambulanceSupportCount !== undefined) updates.ambulanceSupportCount = Number(ambulanceSupportCount) || 0;
+    if (hasTelemedicine !== undefined) updates.hasTelemedicine = !!hasTelemedicine;
+    if (hasOpdBooking !== undefined) updates.hasOpdBooking = !!hasOpdBooking;
+    if (isGovernment !== undefined) updates.isGovernment = !!isGovernment;
 
-  if (name !== undefined) hosp.name = name;
-  if (address !== undefined) hosp.address = address;
-  if (phone !== undefined) hosp.phone = phone;
-  if (email !== undefined) hosp.email = email;
-  if (totalBeds !== undefined) {
-    hosp.totalBeds = Number(totalBeds) || hosp.totalBeds;
-    if (hosp.availableBeds > hosp.totalBeds) hosp.availableBeds = hosp.totalBeds;
-  }
-  if (availableBeds !== undefined) hosp.availableBeds = Math.max(0, Math.min(hosp.totalBeds, Number(availableBeds)));
-  if (icuBeds !== undefined) {
-    hosp.icuBeds = Number(icuBeds) || hosp.icuBeds;
-    if (hosp.icuAvailable > hosp.icuBeds) hosp.icuAvailable = hosp.icuBeds;
-  }
-  if (icuAvailable !== undefined) hosp.icuAvailable = Math.max(0, Math.min(hosp.icuBeds, Number(icuAvailable)));
-  if (emergencyOccupancy !== undefined) hosp.emergencyOccupancy = Math.max(0, Math.min(100, Number(emergencyOccupancy)));
-  if (specialties !== undefined) hosp.specialties = Array.isArray(specialties) ? specialties : hosp.specialties;
-  if (categories !== undefined) hosp.categories = Array.isArray(categories) ? categories : hosp.categories;
-  if (hasAmbulanceSupport !== undefined) hosp.hasAmbulanceSupport = !!hasAmbulanceSupport;
-  if (ambulanceSupportCount !== undefined) hosp.ambulanceSupportCount = Number(ambulanceSupportCount) || 0;
-  if (hasTelemedicine !== undefined) hosp.hasTelemedicine = !!hasTelemedicine;
-  if (hasOpdBooking !== undefined) hosp.hasOpdBooking = !!hasOpdBooking;
-  if (isGovernment !== undefined) hosp.isGovernment = !!isGovernment;
+    await docRef.update(updates);
+    
+    // sync in-memory local variable
+    const localHosp = hospitals.find((h) => h.id === id);
+    if (localHosp) {
+      Object.assign(localHosp, updates);
+    }
 
-  res.json({ success: true, hospital: hosp });
+    res.json({ success: true, hospital: { ...hosp, ...updates } });
+  } catch (err: any) {
+    console.error("[City Healer API Error] Hospital update failed:", err);
+    res.status(500).json({ error: "Hospital update failed", message: err.message });
+  }
 });
 
-// Add clinical doctors directly linked from on boarded hospital
-app.post("/api/hospitals/:id/doctors", (req, res) => {
+// Add clinical doctors directly linked from onboarded hospital
+app.post("/api/hospitals/:id/doctors", async (req, res) => {
   const { id } = req.params;
   const { name, specialty, rating, experience, online } = req.body;
-
-  const hosp = hospitals.find((h) => h.id === id);
-  if (!hosp) {
-    return res.status(404).json({ error: "Hospital partner not found" });
-  }
 
   if (!name || !specialty) {
     return res.status(400).json({ error: "Doctor name and specialty are required" });
   }
 
-  const newDoc = {
-    id: "doc-" + Date.now(),
-    name,
-    specialty,
-    rating: Number(rating) || 4.8,
-    experience: Number(experience) || 12,
-    patientsServed: Math.floor(100 + Math.random() * 1200),
-    online: online === undefined ? true : !!online,
-    queueCount: 0,
-    hospitalName: hosp.name,
-    waitTimeMin: 0,
-    imageUrl: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=150&auto=format&fit=crop&q=80"
-  };
+  try {
+    const hospRef = db.collection("hospitals").doc(id);
+    const hospSnap = await hospRef.get();
+    if (!hospSnap.exists) {
+      return res.status(404).json({ error: "Hospital partner not found" });
+    }
+    const hosp = hospSnap.data()!;
+    const docId = "doc-" + Date.now();
 
-  doctors.unshift(newDoc);
-  hosp.doctorsAvailableCount = (hosp.doctorsAvailableCount || 0) + 1;
+    const newDoc = {
+      id: docId,
+      name,
+      specialty,
+      rating: Number(rating) || 4.8,
+      experience: Number(experience) || 12,
+      patientsServed: Math.floor(100 + Math.random() * 1200),
+      online: online === undefined ? true : !!online,
+      queueCount: 0,
+      hospitalName: hosp.name,
+      waitTimeMin: 0,
+      imageUrl: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=150&auto=format&fit=crop&q=80"
+    };
 
-  res.json({ success: true, doctor: newDoc, hospital: hosp });
+    await db.collection("doctors").doc(docId).set(newDoc);
+    const newCount = (hosp.doctorsAvailableCount || 0) + 1;
+    await hospRef.update({ doctorsAvailableCount: newCount });
+
+    // sync in-memory local variables
+    doctors.unshift(newDoc);
+    const localHosp = hospitals.find((h) => h.id === id);
+    if (localHosp) {
+      localHosp.doctorsAvailableCount = newCount;
+    }
+
+    res.json({ success: true, doctor: newDoc, hospital: { ...hosp, doctorsAvailableCount: newCount } });
+  } catch (err: any) {
+    console.error("[City Healer API Error] Doctor registration failed:", err);
+    res.status(500).json({ error: "Doctor registration failed", message: err.message });
+  }
 });
 
 // Shared metric scoring matcher helper
@@ -3153,217 +3309,375 @@ function recommendHospitals(specialistType: string, urgencyLevel: string, userLa
 }
 
 // GET list of active Doctors
-app.get("/api/doctors", (req, res) => {
-  res.json(doctors);
+app.get("/api/doctors", async (req, res) => {
+  try {
+    const snap = await db.collection("doctors").get();
+    const list = snap.docs.map(doc => doc.data());
+    res.json(list.length > 0 ? list : doctors);
+  } catch (err: any) {
+    console.warn("[City Healer API Warning] Firestore doctors fetch failed, falling back:", err.message);
+    res.json(doctors);
+  }
 });
 
 // Toggle doctor availability (Doctor simulation)
-app.put("/api/doctors/:id/online", (req, res) => {
+app.put("/api/doctors/:id/online", async (req, res) => {
   const { id } = req.params;
   const { online } = req.body;
-  const doc = doctors.find((d) => d.id === id);
-  if (doc) {
-    doc.online = !!online;
-    if (!online) doc.queueCount = 0;
-    res.json({ success: true, doctor: doc });
-  } else {
-    res.status(404).json({ error: "Doctor not found" });
+  try {
+    const docRef = db.collection("doctors").doc(id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return res.status(404).json({ error: "Doctor not found" });
+    }
+    const updates: any = { online: !!online };
+    if (!online) updates.queueCount = 0;
+    
+    await docRef.update(updates);
+
+    // sync in-memory local variable
+    const localDoc = doctors.find((d) => d.id === id);
+    if (localDoc) {
+      Object.assign(localDoc, updates);
+    }
+
+    res.json({ success: true, doctor: { ...docSnap.data(), ...updates } });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update doctor availability", message: err.message });
   }
 });
 
 // GET Appointments
-app.get("/api/appointments", (req, res) => {
-  res.json(appointments);
+app.get("/api/appointments", async (req, res) => {
+  try {
+    const snap = await db.collection("appointments").get();
+    const list = snap.docs.map(doc => doc.data());
+    res.json(list);
+  } catch (err: any) {
+    console.warn("[City Healer API Warning] Firestore appointments fetch failed, falling back:", err.message);
+    res.json(appointments);
+  }
 });
 
 // Create new appointment
-app.post("/api/appointments", (req, res) => {
+app.post("/api/appointments", async (req, res) => {
   const { patientId, patientName, doctorId, time, date, symptoms, type } = req.body;
-  const doctor = doctors.find((d) => d.id === doctorId);
+  try {
+    const docRef = db.collection("doctors").doc(doctorId);
+    const docSnap = await docRef.get();
+    const doctor = docSnap.exists ? docSnap.data() : null;
 
-  const newApp = {
-    id: "app-" + Date.now(),
-    patientId: patientId || "patient-default",
-    patientName: patientName || "Raghav",
-    doctorId,
-    doctorName: doctor ? doctor.name : "Unknown Practitioner",
-    specialty: doctor ? doctor.specialty : "General Medicine",
-    date: date || new Date().toISOString().split("T")[0],
-    time: time || "10:00 AM",
-    status: "PENDING",
-    symptoms: symptoms || "",
-    type: type || "VIRTUAL"
-  };
+    const appId = "app-" + Date.now();
+    const newApp = {
+      id: appId,
+      patientId: patientId || "patient-default",
+      patientName: patientName || "Raghav",
+      doctorId,
+      doctorName: doctor ? doctor.name : "Unknown Practitioner",
+      specialty: doctor ? doctor.specialty : "General Medicine",
+      date: date || new Date().toISOString().split("T")[0],
+      time: time || "10:00 AM",
+      status: "PENDING",
+      symptoms: symptoms || "",
+      type: type || "VIRTUAL"
+    };
 
-  appointments.push(newApp);
+    await db.collection("appointments").doc(appId).set(newApp);
+    appointments.push(newApp);
 
-  // Increase doctor's queue counter
-  if (doctor) {
-    doctor.queueCount += 1;
-    doctor.waitTimeMin += doctor.specialty.includes("Cardio") ? 15 : 10;
-  }
-
-  res.json({ success: true, appointment: newApp });
-});
-
-// Update appointment status (Doctor acts on it)
-app.put("/api/appointments/:id/status", (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body; // 'ACCEPTED', 'COMPLETED', 'CANCELLED'
-
-  const appointment = appointments.find((a) => a.id === id);
-  if (appointment) {
-    appointment.status = status;
-
-    // Decrease queue counters if finished or cancelled
-    if (status === "COMPLETED" || status === "CANCELLED") {
-      const doctor = doctors.find((d) => d.id === appointment.doctorId);
-      if (doctor) {
-        doctor.queueCount = Math.max(0, doctor.queueCount - 1);
-        doctor.waitTimeMin = Math.max(0, doctor.waitTimeMin - (doctor.specialty.includes("Cardio") ? 15 : 10));
+    if (doctor) {
+      const updates = {
+        queueCount: (doctor.queueCount || 0) + 1,
+        waitTimeMin: (doctor.waitTimeMin || 0) + (doctor.specialty.includes("Cardio") ? 15 : 10)
+      };
+      await docRef.update(updates);
+      
+      // sync local variable doctor
+      const localDoc = doctors.find((d) => d.id === doctorId);
+      if (localDoc) {
+        Object.assign(localDoc, updates);
       }
     }
 
-    res.json({ success: true, appointment });
-  } else {
-    res.status(404).json({ error: "Appointment not found" });
+    res.json({ success: true, appointment: newApp });
+  } catch (err: any) {
+    console.error("[City Healer API Error] Appointment creation failed:", err);
+    res.status(500).json({ error: "Appointment booking failed", message: err.message });
+  }
+});
+
+// Update appointment status (Doctor acts on it)
+app.put("/api/appointments/:id/status", async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body; // 'ACCEPTED', 'COMPLETED', 'CANCELLED'
+
+  try {
+    const apptRef = db.collection("appointments").doc(id);
+    const apptSnap = await apptRef.get();
+    if (!apptSnap.exists) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
+    const appointment = apptSnap.data()!;
+    await apptRef.update({ status });
+
+    // Decrease queue counters if finished or cancelled
+    if (status === "COMPLETED" || status === "CANCELLED") {
+      const docRef = db.collection("doctors").doc(appointment.doctorId);
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        const doc = docSnap.data()!;
+        const updates = {
+          queueCount: Math.max(0, (doc.queueCount || 0) - 1),
+          waitTimeMin: Math.max(0, (doc.waitTimeMin || 0) - (doc.specialty.includes("Cardio") ? 15 : 10))
+        };
+        await docRef.update(updates);
+        
+        // sync local variables
+        const localDoc = doctors.find((d) => d.id === appointment.doctorId);
+        if (localDoc) {
+          Object.assign(localDoc, updates);
+        }
+      }
+    }
+
+    // sync local variable appointment
+    const localAppt = appointments.find((a) => a.id === id);
+    if (localAppt) {
+      localAppt.status = status;
+    }
+
+    res.json({ success: true, appointment: { ...appointment, status } });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update appointment status", message: err.message });
   }
 });
 
 // Create medical prescription for an appointment
-app.post("/api/appointments/:id/prescription", (req, res) => {
+app.post("/api/appointments/:id/prescription", async (req, res) => {
   const { id } = req.params;
   const { diagnosis, medicines, instructions } = req.body;
 
-  const appt = appointments.find((a) => a.id === id);
-  if (!appt) {
-    return res.status(404).json({ error: "Target appointment not found" });
+  try {
+    const apptRef = db.collection("appointments").doc(id);
+    const apptSnap = await apptRef.get();
+    if (!apptSnap.exists) {
+      return res.status(404).json({ error: "Target appointment not found" });
+    }
+    const appt = apptSnap.data()!;
+    const rxId = "rx-" + Date.now();
+    const newPrescription = {
+      id: rxId,
+      appointmentId: id,
+      patientId: appt.patientId,
+      patientName: appt.patientName,
+      doctorId: appt.doctorId,
+      doctorName: appt.doctorName,
+      date: new Date().toISOString().split("T")[0],
+      diagnosis,
+      medicines,
+      instructions
+    };
+
+    await db.collection("prescriptions").doc(rxId).set(newPrescription);
+    await apptRef.update({ status: "COMPLETED", prescription: newPrescription });
+
+    // Create standard medical record summary
+    const recId = "rec-" + Date.now();
+    const record = {
+      id: recId,
+      patientId: appt.patientId,
+      date: new Date().toISOString().split("T")[0],
+      title: `Consultation on ${appt.specialty}`,
+      doctorName: appt.doctorName,
+      diagnoseSummary: `Diagnosed with: ${diagnosis}. Prescribed medication checklist attached. Instructions: ${instructions}`,
+      attachmentName: `prescription-${rxId}.pdf`
+    };
+    await db.collection("records").doc(recId).set(record);
+
+    // Update doctor's queue counter
+    const docRef = db.collection("doctors").doc(appt.doctorId);
+    const docSnap = await docRef.get();
+    if (docSnap.exists) {
+      const doc = docSnap.data()!;
+      const updates = {
+        queueCount: Math.max(0, (doc.queueCount || 0) - 1),
+        waitTimeMin: Math.max(0, (doc.waitTimeMin || 0) - 10)
+      };
+      await docRef.update(updates);
+      
+      // sync local doctor variable
+      const localDoc = doctors.find((d) => d.id === appt.doctorId);
+      if (localDoc) {
+        Object.assign(localDoc, updates);
+      }
+    }
+
+    // sync local variable lists
+    prescriptions.push(newPrescription);
+    medicalRecords.push(record);
+    const localAppt = appointments.find((a) => a.id === id);
+    if (localAppt) {
+      localAppt.status = "COMPLETED";
+      localAppt.prescription = newPrescription;
+    }
+
+    res.json({ success: true, prescription: newPrescription });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to create prescription", message: err.message });
   }
-
-  const newPrescription = {
-    id: "rx-" + Date.now(),
-    appointmentId: id,
-    patientId: appt.patientId,
-    patientName: appt.patientName,
-    doctorId: appt.doctorId,
-    doctorName: appt.doctorName,
-    date: new Date().toISOString().split("T")[0],
-    diagnosis,
-    medicines,
-    instructions
-  };
-
-  prescriptions.push(newPrescription);
-  appt.prescription = newPrescription;
-  appt.status = "COMPLETED";
-
-  // Create standard medical record summary
-  const record = {
-    id: "rec-" + Date.now(),
-    patientId: appt.patientId,
-    date: new Date().toISOString().split("T")[0],
-    title: `Consultation on ${appt.specialty}`,
-    doctorName: appt.doctorName,
-    diagnoseSummary: `Diagnosed with: ${diagnosis}. Prescribed medication checklist attached. Instructions: ${instructions}`,
-    attachmentName: `prescription-${newPrescription.id}.pdf`
-  };
-  medicalRecords.push(record);
-
-  // Update doctor's queue counter
-  const dc = doctors.find((d) => d.id === appt.doctorId);
-  if (dc) {
-    dc.queueCount = Math.max(0, dc.queueCount - 1);
-    dc.waitTimeMin = Math.max(0, dc.waitTimeMin - 10);
-  }
-
-  res.json({ success: true, prescription: newPrescription });
 });
 
 // GET Medical Records
-app.get("/api/records", (req, res) => {
-  res.json(medicalRecords);
+app.get("/api/records", async (req, res) => {
+  try {
+    const snap = await db.collection("records").get();
+    const list = snap.docs.map(doc => doc.data());
+    res.json(list);
+  } catch (err: any) {
+    console.warn("[City Healer API Warning] Firestore records fetch failed, falling back:", err.message);
+    res.json(medicalRecords);
+  }
 });
 
 // Create diagnostic file upload simulation
-app.post("/api/records", (req, res) => {
+app.post("/api/records", async (req, res) => {
   const { title, diagnoseSummary, doctorName, attachmentName } = req.body;
-  const newRec = {
-    id: "rec-" + Date.now(),
-    patientId: "patient-default",
-    date: new Date().toISOString().split("T")[0],
-    title: title || "Uploaded Health Record",
-    doctorName: doctorName || "Self-Uploaded",
-    diagnoseSummary: diagnoseSummary || "Uploaded file description",
-    attachmentName: attachmentName || "medical_scans.jpg"
-  };
-  medicalRecords.push(newRec);
-  res.json({ success: true, record: newRec });
+  try {
+    const recId = "rec-" + Date.now();
+    const newRec = {
+      id: recId,
+      patientId: "patient-default",
+      date: new Date().toISOString().split("T")[0],
+      title: title || "Uploaded Health Record",
+      doctorName: doctorName || "Self-Uploaded",
+      diagnoseSummary: diagnoseSummary || "Uploaded file description",
+      attachmentName: attachmentName || "medical_scans.jpg"
+    };
+    await db.collection("records").doc(recId).set(newRec);
+    medicalRecords.push(newRec);
+    res.json({ success: true, record: newRec });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to upload health record", message: err.message });
+  }
 });
 
 // GET queues
-app.get("/api/queue", (req, res) => {
-  res.json(queueTokens);
+app.get("/api/queue", async (req, res) => {
+  try {
+    const snap = await db.collection("queue").get();
+    const list = snap.docs.map(doc => doc.data());
+    res.json(list);
+  } catch (err: any) {
+    console.warn("[City Healer API Warning] Firestore queue fetch failed, falling back:", err.message);
+    res.json(queueTokens);
+  }
 });
 
 // patient requests live OPD token
-app.post("/api/queue/take", (req, res) => {
+app.post("/api/queue/take", async (req, res) => {
   const { doctorId, patientName } = req.body;
-  const doc = doctors.find((d) => d.id === doctorId);
+  try {
+    const docRef = db.collection("doctors").doc(doctorId);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return res.status(404).json({ error: "Doctor not found" });
+    }
+    const doc = docSnap.data()!;
+    const prefix = doc.specialty.includes("Cardio") ? "CD" : doc.specialty.includes("Pediatric") ? "PD" : doc.specialty.includes("Pulmon") ? "PL" : "GP";
+    const num = Math.floor(Math.random() * 50) + 40;
+    const tokenNum = `${prefix}-${num}`;
+    const tokenId = "qtoken-" + Date.now();
 
-  if (!doc) {
-    return res.status(404).json({ error: "Doctor not found" });
+    const newToken = {
+      id: tokenId,
+      tokenNumber: tokenNum,
+      patientId: "patient-default",
+      patientName: patientName || "Raghav",
+      doctorId: doc.id,
+      doctorName: doc.name,
+      estimatedWaitTimeMin: ((doc.queueCount || 0) + 1) * 12,
+      status: "WAITING",
+      checkpointTime: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    };
+
+    await db.collection("queue").doc(tokenId).set(newToken);
+    queueTokens.push(newToken);
+
+    const updates = {
+      queueCount: (doc.queueCount || 0) + 1,
+      waitTimeMin: (doc.waitTimeMin || 0) + 12
+    };
+    await docRef.update(updates);
+
+    // sync local variable doctor
+    const localDoc = doctors.find((d) => d.id === doctorId);
+    if (localDoc) {
+      Object.assign(localDoc, updates);
+    }
+
+    res.json({ success: true, token: newToken });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to take queue token", message: err.message });
   }
-
-  const prefix = doc.specialty.includes("Cardio") ? "CD" : doc.specialty.includes("Pediatric") ? "PD" : doc.specialty.includes("Pulmon") ? "PL" : "GP";
-  const num = Math.floor(Math.random() * 50) + 40;
-  const tokenNum = `${prefix}-${num}`;
-
-  const newToken = {
-    id: "qtoken-" + Date.now(),
-    tokenNumber: tokenNum,
-    patientId: "patient-default",
-    patientName: patientName || "Raghav",
-    doctorId: doc.id,
-    doctorName: doc.name,
-    estimatedWaitTimeMin: (doc.queueCount + 1) * 12,
-    status: "WAITING",
-    checkpointTime: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-  };
-
-  queueTokens.push(newToken);
-  doc.queueCount += 1;
-  doc.waitTimeMin += 12;
-
-  res.json({ success: true, token: newToken });
 });
 
 // update token status (e.g. Doctor calls them in)
-app.put("/api/queue/:id/status", (req, res) => {
+app.put("/api/queue/:id/status", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body; // 'WAITING', 'IN_CONSULTATION', 'COMPLETED', 'SKIPPED'
 
-  const tok = queueTokens.find((q) => q.id === id);
-  if (tok) {
+  try {
+    const tokRef = db.collection("queue").doc(id);
+    const tokSnap = await tokRef.get();
+    if (!tokSnap.exists) {
+      return res.status(404).json({ error: "Token not found" });
+    }
+    const tok = tokSnap.data()!;
     const oldStatus = tok.status;
-    tok.status = status;
+    await tokRef.update({ status });
 
     // Adjust doctor waiting index when token completes
     if ((status === "COMPLETED" || status === "SKIPPED") && oldStatus !== "COMPLETED" && oldStatus !== "SKIPPED") {
-      const doc = doctors.find((d) => d.id === tok.doctorId);
-      if (doc) {
-        doc.queueCount = Math.max(0, doc.queueCount - 1);
-        doc.waitTimeMin = Math.max(0, doc.waitTimeMin - 12);
+      const docRef = db.collection("doctors").doc(tok.doctorId);
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        const doc = docSnap.data()!;
+        const updates = {
+          queueCount: Math.max(0, (doc.queueCount || 0) - 1),
+          waitTimeMin: Math.max(0, (doc.waitTimeMin || 0) - 12)
+        };
+        await docRef.update(updates);
+        
+        // sync local variable doctor
+        const localDoc = doctors.find((d) => d.id === tok.doctorId);
+        if (localDoc) {
+          Object.assign(localDoc, updates);
+        }
       }
     }
-    res.json({ success: true, token: tok });
-  } else {
-    res.status(404).json({ error: "Token not found" });
+
+    // sync local variable token
+    const localTok = queueTokens.find((q) => q.id === id);
+    if (localTok) {
+      localTok.status = status;
+    }
+
+    res.json({ success: true, token: { ...tok, status } });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update token status", message: err.message });
   }
 });
 
-// GET Medicine catalgoue
-app.get("/api/medicines", (req, res) => {
-  res.json(medicineProducts);
+// GET Medicine catalogue
+app.get("/api/medicines", async (req, res) => {
+  try {
+    const snap = await db.collection("medicines").get();
+    const list = snap.docs.map(doc => doc.data());
+    res.json(list.length > 0 ? list : medicineProducts);
+  } catch (err: any) {
+    console.warn("[City Healer API Warning] Firestore medicines fetch failed, falling back:", err.message);
+    res.json(medicineProducts);
+  }
 });
 
 // Dynamic AI-powered nationwide Indian medicines lookup
@@ -3460,149 +3774,227 @@ Strictly return JSON array, no markdown commentary, no outline preamble.`;
 });
 
 // Save client-ordered medical items
-app.get("/api/medicines/orders", (req, res) => {
-  res.json(medicineOrders);
+app.get("/api/medicines/orders", async (req, res) => {
+  try {
+    const snap = await db.collection("medicineOrders").get();
+    const list = snap.docs.map(doc => doc.data());
+    res.json(list);
+  } catch (err: any) {
+    console.warn("[City Healer API Warning] Firestore medicineOrders fetch failed, falling back:", err.message);
+    res.json(medicineOrders);
+  }
 });
 
-app.post("/api/medicines/order", (req, res) => {
+app.post("/api/medicines/order", async (req, res) => {
   const { items, totalAmount, prescriptionAttached, prescriptionName, deliveryAddress, patientName } = req.body;
+  try {
+    const orderId = "ord-" + Math.floor(1000 + Math.random() * 9000);
+    const newOrder = {
+      id: orderId,
+      patientId: "patient-default",
+      patientName: patientName || "Raghav",
+      items: items || [],
+      totalAmount: totalAmount || 0,
+      status: "PENDING",
+      prescriptionAttached: !!prescriptionAttached,
+      prescriptionName: prescriptionName || null,
+      deliveryAddress: deliveryAddress || "123 Main St, Central Core",
+      createdAt: new Date().toISOString()
+    };
 
-  const newOrder = {
-    id: "ord-" + Math.floor(1000 + Math.random() * 9000),
-    patientId: "patient-default",
-    patientName: patientName || "Raghav",
-    items: items || [],
-    totalAmount: totalAmount || 0,
-    status: "PENDING",
-    prescriptionAttached: !!prescriptionAttached,
-    prescriptionName: prescriptionName || null,
-    deliveryAddress: deliveryAddress || "123 Main St, Central Core",
-    createdAt: new Date().toISOString()
-  };
+    await db.collection("medicineOrders").doc(orderId).set(newOrder);
+    medicineOrders.push(newOrder);
 
-  // Adjust product stock
-  if (items && Array.isArray(items)) {
-    items.forEach((ordItem: any) => {
-      const product = medicineProducts.find((p) => p.id === ordItem.medicineId);
-      if (product) {
-        product.stock = Math.max(0, product.stock - ordItem.quantity);
+    // Adjust product stock in Firestore
+    if (items && Array.isArray(items)) {
+      for (const ordItem of items) {
+        const medRef = db.collection("medicines").doc(ordItem.medicineId);
+        const medSnap = await medRef.get();
+        if (medSnap.exists) {
+          const med = medSnap.data()!;
+          const updates = { stock: Math.max(0, (med.stock || 0) - ordItem.quantity) };
+          await medRef.update(updates);
+          
+          // sync local variable
+          const product = medicineProducts.find((p) => p.id === ordItem.medicineId);
+          if (product) {
+            Object.assign(product, updates);
+          }
+        }
       }
-    });
-  }
+    }
 
-  medicineOrders.push(newOrder);
-  res.json({ success: true, order: newOrder });
+    res.json({ success: true, order: newOrder });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to place order", message: err.message });
+  }
 });
 
 // POST distress signal: SOS Emergency Alert
-app.post("/api/emergency/sos", (req, res) => {
+app.post("/api/emergency/sos", async (req, res) => {
   const { type, patientName, patientPhone, lat, lng, address } = req.body;
+  try {
+    // Fetch latest hospitals from Firestore to locate nearest one
+    const hospSnap = await db.collection("hospitals").get();
+    let dbHospitals = hospSnap.docs.map(doc => doc.data());
+    if (dbHospitals.length === 0) {
+      dbHospitals = hospitals;
+    }
 
-  // Find nearest hospital based on lat/lng or default to Mercer/Central
-  // We can pick nearest from list
-  let nearestHospital = hospitals[0];
-  if (lat && lng) {
+    let nearestHospital = dbHospitals[0];
+    const targetLat = lat || 28.6139;
+    const targetLng = lng || 77.2090;
+
     let minDist = Infinity;
-    hospitals.forEach((h) => {
-      const dist = Math.pow(h.lat - lat, 2) + Math.pow(h.lng - lng, 2);
+    dbHospitals.forEach((h) => {
+      const dist = Math.pow(h.lat - targetLat, 2) + Math.pow(h.lng - targetLng, 2);
       if (dist < minDist) {
         minDist = dist;
         nearestHospital = h;
       }
     });
+
+    const alertId = "sos-" + Date.now();
+    const ambId = "AMB-" + Math.floor(100 + Math.random() * 900);
+
+    const alert = {
+      id: alertId,
+      patientId: "patient-default",
+      patientName: patientName || "Raghav Ram",
+      patientPhone: patientPhone || "+91 98101 23456",
+      lat: targetLat,
+      lng: targetLng,
+      address: address || "Connaught Place, New Delhi",
+      type: type || "OTHER",
+      status: "DISPATCHED",
+      timestamp: new Date().toISOString(),
+      assignedAmbulanceRef: ambId,
+      hospitalName: nearestHospital.name
+    };
+
+    await db.collection("emergencyAlerts").doc(alertId).set(alert);
+    emergencyAlerts.push(alert);
+
+    // Update hospital's bed metrics in Firestore
+    const hospRef = db.collection("hospitals").doc(nearestHospital.id);
+    const updates = {
+      emergencyOccupancy: Math.min(100, (nearestHospital.emergencyOccupancy || 0) + 2),
+      availableBeds: Math.max(0, (nearestHospital.availableBeds || 0) - 1)
+    };
+    await hospRef.update(updates);
+
+    // sync in-memory local variables
+    const localHosp = hospitals.find(h => h.id === nearestHospital.id);
+    if (localHosp) {
+      Object.assign(localHosp, updates);
+    }
+
+    res.json({ success: true, alert });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to dispatch SOS alert", message: err.message });
   }
-
-  const ambId = "AMB-" + Math.floor(100 + Math.random() * 900);
-
-  const alert = {
-    id: "sos-" + Date.now(),
-    patientId: "patient-default",
-    patientName: patientName || "Raghav Ram",
-    patientPhone: patientPhone || "+91 98101 23456",
-    lat: lat || 28.6139,
-    lng: lng || 77.2090,
-    address: address || "Connaught Place, New Delhi",
-    type: type || "OTHER",
-    status: "DISPATCHED",
-    timestamp: new Date().toISOString(),
-    assignedAmbulanceRef: ambId,
-    hospitalName: nearestHospital.name
-  };
-
-  // Simulate occupation index going up in that hospital slightly
-  nearestHospital.emergencyOccupancy = Math.min(100, nearestHospital.emergencyOccupancy + 2);
-  if (nearestHospital.availableBeds > 0) {
-    nearestHospital.availableBeds -= 1;
-  }
-
-  emergencyAlerts.push(alert);
-  res.json({ success: true, alert });
 });
 
 // GET Active Emergency alarms
-app.get("/api/emergency/alerts", (req, res) => {
-  res.json(emergencyAlerts);
+app.get("/api/emergency/alerts", async (req, res) => {
+  try {
+    const snap = await db.collection("emergencyAlerts").get();
+    const list = snap.docs.map(doc => doc.data());
+    res.json(list);
+  } catch (err: any) {
+    console.warn("[City Healer API Warning] Firestore emergency fetch failed, falling back:", err.message);
+    res.json(emergencyAlerts);
+  }
 });
 
 // UPDATE active SOS condition status
-app.put("/api/emergency/alerts/:id/status", (req, res) => {
+app.put("/api/emergency/alerts/:id/status", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body; // 'REPORTED' | 'DISPATCHED' | 'RESOLVED'
 
-  const alert = emergencyAlerts.find((item) => item.id === id);
-  if (alert) {
-    alert.status = status;
-    res.json({ success: true, alert });
-  } else {
-    res.status(404).json({ error: "Alert item not found" });
+  try {
+    const ref = db.collection("emergencyAlerts").doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: "Alert item not found" });
+    }
+    await ref.update({ status });
+
+    // sync local variable
+    const alert = emergencyAlerts.find((item) => item.id === id);
+    if (alert) {
+      alert.status = status;
+    }
+    res.json({ success: true, alert: { ...snap.data(), status } });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update alert status", message: err.message });
   }
 });
 
 // Virtual consultation message exchange
-app.get("/api/chat/:appointmentId", (req, res) => {
+app.get("/api/chat/:appointmentId", async (req, res) => {
   const { appointmentId } = req.params;
-  res.json(activeChats[appointmentId] || []);
+  try {
+    const snap = await db.collection("chats").doc(appointmentId).collection("messages").orderBy("id", "asc").get();
+    const list = snap.docs.map(doc => doc.data());
+    res.json(list.length > 0 ? list : (activeChats[appointmentId] || []));
+  } catch (err: any) {
+    console.warn("[City Healer API Warning] Firestore chat fetch failed, falling back:", err.message);
+    res.json(activeChats[appointmentId] || []);
+  }
 });
 
-app.post("/api/chat/:appointmentId", (req, res) => {
+app.post("/api/chat/:appointmentId", async (req, res) => {
   const { appointmentId } = req.params;
   const { sender, text } = req.body;
 
-  if (!activeChats[appointmentId]) {
-    activeChats[appointmentId] = [];
-  }
-
+  const msgId = "msg-" + Date.now();
   const newMsg = {
-    id: "msg-" + Date.now(),
+    id: msgId,
     sender: sender || "PATIENT",
     text: text || "",
     timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   };
 
-  activeChats[appointmentId].push(newMsg);
+  try {
+    await db.collection("chats").doc(appointmentId).collection("messages").doc(msgId).set(newMsg);
+    if (!activeChats[appointmentId]) {
+      activeChats[appointmentId] = [];
+    }
+    activeChats[appointmentId].push(newMsg);
 
-  // Emulate quick doctor response after patient writes if patient is the sender
-  if (sender === "PATIENT") {
-    setTimeout(() => {
-      const docResponses = [
-        "I understand. Let's start by having you take a deep breath. Can you show me the area of discomfort?",
-        "Okay, thank you for clarifying. Based on that feeling, can we check your current body temperature?",
-        "Understood. I will outline a medication prescription and add it directly to your digital health records at City Healer in a moment.",
-        "Let's avoid physical exertion today. Please stay warm. I am checking our local clinical bed allocations too just in case."
-      ];
-      const autoResponse = {
-        id: "msg-auto-" + Date.now(),
-        sender: "DOCTOR",
-        text: docResponses[Math.floor(Math.random() * docResponses.length)],
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      };
-      if (activeChats[appointmentId]) {
-        activeChats[appointmentId].push(autoResponse);
-      }
-    }, 1500);
+    // Emulate quick doctor response after patient writes if patient is the sender
+    if (sender === "PATIENT") {
+      setTimeout(async () => {
+        const docResponses = [
+          "I understand. Let's start by having you take a deep breath. Can you show me the area of discomfort?",
+          "Okay, thank you for clarifying. Based on that feeling, can we check your current body temperature?",
+          "Understood. I will outline a medication prescription and add it directly to your digital health records at City Healer in a moment.",
+          "Let's avoid physical exertion today. Please stay warm. I am checking our local clinical bed allocations too just in case."
+        ];
+        const autoMsgId = "msg-auto-" + Date.now();
+        const autoResponse = {
+          id: autoMsgId,
+          sender: "DOCTOR",
+          text: docResponses[Math.floor(Math.random() * docResponses.length)],
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        };
+
+        try {
+          await db.collection("chats").doc(appointmentId).collection("messages").doc(autoMsgId).set(autoResponse);
+          if (activeChats[appointmentId]) {
+            activeChats[appointmentId].push(autoResponse);
+          }
+        } catch (autoErr: any) {
+          console.warn("[City Healer API Warning] Failed to persist auto-response chat:", autoErr.message);
+        }
+      }, 1500);
+    }
+
+    res.json({ success: true, message: newMsg });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to send chat message", message: err.message });
   }
-
-  res.json({ success: true, message: newMsg });
 });
 
 // ----------------------------------------------------------------
