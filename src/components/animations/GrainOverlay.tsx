@@ -1,35 +1,20 @@
 import React from "react";
 
 export function GrainOverlay() {
-  return (
-    <>
-      {/* Invisible SVG filter declaration in DOM */}
-      <svg
-        className="pointer-events-none fixed -z-50 h-0 w-0 opacity-0"
-        aria-hidden="true"
-      >
-        <defs>
-          <filter id="city-grain">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.65"
-              numOctaves="3"
-              stitchTiles="stitch"
-            />
-            <feColorMatrix type="matrix" values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.12 0" />
-          </filter>
-        </defs>
-      </svg>
+  // A high-performance base64 SVG static repeating noise tile.
+  // This uses a lighter fractalNoise compiled once by the browser and rendered via GPU-accelerated
+  // background repeating texture, entirely eliminating heavy CPU/GPU filter redraw overhead on scroll.
+  const noiseSvg = `data:image/svg+xml;utf8,<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><filter id="noiseFilter"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="1" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noiseFilter)" opacity="0.10"/></svg>`;
 
-      {/* Viewport noise grain layer */}
-      <div
-        className="pointer-events-none fixed inset-0 z-[9990] h-full w-full opacity-[0.035]"
-        style={{
-          filter: "url(#city-grain)",
-          willChange: "transform",
-        }}
-      />
-    </>
+  return (
+    <div
+      className="pointer-events-none fixed inset-0 z-[9990] h-full w-full opacity-[0.18]"
+      style={{
+        backgroundImage: `url("${noiseSvg}")`,
+        backgroundRepeat: "repeat",
+        willChange: "transform",
+      }}
+    />
   );
 }
 
