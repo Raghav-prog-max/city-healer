@@ -176,6 +176,7 @@ import LandingPage from "./components/LandingPage";
 import { PageTransition } from "./components/animations/PageTransition";
 import { GrainOverlay } from "./components/animations/GrainOverlay";
 import { CustomCursor } from "./components/animations/CustomCursor";
+import { Analytics } from "@vercel/analytics/react";
 
 export default function App() {
   // Current active viewport tab
@@ -10220,6 +10221,7 @@ export default function App() {
           </div>
         )}
       </main>
+      <Analytics />
     </div>
   );
 }
