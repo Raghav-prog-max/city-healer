@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Hospital,
   Brain,
@@ -36,7 +37,9 @@ import {
   Check,
   Stethoscope,
   Info,
-  BookOpen
+  BookOpen,
+  Menu,
+  X
 } from "lucide-react";
 
 import { CardTilt } from "./animations/CardTilt";
@@ -181,6 +184,26 @@ const FEATURED_HOSPITALS = [
 ];
 
 export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingProps) {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [newsletterEmail, setNewsletterEmail] = useState("");
+  const [heroSearchVal, setHeroSearchVal] = useState("");
+  const [toast, setToast] = useState<{ message: string; type: "success" | "info" | "error" } | null>(null);
+
+  const showLocalToast = (message: string, type: "success" | "info" | "error" = "info") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleNewsletterSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newsletterEmail || !newsletterEmail.includes("@")) {
+      showLocalToast("Please enter a valid email address.", "error");
+      return;
+    }
+    showLocalToast("Thank you for subscribing to City Healer metrics!", "success");
+    setNewsletterEmail("");
+  };
+
   // Aggregate live counters from dynamic DB
   const availableBedsCount = hospitals && hospitals.length > 0
     ? hospitals.reduce((acc, h) => acc + (h.availableBeds || 0), 0)
@@ -356,11 +379,26 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
     return () => clearTimeout(timer);
   }, []);
 
+  const navigate = useNavigate();
+
   const handleTransitionNavigate = (section: string) => {
+    const sectionToPath: Record<string, string> = {
+      overview: "/",
+      overview_classic: "/dashboard",
+      symptoms: "/symptoms",
+      beds: "/hospitals",
+      consultation: "/doctors",
+      pharmacy: "/pharmacy",
+      records: "/records",
+      insurance: "/insurance",
+      sos: "/sos",
+      admin: "/admin"
+    };
+    const targetPath = sectionToPath[section] || "/";
     if ((window as any).cityHealerTransition) {
-      (window as any).cityHealerTransition(section);
+      (window as any).cityHealerTransition(targetPath);
     } else {
-      onNavigate(section);
+      navigate(targetPath);
     }
   };
 
@@ -396,15 +434,15 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
               </div>
               <div>
                 <span className={`font-heading text-lg font-extrabold tracking-tight block ${isAppDarkMode ? "text-white" : "text-slate-950"}`}>
-                  CITY <span className={isAppDarkMode ? "text-teal-450 text-teal-400" : "text-teal-700"}>HEALER</span>
+                  CITY <span className={isAppDarkMode ? "text-teal-400" : "text-teal-700"}>HEALER</span>
                 </span>
                 <span className={`text-[9px] font-bold tracking-widest leading-none block -mt-1 uppercase ${isAppDarkMode ? "text-emerald-400" : "text-emerald-600"}`}>Metropolitan Care OS</span>
               </div>
             </div>
 
             {/* Links mimicking modern premium platform directories */}
-            <nav id="nav-directories" className={`hidden lg:flex items-center gap-7 text-xs font-semibold ${isAppDarkMode ? "text-slate-300" : "text-slate-600"}`}>
-              <span onClick={() => handleTransitionNavigate("overview")} className={`cursor-pointer transition-colors relative after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-teal-700 hover:after:w-full after:transition-all ${isAppDarkMode ? "hover:text-teal-400" : "hover:text-teal-800"}`}>Home</span>
+            <nav id="nav-directories" role="navigation" className={`hidden lg:flex items-center gap-7 text-xs font-semibold ${isAppDarkMode ? "text-slate-300" : "text-slate-600"}`}>
+              <span onClick={() => handleTransitionNavigate("overview")} aria-current="page" className={`cursor-pointer transition-colors relative after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-teal-700 hover:after:w-full after:transition-all ${isAppDarkMode ? "hover:text-teal-400" : "hover:text-teal-800"}`}>Home</span>
               <span onClick={() => handleTransitionNavigate("overview_classic")} className={`cursor-pointer transition-colors relative after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-teal-700 hover:after:w-full after:transition-all ${isAppDarkMode ? "hover:text-teal-400" : "hover:text-teal-800"}`}>Platform</span>
               <span onClick={() => handleTransitionNavigate("symptoms")} className={`cursor-pointer transition-colors relative after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-teal-700 hover:after:w-full after:transition-all ${isAppDarkMode ? "hover:text-teal-400" : "hover:text-teal-800"}`}>AI Assistant</span>
               <span onClick={() => handleTransitionNavigate("beds")} className={`cursor-pointer transition-colors relative after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-teal-700 hover:after:w-full after:transition-all ${isAppDarkMode ? "hover:text-teal-400" : "hover:text-teal-800"}`}>Hospitals</span>
@@ -417,15 +455,44 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
               <button
                 id="navbar-cta-launch"
                 onClick={() => handleTransitionNavigate("overview_classic")}
-                className="group relative cursor-pointer overflow-hidden rounded-full bg-gradient-to-r from-teal-850 to-teal-700 px-5.5 py-2.5 text-xs font-extrabold text-white shadow-xl shadow-teal-900/10 transition-all hover:shadow-teal-900/20 active:scale-95 bg-teal-800"
+                className="hidden sm:block group relative cursor-pointer overflow-hidden rounded-full bg-gradient-to-r from-teal-900 to-teal-700 px-5 py-2.5 text-xs font-extrabold text-white shadow-xl shadow-teal-900/10 transition-all hover:shadow-teal-900/20 active:scale-95 bg-teal-800"
               >
                 <span className="absolute inset-0 w-1/2 -skew-x-12 bg-white/15 opacity-0 group-hover:opacity-100 transition-transform duration-[1000ms] -translate-x-[200%] group-hover:translate-x-[400%]" />
                 <span className="relative flex items-center gap-1.5">
                   Launch City Healer <ChevronRight className="h-3 w-3" />
                 </span>
               </button>
+              <button
+                id="mobile-menu-toggle"
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="lg:hidden p-2 rounded-lg transition-colors border border-transparent hover:bg-slate-150/30 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400"
+                aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              >
+                {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              </button>
             </div>
           </div>
+          {isMobileMenuOpen && (
+            <div className={`lg:hidden mt-4 pt-4 pb-2 border-t transition-all ${
+              isAppDarkMode ? "border-slate-800 bg-slate-950 text-slate-300" : "border-slate-100 bg-white text-slate-600"
+            }`}>
+              <nav id="mobile-nav-directories" role="navigation" className="flex flex-col gap-4 text-sm font-semibold px-2">
+                <span onClick={() => { handleTransitionNavigate("overview"); setIsMobileMenuOpen(false); }} className="cursor-pointer py-1.5 px-3 rounded-lg hover:bg-slate-150/30 transition-colors">Home</span>
+                <span onClick={() => { handleTransitionNavigate("overview_classic"); setIsMobileMenuOpen(false); }} className="cursor-pointer py-1.5 px-3 rounded-lg hover:bg-slate-150/30 transition-colors">Platform</span>
+                <span onClick={() => { handleTransitionNavigate("symptoms"); setIsMobileMenuOpen(false); }} className="cursor-pointer py-1.5 px-3 rounded-lg hover:bg-slate-150/30 transition-colors">AI Assistant</span>
+                <span onClick={() => { handleTransitionNavigate("beds"); setIsMobileMenuOpen(false); }} className="cursor-pointer py-1.5 px-3 rounded-lg hover:bg-slate-150/30 transition-colors">Hospitals</span>
+                <span onClick={() => { handleTransitionNavigate("consultation"); setIsMobileMenuOpen(false); }} className="cursor-pointer py-1.5 px-3 rounded-lg hover:bg-slate-150/30 transition-colors">Doctors</span>
+                <span onClick={() => { handleTransitionNavigate("sos"); setIsMobileMenuOpen(false); }} className="cursor-pointer py-1.5 px-3 rounded-lg hover:bg-slate-150/30 transition-colors text-rose-600 font-bold">Emergency</span>
+                
+                <button
+                  onClick={() => { handleTransitionNavigate("overview_classic"); setIsMobileMenuOpen(false); }}
+                  className="sm:hidden w-full mt-2 rounded-full bg-gradient-to-r from-teal-900 to-teal-700 py-3 text-xs font-extrabold text-white shadow-md text-center"
+                >
+                  Launch City Healer
+                </button>
+              </nav>
+            </div>
+          )}
         </header>
 
         {/* Cinematic Luxury Hero Section */}
@@ -479,8 +546,16 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
               </p>
 
               {/* Interactive clinical search block */}
-              <div
-                id="hero-interactive-search"
+              <form
+                id="hero-interactive-search-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (heroSearchVal.trim()) {
+                    navigate(`/symptoms?q=${encodeURIComponent(heroSearchVal)}`);
+                  } else {
+                    handleTransitionNavigate("symptoms");
+                  }
+                }}
                 className={`max-w-xl mx-auto lg:mx-0 rounded-2xl border p-3 shadow-xl backdrop-blur-md ${
                   isAppDarkMode 
                     ? "border-slate-800 bg-slate-900/90 shadow-slate-950/40" 
@@ -491,26 +566,28 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                   <Search className="h-5 w-5 text-slate-400 shrink-0 ml-1" />
                   <input
                     type="text"
+                    aria-label="Search diagnostic codes"
                     placeholder={`Search diagnostic codes: ${searchPlaceholder}`}
+                    value={heroSearchVal}
+                    onChange={(e) => setHeroSearchVal(e.target.value)}
                     className={`w-full bg-transparent text-sm py-1 focus:outline-none ${
-                      isAppDarkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-800 placeholder-slate-450"
+                      isAppDarkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-800 placeholder-slate-500"
                     }`}
-                    onFocus={() => handleTransitionNavigate("symptoms")}
                   />
                   <button
-                    onClick={() => handleTransitionNavigate("symptoms")}
-                    className="flex shrink-0 items-center gap-1 rounded-xl bg-teal-850 hover:bg-teal-750 px-4.5 py-2.5 text-xs font-bold text-white transition-all cursor-pointer bg-teal-800"
+                    type="submit"
+                    className="flex shrink-0 items-center gap-1 rounded-xl bg-teal-900 hover:bg-teal-800 px-4 py-2.5 text-xs font-bold text-white transition-all cursor-pointer bg-teal-800"
                   >
                     Diagnose <Sparkles className="h-3 w-3 text-teal-300" />
                   </button>
                 </div>
-              </div>
+              </form>
 
               {/* Premium action buttons */}
               <div id="hero-action-buttons" className="flex flex-wrap gap-4 items-center justify-center lg:justify-start">
                 <button
                   onClick={() => handleTransitionNavigate("overview_classic")}
-                  className="flex items-center gap-2 rounded-xl bg-teal-850 hover:bg-teal-750 text-white font-extrabold px-7 py-4 text-sm shadow-xl shadow-teal-900/10 hover:shadow-teal-900/20 transition-all cursor-pointer bg-teal-800"
+                  className="flex items-center gap-2 rounded-xl bg-teal-900 hover:bg-teal-800 text-white font-extrabold px-7 py-4 text-sm shadow-xl shadow-teal-900/10 hover:shadow-teal-900/20 transition-all cursor-pointer bg-teal-800"
                 >
                   Explore Platform <ArrowRight className="h-4 w-4" />
                 </button>
@@ -732,7 +809,13 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                   <div
                     key={feat.id}
                     id={`feature-card-${feat.id}`}
-                    onClick={() => handleTransitionNavigate(feat.target)}
+                    onClick={() => {
+                      if (feat.id === "diet-planner") {
+                        showLocalToast("AI Diet Planner coming soon — customized clinical nutritional roadmaps are currently in clinical validation.", "info");
+                      } else {
+                        handleTransitionNavigate(feat.target);
+                      }
+                    }}
                     className={`p-8 rounded-[28px] border shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group cursor-pointer ${
                       isAppDarkMode 
                         ? "border-slate-800 bg-slate-900/70 shadow-slate-950/20" 
@@ -742,7 +825,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                     <div className="space-y-4">
                       {/* Icon with beautiful color pairing */}
                       <div className={`h-12 w-12 rounded-2xl flex items-center justify-center border transition-all ${
-                        isAppDarkMode ? "bg-slate-950 border-slate-800 text-teal-450 text-teal-400" : feat.color
+                        isAppDarkMode ? "bg-slate-950 border-slate-800 text-teal-400" : feat.color
                       }`}>
                         <Icon className="h-5 w-5" />
                       </div>
@@ -804,7 +887,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                 <div>
                   <button
                     onClick={() => handleTransitionNavigate("overview_classic")}
-                    className="flex items-center gap-2 rounded-xl bg-teal-850 hover:bg-teal-750 text-white font-extrabold px-6 py-3.5 text-xs transition-all cursor-pointer bg-teal-800"
+                    className="flex items-center gap-2 rounded-xl bg-teal-900 hover:bg-teal-800 text-white font-extrabold px-6 py-3.5 text-xs transition-all cursor-pointer bg-teal-800"
                   >
                     Open Live Dashboard <Compass className="h-4 w-4" />
                   </button>
@@ -945,6 +1028,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                   }`}>
                     <input
                       type="text"
+                      aria-label="Type clinical syndromes"
                       placeholder="Type clinical syndromes (e.g. fever, headache)..."
                       value={chatInputText}
                       onChange={(e) => setChatInputText(e.target.value)}
@@ -959,6 +1043,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                     />
                     <button
                       onClick={handleSendChat}
+                      aria-label="Send query"
                       className="rounded-xl bg-teal-900 hover:bg-teal-800 text-white p-2.5 transition cursor-pointer"
                     >
                       <Send className="h-4 w-4 text-teal-300" />
@@ -997,7 +1082,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                 <div>
                   <button
                     onClick={() => handleTransitionNavigate("symptoms")}
-                    className="flex items-center gap-2 rounded-xl bg-teal-850 hover:bg-teal-750 text-white font-extrabold px-6 py-3.5 text-xs transition-all cursor-pointer bg-teal-800"
+                    className="flex items-center gap-2 rounded-xl bg-teal-900 hover:bg-teal-800 text-white font-extrabold px-6 py-3.5 text-xs transition-all cursor-pointer bg-teal-800"
                   >
                     Open AI Symptoms Suite <Sparkles className="h-4 w-4" />
                   </button>
@@ -1330,6 +1415,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
               <div className={`flex gap-2 items-center justify-end mt-8 border-t pt-6 ${isAppDarkMode ? "border-slate-800" : "border-slate-200/60"}`}>
                 <button
                   onClick={() => setTestIdx(p => (p === 0 ? testimonials.length - 1 : p - 1))}
+                  aria-label="Previous testimonial"
                   className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-all cursor-pointer ${
                     isAppDarkMode 
                       ? "bg-slate-900 border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-300" 
@@ -1340,6 +1426,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                 </button>
                 <button
                   onClick={() => setTestIdx(p => (p === testimonials.length - 1 ? 0 : p + 1))}
+                  aria-label="Next testimonial"
                   className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-all cursor-pointer ${
                     isAppDarkMode 
                       ? "bg-slate-900 border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-300" 
@@ -1377,7 +1464,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
             {/* Post cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               {/* Post 1 */}
-              <div className="space-y-4 group cursor-pointer">
+              <div onClick={() => showLocalToast("Full article coming soon — this post is under editorial review.", "info")} className="space-y-4 group cursor-pointer">
                 <div className={`aspect-[16/10] overflow-hidden rounded-2xl border transition-colors ${isAppDarkMode ? "border-slate-800" : "border-slate-100"}`}>
                   <img
                     src="https://images.unsplash.com/photo-1526256262170-66db22fe99a5?auto=format&fit=crop&q=80&w=800"
@@ -1387,7 +1474,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                   />
                 </div>
                 <div className="space-y-2">
-                  <span className={`text-[9px] uppercase tracking-wider font-extrabold ${isAppDarkMode ? "text-teal-400" : "text-teal-750"}`}>Healthcare AI</span>
+                  <span className={`text-[9px] uppercase tracking-wider font-extrabold ${isAppDarkMode ? "text-teal-400" : "text-teal-800"}`}>Healthcare AI</span>
                   <h4 className={`font-heading text-lg font-bold transition-colors ${isAppDarkMode ? "text-slate-100 group-hover:text-teal-400" : "text-slate-950 group-hover:text-teal-800"}`}>
                     Automating Pre-Clinical Diagnostic Triage
                   </h4>
@@ -1398,7 +1485,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
               </div>
 
               {/* Post 2 */}
-              <div className="space-y-4 group cursor-pointer">
+              <div onClick={() => showLocalToast("Full article coming soon — this post is under editorial review.", "info")} className="space-y-4 group cursor-pointer">
                 <div className={`aspect-[16/10] overflow-hidden rounded-2xl border transition-colors ${isAppDarkMode ? "border-slate-800" : "border-slate-100"}`}>
                   <img
                     src="https://images.unsplash.com/photo-1551076805-e1869033e561?auto=format&fit=crop&q=80&w=800"
@@ -1408,7 +1495,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                   />
                 </div>
                 <div className="space-y-2">
-                  <span className={`text-[9px] uppercase tracking-wider font-extrabold ${isAppDarkMode ? "text-teal-400" : "text-teal-750"}`}>Municipal Systems</span>
+                  <span className={`text-[9px] uppercase tracking-wider font-extrabold ${isAppDarkMode ? "text-teal-400" : "text-teal-800"}`}>Municipal Systems</span>
                   <h4 className={`font-heading text-lg font-bold transition-colors ${isAppDarkMode ? "text-slate-100 group-hover:text-teal-400" : "text-slate-950 group-hover:text-teal-800"}`}>
                     Real-time Hospital Resource Occupancy
                   </h4>
@@ -1419,7 +1506,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
               </div>
 
               {/* Post 3 */}
-              <div className="space-y-4 group cursor-pointer">
+              <div onClick={() => showLocalToast("Full article coming soon — this post is under editorial review.", "info")} className="space-y-4 group cursor-pointer">
                 <div className={`aspect-[16/10] overflow-hidden rounded-2xl border transition-colors ${isAppDarkMode ? "border-slate-800" : "border-slate-100"}`}>
                   <img
                     src="https://images.unsplash.com/photo-1504813184591-01552ffb3c46?auto=format&fit=crop&q=80&w=800"
@@ -1429,7 +1516,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                   />
                 </div>
                 <div className="space-y-2">
-                  <span className={`text-[9px] uppercase tracking-wider font-extrabold ${isAppDarkMode ? "text-teal-400" : "text-teal-750"}`}>Public Health</span>
+                  <span className={`text-[9px] uppercase tracking-wider font-extrabold ${isAppDarkMode ? "text-teal-400" : "text-teal-800"}`}>Public Health</span>
                   <h4 className={`font-heading text-lg font-bold transition-colors ${isAppDarkMode ? "text-slate-100 group-hover:text-teal-400" : "text-slate-950 group-hover:text-teal-800"}`}>
                     Predictive Models for Disease Containment
                   </h4>
@@ -1485,7 +1572,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
           <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 border-b border-slate-900 pb-12">
             
             {/* Column 1 Logo */}
-            <div className="space-y-4.5 lg:col-span-1.5">
+            <div className="space-y-4 lg:col-span-1">
               <div className="flex items-center gap-2.5">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 p-2 border border-white/10 shadow">
                   <Activity className="h-5 w-5 text-emerald-400" />
@@ -1528,29 +1615,32 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
             <div className="space-y-4">
               <h4 className="font-heading text-xs font-bold uppercase text-white tracking-widest">Resources</h4>
               <ul className="space-y-2.5 text-xs">
-                <li><a href="#" className="hover:text-white transition">Publications</a></li>
-                <li><a href="#" className="hover:text-white transition">Case Studies</a></li>
-                <li><a href="#" className="hover:text-white transition">HIPAA Policy</a></li>
-                <li><a href="#" className="hover:text-white transition">Clinical FAQ</a></li>
+                <li><button onClick={() => showLocalToast("Coming soon — Publications are under construction.", "info")} className="hover:text-white transition text-left cursor-pointer">Publications</button></li>
+                <li><button onClick={() => showLocalToast("Coming soon — Case Studies are under construction.", "info")} className="hover:text-white transition text-left cursor-pointer">Case Studies</button></li>
+                <li><button onClick={() => showLocalToast("Coming soon — HIPAA Policy is under construction.", "info")} className="hover:text-white transition text-left cursor-pointer">HIPAA Policy</button></li>
+                <li><button onClick={() => showLocalToast("Coming soon — Clinical FAQ is under construction.", "info")} className="hover:text-white transition text-left cursor-pointer">Clinical FAQ</button></li>
               </ul>
             </div>
 
             {/* Column 5 newsletter */}
-            <div className="space-y-4 lg:col-span-1.5">
+            <div className="space-y-4 lg:col-span-1">
               <h4 className="font-heading text-xs font-bold uppercase text-white tracking-widest">Newsletter</h4>
               <p className="text-xs text-slate-500 leading-normal">
                 Receive weekly system health metrics and municipal outbreak containment directives.
               </p>
-              <div className="flex gap-2 p-1.5 bg-white/5 border border-white/5 rounded-xl">
+              <form onSubmit={handleNewsletterSubmit} className="flex gap-2 p-1.5 bg-white/5 border border-white/5 rounded-xl">
                 <input
                   type="email"
+                  aria-label="Newsletter email address"
                   placeholder="name@clinical.gov"
+                  value={newsletterEmail}
+                  onChange={(e) => setNewsletterEmail(e.target.value)}
                   className="bg-transparent text-xs text-slate-300 w-full focus:outline-none px-2 py-1 focus:glow"
                 />
-                <button className="bg-teal-850 hover:bg-teal-750 text-white p-1.5 rounded-lg cursor-pointer bg-teal-800">
+                <button type="submit" aria-label="Subscribe to newsletter" className="bg-teal-900 hover:bg-teal-800 text-white p-1.5 rounded-lg cursor-pointer">
                   <Mail className="h-4 w-4" />
                 </button>
-              </div>
+              </form>
             </div>
 
           </div>
@@ -1558,11 +1648,29 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
           <div className="max-w-7xl mx-auto pt-8 flex flex-col md:flex-row justify-between items-center text-[10px] text-slate-600 gap-4">
             <p>&copy; 2026 City Healer Inc. All rights reserved. Redesigned Flagship Luxury Edition.</p>
             <div className="flex gap-6">
-              <a href="#" className="hover:text-white transition-colors">HIPAA Certified</a>
-              <a href="#" className="hover:text-white transition-colors">Security Directive</a>
-              <a href="#" className="hover:text-white transition-colors">Terms of Care</a>
+              <button onClick={() => showLocalToast("Coming soon — HIPAA Certified verification portal is under construction.", "info")} className="hover:text-white transition-colors cursor-pointer text-left">HIPAA Certified</button>
+              <button onClick={() => showLocalToast("Coming soon — Security Directive document is under construction.", "info")} className="hover:text-white transition-colors cursor-pointer text-left">Security Directive</button>
+              <button onClick={() => showLocalToast("Coming soon — Terms of Care page is under construction.", "info")} className="hover:text-white transition-colors cursor-pointer text-left">Terms of Care</button>
             </div>
           </div>
+          
+          {/* Global Toast Area */}
+          {toast && (
+            <div
+              id="local-toast"
+              role="status"
+              aria-live="polite"
+              className={`fixed bottom-6 right-6 z-50 p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-fade-in border ${
+                toast.type === "success" 
+                  ? "bg-emerald-950 text-emerald-100 border-emerald-800" 
+                  : toast.type === "error" 
+                    ? "bg-red-950 text-red-100 border-red-800" 
+                    : "bg-slate-900 text-slate-100 border-slate-800"
+              }`}
+            >
+              <span>{toast.message}</span>
+            </div>
+          )}
         </footer>
 
       </div>

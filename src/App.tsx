@@ -92,6 +92,7 @@ import {
 } from "recharts";
 import { api } from "./utils/api";
 import { getTranslation, LanguageCode, translations } from "./utils/i18n";
+import { useLocation, useNavigate } from "react-router-dom";
 import { auth, db } from "./firebase";
 import { 
   signInWithPopup, 
@@ -100,7 +101,12 @@ import {
   createUserWithEmailAndPassword, 
   sendPasswordResetEmail, 
   signOut, 
-  onAuthStateChanged 
+  onAuthStateChanged,
+  sendEmailVerification,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  signInWithRedirect
 } from "firebase/auth";
 import { 
   doc, 
@@ -173,13 +179,88 @@ import { AIMedicationGuide } from "./components/AIMedicationGuide";
 import CityHealthNetwork, { CITIES_DATA } from "./components/CityHealthNetwork";
 import { MedicineProductImage } from "./components/MedicineProductImage";
 import LandingPage from "./components/LandingPage";
+import { AuthErrorMessage } from "./components/AuthErrorMessage";
 import { PageTransition } from "./components/animations/PageTransition";
 import { GrainOverlay } from "./components/animations/GrainOverlay";
 import { CustomCursor } from "./components/animations/CustomCursor";
 
+const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('profile');
+googleProvider.addScope('email');
+
+const getFriendlyAuthErrorMessage = (code: string): string => {
+  switch (code) {
+    case "auth/user-not-found":
+      return "No account found with this email.";
+    case "auth/wrong-password":
+      return "Incorrect password. Try again.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Please wait a few minutes.";
+    case "auth/invalid-email":
+      return "Please enter a valid email address.";
+    case "auth/network-request-failed":
+      return "No internet connection. Check your network.";
+    case "auth/email-already-in-use":
+      return "An account with this email already exists.";
+    case "auth/weak-password":
+      return "Password must be at least 6 characters.";
+    case "auth/invalid-credential":
+      return "Incorrect password or email. Try again.";
+    case "auth/popup-blocked":
+      return "Popup blocked by your browser. Attempting direct redirect...";
+    case "auth/popup-closed-by-user":
+      return "Google sign-in was cancelled by the user.";
+    default:
+      return "An unknown authentication error occurred. Please try again.";
+  }
+};
+
 export default function App() {
-  // Current active viewport tab
-  const [activeTab, setActiveTab] = useState<string>("overview");
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const getActiveTabFromPath = (pathname: string): string => {
+    switch (pathname) {
+      case "/": return "overview";
+      case "/dashboard": return "overview_classic";
+      case "/symptoms": return "symptoms";
+      case "/hospitals": return "beds";
+      case "/doctors": return "consultation";
+      case "/pharmacy": return "pharmacy";
+      case "/records": return "records";
+      case "/insurance": return "insurance";
+      case "/sos": return "sos";
+      case "/admin": return "admin";
+      case "/super-app": return "super-app";
+      case "/smart-network": return "smart-network";
+      case "/chn": return "chn";
+      case "/trends": return "trends";
+      default: return "overview";
+    }
+  };
+
+  const activeTab = getActiveTabFromPath(location.pathname);
+
+  const setActiveTab = (tab: string) => {
+    const tabToPath: Record<string, string> = {
+      overview: "/",
+      overview_classic: "/dashboard",
+      symptoms: "/symptoms",
+      beds: "/hospitals",
+      consultation: "/doctors",
+      pharmacy: "/pharmacy",
+      records: "/records",
+      insurance: "/insurance",
+      sos: "/sos",
+      admin: "/admin",
+      "super-app": "/super-app",
+      "smart-network": "/smart-network",
+      chn: "/chn",
+      trends: "/trends"
+    };
+    navigate(tabToPath[tab] || "/");
+  };
+
   // Active Simulated Login Role: PATIENT, DOCTOR, HOSPITAL, ADMIN
   const [activeRole, setActiveRole] = useState<"PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN">("PATIENT");
   const [activeVerificationPill, setActiveVerificationPill] = useState<MedicineProduct | null>(null);
@@ -192,6 +273,7 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [authMode, setAuthMode] = useState<"LOGIN" | "SIGNUP" | "FORGOT" | "OTP_VERIFY">("LOGIN");
+  const [authError, setAuthError] = useState<{ code: string; message: string } | null>(null);
   const [authEmail, setAuthEmail] = useState("raghavramghat@gmail.com");
   const [authPhone, setAuthPhone] = useState("+91 98101 22334");
   const [authName, setAuthName] = useState("Raghav Sharma");
@@ -200,6 +282,12 @@ export default function App() {
   const [authRoleSelection, setAuthRoleSelection] = useState<"PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN">("PATIENT");
   const [authPasscode, setAuthPasscode] = useState<string>("CityHealerPass123!");
   const [jwtToken, setJwtToken] = useState<string>("");
+  const [rememberMe, setRememberMe] = useState<boolean>(true);
+  const [failedAttempts, setFailedAttempts] = useState<number>(0);
+  const [lockoutTimer, setLockoutTimer] = useState<number>(0);
+  const [lastActivity, setLastActivity] = useState<number>(Date.now());
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState<boolean>(false);
+  const isResendingVerificationRef = useRef<boolean>(false);
 
   const authNameRef = useRef(authName);
   const authPhoneRef = useRef(authPhone);
@@ -221,6 +309,10 @@ export default function App() {
   useEffect(() => {
     authRoleSelectionRef.current = authRoleSelection;
   }, [authRoleSelection]);
+
+  useEffect(() => {
+    setAuthError(null);
+  }, [authMode]);
 
   // Family profile selector state (converted from static array to support adding new patients dynamically)
   const [activeFamilyMember, setActiveFamilyMember] = useState<string>("Self");
@@ -1108,6 +1200,16 @@ export default function App() {
   const [aiSymptoms, setAiSymptoms] = useState("");
   const [aiHistory, setAiHistory] = useState("");
   const [aiTesting, setAiTesting] = useState(false);
+
+  useEffect(() => {
+    if (location.pathname === "/symptoms") {
+      const params = new URLSearchParams(location.search);
+      const q = params.get("q");
+      if (q) {
+        setAiSymptoms(q);
+      }
+    }
+  }, [location.pathname, location.search]);
   const [aiReport, setAiReport] = useState<{
     suspectedCondition: string;
     explanation: string;
@@ -1303,6 +1405,87 @@ export default function App() {
     }
   };
 
+  // 1. Lockout Timer Countdown Effect
+  useEffect(() => {
+    if (lockoutTimer <= 0) return;
+    const interval = setInterval(() => {
+      setLockoutTimer((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lockoutTimer]);
+
+  // 2. Activity / Inactivity Session Timeout Effect
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setShowTimeoutWarning(false);
+      return;
+    }
+
+    const handleActivity = () => {
+      setLastActivity(Date.now());
+    };
+
+    window.addEventListener("mousemove", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    window.addEventListener("click", handleActivity);
+    window.addEventListener("scroll", handleActivity);
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - lastActivity;
+      const twentyFiveMin = 25 * 60 * 1000;
+      const thirtyMin = 30 * 60 * 1000;
+
+      if (elapsed >= thirtyMin) {
+        signOut(auth).then(() => {
+          setIsAuthenticated(false);
+          setJwtToken("");
+          navigate("/login");
+          showToast("You were logged out for security.");
+          setShowTimeoutWarning(false);
+        }).catch((err) => {
+          console.error("Session timeout logout failed:", err);
+        });
+      } else if (elapsed >= twentyFiveMin) {
+        setShowTimeoutWarning(true);
+      } else {
+        setShowTimeoutWarning(false);
+      }
+    }, 2000);
+
+    return () => {
+      window.removeEventListener("mousemove", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+      window.removeEventListener("click", handleActivity);
+      window.removeEventListener("scroll", handleActivity);
+      clearInterval(interval);
+    };
+  }, [isAuthenticated, lastActivity, navigate]);
+
+  // PrivateRoute Navigation Protection
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      const protectedPaths = [
+        "/dashboard",
+        "/symptoms",
+        "/hospitals",
+        "/doctors",
+        "/pharmacy",
+        "/records",
+        "/insurance",
+        "/sos",
+        "/admin",
+        "/super-app",
+        "/smart-network",
+        "/chn",
+        "/trends"
+      ];
+      if (protectedPaths.includes(location.pathname)) {
+        navigate("/");
+        showToast("⚠️ Authentication required. Please sign in to access this page.");
+      }
+    }
+  }, [isAuthenticated, authLoading, location.pathname, navigate]);
+
   // Fetch baseline state on startup and setup long-polling emulator
   useEffect(() => {
     // Validate connection on startup per mandatory constraint
@@ -1319,6 +1502,14 @@ export default function App() {
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        if (!firebaseUser.emailVerified && !isResendingVerificationRef.current) {
+          await signOut(auth);
+          setIsAuthenticated(false);
+          setJwtToken("");
+          setAuthLoading(false);
+          showToast("Please verify your email first. Check your inbox.");
+          return;
+        }
         try {
           const userRef = doc(db, "users", firebaseUser.uid);
           const userSnap = await getDoc(userRef);
@@ -1382,72 +1573,13 @@ export default function App() {
           
         } catch (err: any) {
           console.error("Auth status sync failed:", err);
-          
-          // Secure Dynamic Fallback on Firestore write failure or permission issue
-          const tempPolicy = `CH-POL-${Math.floor(10000 + Math.random() * 90000)}`;
-          const profileData = {
-            uid: firebaseUser.uid,
-            name: firebaseUser.displayName || authNameRef.current.trim() || "City Healer User",
-            email: firebaseUser.email || getUserEmailFromInput(),
-            phone: firebaseUser.phoneNumber || authPhoneRef.current.trim() || "",
-            role: authRoleSelectionRef.current || "PATIENT",
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            age: 34,
-            gender: "Male",
-            bloodGroup: "O+",
-            policyNo: tempPolicy
-          };
-          
-          localStorage.setItem("simulated_auth_profile", JSON.stringify(profileData));
-          
-          setActiveRole(profileData.role);
-          setAuthName(profileData.name);
-          setAuthEmail(profileData.email);
-          setAuthPhone(profileData.phone);
-          setJwtToken("mock-jwt-token-simulated-fallback");
-          
-          if (profileData.role === "ADMIN" || profileData.role === "HOSPITAL") {
-            setActiveTab("admin");
-          } else if (profileData.role === "DOCTOR") {
-            setActiveTab("consultation");
-          } else {
-            setActiveTab("overview");
-          }
-          
-          setIsAuthenticated(true);
-          loadData();
-          showToast("⚠️ Diagnostic profile secured locally (Firestore sync bypassed).");
-        }
-      } else {
-        // Fallback: Check for robust local simulated session
-        const localSim = localStorage.getItem("simulated_auth_profile");
-        if (localSim) {
-          try {
-            const profileData = JSON.parse(localSim);
-            setAuthName(profileData.name || "City Healer User");
-            setAuthEmail(profileData.email || "");
-            setAuthPhone(profileData.phone || "");
-            setActiveRole(profileData.role || "PATIENT");
-            setJwtToken("mock-jwt-token-simulated");
-            
-            if (profileData.role === "ADMIN" || profileData.role === "HOSPITAL") {
-              setActiveTab("admin");
-            } else if (profileData.role === "DOCTOR") {
-              setActiveTab("consultation");
-            } else {
-              setActiveTab("overview");
-            }
-            setIsAuthenticated(true);
-            loadData();
-          } catch (e) {
-            setIsAuthenticated(false);
-            setJwtToken("");
-          }
-        } else {
+          showToast(`⚠️ Authentication Sync Failed: ${err.message}`);
           setIsAuthenticated(false);
           setJwtToken("");
         }
+      } else {
+        setIsAuthenticated(false);
+        setJwtToken("");
       }
       setAuthLoading(false);
     });
@@ -2208,6 +2340,7 @@ export default function App() {
   // 1. Genuine Firebase Authentication & Session Verification Flow
   const handleGoogleLogin = async () => {
     try {
+      setAuthError(null);
       setAuthLoading(true);
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
@@ -2223,41 +2356,8 @@ export default function App() {
       
       showToast(`⚡ Fully Authenticated as ${result.user.displayName || result.user.email}! Welcome.`);
     } catch (err: any) {
-      console.warn("Google Sign-In yielded non-blocking authentication gap. Activating Secure Local Simulation:", err.message);
-      
-      const tempPolicy = `CH-POL-${Math.floor(10000 + Math.random() * 90000)}`;
-      const simulatedEmail = authEmailRef.current.trim() || "google.user@cityhealer.com";
-      const simulatedProfile = {
-        uid: `sim-google-${Date.now()}`,
-        name: authNameRef.current.trim() || "City Healer Google User",
-        email: simulatedEmail,
-        phone: authPhoneRef.current.trim() || "",
-        role: authRoleSelectionRef.current || "PATIENT",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        age: 34,
-        gender: "Male",
-        bloodGroup: "O+",
-        policyNo: tempPolicy
-      };
-      
-      localStorage.setItem("simulated_auth_profile", JSON.stringify(simulatedProfile));
-      setActiveRole(simulatedProfile.role);
-      setAuthName(simulatedProfile.name);
-      setAuthEmail(simulatedProfile.email);
-      setAuthPhone(simulatedProfile.phone);
-      setJwtToken("mock-jwt-token-simulated");
-      
-      if (simulatedProfile.role === "ADMIN" || simulatedProfile.role === "HOSPITAL") {
-        setActiveTab("admin");
-      } else if (simulatedProfile.role === "DOCTOR") {
-        setActiveTab("consultation");
-      } else {
-        setActiveTab("overview");
-      }
-      setIsAuthenticated(true);
-      loadData();
-      showToast("⚠️ Note: Profile successfully secured via Local Simulation.");
+      console.error("Google Sign-In failed:", err.message);
+      setAuthError({ code: err.code || "auth/google-sign-in-failed", message: err.message || "Google sign-in was cancelled or failed." });
     } finally {
       setAuthLoading(false);
     }
@@ -2284,39 +2384,39 @@ export default function App() {
   };
 
   const handleFirebaseLogin = async (passcode?: string) => {
+    setAuthError(null);
+    if (lockoutTimer > 0) {
+      setAuthError({ code: "auth/too-many-requests", message: `Too many failed attempts. Please wait ${lockoutTimer} seconds.` });
+      return;
+    }
+
     const email = getUserEmailFromInput();
-    const password = passcode || "CityHealerPass123!";
+    const password = passcode || "";
+    
+    if (!password) {
+      setAuthError({ code: "auth/missing-passcode", message: "Please enter your authorization passcode." });
+      return;
+    }
+
     try {
       setAuthLoading(true);
       
-      try {
-        await signInWithEmailAndPassword(auth, email, password);
-      } catch (err: any) {
-        // Fallback trace: If the project hasn't enabled Email/Password provider, immediately simulate
-        if (err.code === "auth/operation-not-allowed" || err.message.includes("operation-not-allowed")) {
-          throw err;
-        }
-        
-        // If password login failed but email/password might be using the default placeholder, retry with "CityHealerPass123!"
-        if (password !== "CityHealerPass123!" && (err.code === "auth/invalid-credential" || err.message.includes("invalid-credential") || err.code === "auth/wrong-password" || err.message.includes("wrong-password"))) {
-          console.log("Normal login failed, attempting fallback login with default passcode placeholder...");
-          await signInWithEmailAndPassword(auth, email, "CityHealerPass123!");
-          
-          // Fallback succeeded! Attempt to repair their account password to the passcode they typed so it works directly next time
-          if (auth.currentUser) {
-            try {
-              const { updatePassword } = await import("firebase/auth");
-              await updatePassword(auth.currentUser, password);
-              console.log("Successfully retrofitted default account password with typed passcode.");
-            } catch (pErr: any) {
-              console.warn("Could not auto-convert fallback password to typed passcode:", pErr.message);
-            }
-          }
-        } else {
-          throw err;
-        }
+      // Set persistence according to Remember Me
+      await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+      
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Email verification check
+      if (userCredential.user && !userCredential.user.emailVerified) {
+        await signOut(auth);
+        setAuthError({ code: "auth/unverified-email", message: "Please verify your email first. Check your inbox." });
+        return;
       }
       
+      // Success: reset rate limit counters
+      setFailedAttempts(0);
+      setLockoutTimer(0);
+
       if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
         setActiveTab("admin");
       } else if (authRoleSelection === "DOCTOR") {
@@ -2326,103 +2426,86 @@ export default function App() {
       }
       showToast(`🔑 Verified Session! Welcome back.`);
     } catch (err: any) {
-      console.warn("Sign In yielded non-blocking error/configuration gap. Switching to Secure Local Simulation:", err.message);
+      console.error("Sign-In failed:", err.code, err.message);
       
-      const tempPolicy = `CH-POL-${Math.floor(10000 + Math.random() * 90000)}`;
-      const simulatedProfile = {
-        uid: `sim-${Date.now()}`,
-        name: authNameRef.current.trim() || "City Healer User",
-        email: email,
-        phone: authPhoneRef.current.trim() || "",
-        role: authRoleSelectionRef.current || "PATIENT",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        age: 34,
-        gender: "Male",
-        bloodGroup: "O+",
-        policyNo: tempPolicy
-      };
-      
-      localStorage.setItem("simulated_auth_profile", JSON.stringify(simulatedProfile));
-      setActiveRole(simulatedProfile.role);
-      setAuthName(simulatedProfile.name);
-      setAuthEmail(simulatedProfile.email);
-      setAuthPhone(simulatedProfile.phone);
-      setJwtToken("mock-jwt-token-simulated");
-      
-      if (simulatedProfile.role === "ADMIN" || simulatedProfile.role === "HOSPITAL") {
-        setActiveTab("admin");
-      } else if (simulatedProfile.role === "DOCTOR") {
-        setActiveTab("consultation");
-      } else {
-        setActiveTab("overview");
-      }
-      setIsAuthenticated(true);
-      loadData();
-      showToast("⚠️ Diagnostic profile secured locally (Local Simulation active).");
+      // Increment failed attempts
+      setFailedAttempts((prev) => {
+        const nextAttempts = prev + 1;
+        if (nextAttempts >= 3) {
+          setLockoutTimer(30);
+        }
+        return nextAttempts;
+      });
+
+      const friendlyMsg = getFriendlyAuthErrorMessage(err.code);
+      setAuthError({ code: err.code, message: friendlyMsg });
     } finally {
       setAuthLoading(false);
     }
   };
 
   const handleFirebaseSignUp = async (passcode?: string) => {
+    setAuthError(null);
     const email = getUserEmailFromInput();
-    const password = passcode || "CityHealerPass123!";
+    const password = passcode || "";
+    
+    if (!password || password.length < 6) {
+      setAuthError({ code: "auth/weak-password", message: "Password must be at least 6 characters." });
+      return;
+    }
+
     try {
       setAuthLoading(true);
       
-      try {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } catch (authErr: any) {
-        // We will gracefully handle any error here and fallback to Simulated local session to ensure 100% login uptime
-        console.warn("Firebase registration yielded non-blocking issue. Fallback to Local Simulation.", authErr.message);
-        throw authErr;
-      }
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
-      if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
-        setActiveTab("admin");
-      } else if (authRoleSelection === "DOCTOR") {
-        setActiveTab("consultation");
-      } else {
-        setActiveTab("overview");
+      if (userCredential.user) {
+        // Send email verification
+        await sendEmailVerification(userCredential.user);
+        // Sign out right after registration, requiring they verify before first login
+        await signOut(auth);
+        setAuthMode("LOGIN");
+        showToast("✉️ Check your inbox and verify your email before logging in.");
       }
-      showToast(`⚡ New registration secured! Welcome to Clinical Grid.`);
     } catch (err: any) {
-      console.warn("Activating direct Local Registration Simulation fallback.", err.message);
-      
-      const tempPolicy = `CH-POL-${Math.floor(10000 + Math.random() * 90000)}`;
-      const simulatedProfile = {
-        uid: `sim-${Date.now()}`,
-        name: authNameRef.current.trim() || "City Healer User",
-        email: email,
-        phone: authPhoneRef.current.trim() || "",
-        role: authRoleSelectionRef.current || "PATIENT",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        age: 34,
-        gender: "Male",
-        bloodGroup: "O+",
-        policyNo: tempPolicy
-      };
-      
-      localStorage.setItem("simulated_auth_profile", JSON.stringify(simulatedProfile));
-      setActiveRole(simulatedProfile.role);
-      setAuthName(simulatedProfile.name);
-      setAuthEmail(simulatedProfile.email);
-      setAuthPhone(simulatedProfile.phone);
-      setJwtToken("mock-jwt-token-simulated");
-      
-      if (simulatedProfile.role === "ADMIN" || simulatedProfile.role === "HOSPITAL") {
-        setActiveTab("admin");
-      } else if (simulatedProfile.role === "DOCTOR") {
-        setActiveTab("consultation");
-      } else {
-        setActiveTab("overview");
-      }
-      setIsAuthenticated(true);
-      loadData();
-      showToast("⚠️ Note: Profile successfully secured via Local Simulation.");
+      console.error("Sign-Up failed:", err.code, err.message);
+      const friendlyMsg = getFriendlyAuthErrorMessage(err.code);
+      setAuthError({ code: err.code, message: friendlyMsg });
     } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setAuthError(null);
+    const email = getUserEmailFromInput();
+    const password = authPasscode;
+    if (!email || !email.includes("@")) {
+      setAuthError({ code: "auth/invalid-email", message: "Please enter a valid email address first." });
+      return;
+    }
+    if (!password) {
+      setAuthError({ code: "auth/missing-passcode", message: "Please enter your passcode first." });
+      return;
+    }
+    try {
+      setAuthLoading(true);
+      isResendingVerificationRef.current = true;
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      if (userCredential.user) {
+        if (userCredential.user.emailVerified) {
+          showToast("✅ Your email is already verified. You can log in.");
+        } else {
+          await sendEmailVerification(userCredential.user);
+          showToast("✉️ Verification email resent! Please check your inbox.");
+        }
+        await signOut(auth);
+      }
+    } catch (err: any) {
+      const friendlyMsg = getFriendlyAuthErrorMessage(err.code);
+      setAuthError({ code: err.code, message: friendlyMsg });
+    } finally {
+      isResendingVerificationRef.current = false;
       setAuthLoading(false);
     }
   };
@@ -2771,21 +2854,65 @@ export default function App() {
                         : "bg-slate-55 border-slate-200 text-slate-900 focus:bg-white"
                     }`}
                   />
-                  <div className="flex justify-between items-center mt-1.5">
-                    <button 
-                      onClick={() => setAuthMode("FORGOT")}
-                      className="text-[10px] text-blue-600 font-bold hover:underline"
-                    >
-                      Forgot Password?
-                    </button>
-                    <span className="text-[9px] text-slate-400 font-medium">Dual SMS Verification Active</span>
+                  <div className="flex justify-between items-center mt-2.5">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-slate-500">
+                      <input 
+                        type="checkbox" 
+                        checked={rememberMe} 
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                      Remember me
+                    </label>
+                    <div className="flex items-center gap-2.5">
+                      <button 
+                        type="button"
+                        onClick={handleResendVerification}
+                        className="text-[10px] text-emerald-600 font-bold hover:underline cursor-pointer"
+                      >
+                        Resend verification
+                      </button>
+                      <span className={isAppDarkMode ? "text-slate-800" : "text-slate-200"}>|</span>
+                      <button 
+                        onClick={() => setAuthMode("FORGOT")}
+                        className="text-[10px] text-blue-600 font-bold hover:underline cursor-pointer"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
                   </div>
+                </div>
+
+                <div className="flex items-center gap-2 select-none py-1">
+                  <input 
+                    type="checkbox" 
+                    id="rememberMeCheckbox" 
+                    checked={rememberMe} 
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <label htmlFor="rememberMeCheckbox" className={`text-xs font-semibold cursor-pointer ${isAppDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                    Remember me on this device
+                  </label>
                 </div>
               </div>
 
+              <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} isDarkMode={isAppDarkMode} />
+
+              {lockoutTimer > 0 && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-xl font-bold text-center">
+                  ⚠️ Too many failed attempts. Please wait {lockoutTimer} seconds.
+                </div>
+              )}
+
               <button 
                 onClick={() => handleFirebaseLogin(authPasscode)}
-                className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-xs py-3.5 rounded-xl shadow-lg shadow-cyan-500/15 cursor-pointer transition-all active:scale-[0.98]"
+                disabled={lockoutTimer > 0}
+                className={`w-full font-extrabold text-xs py-3.5 rounded-xl shadow-lg transition-all text-white ${
+                  lockoutTimer > 0 
+                    ? "bg-slate-700/50 cursor-not-allowed text-slate-500" 
+                    : "bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-cyan-500/15 cursor-pointer active:scale-[0.98]"
+                }`}
               >
                 Authenticate Session
               </button>
@@ -2823,52 +2950,6 @@ export default function App() {
                   <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.65-2.83c-1.01.68-2.3 1.09-4.31 1.09-3.08 0-5.73-2.5-6.66-5.49L1.48 15.88C3.37 19.75 7.33 23 12 23z" />
                 </svg>
                 Continue with Google Secure Auth
-              </button>
-
-              <button 
-                type="button"
-                onClick={() => {
-                  console.warn("Activating Democare Simulator bypass.");
-                  const tempPolicy = `CH-POL-${Math.floor(10000 + Math.random() * 90000)}`;
-                  const simulatedProfile = {
-                    uid: `sim-${Date.now()}`,
-                    name: "Raghav Sharma",
-                    email: "raghavramghat@gmail.com",
-                    phone: "+91 98101 22334",
-                    role: authRoleSelection,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    age: 34,
-                    gender: "Male",
-                    bloodGroup: "O+",
-                    policyNo: tempPolicy
-                  };
-                  localStorage.setItem("simulated_auth_profile", JSON.stringify(simulatedProfile));
-                  setActiveRole(simulatedProfile.role);
-                  setAuthName(simulatedProfile.name);
-                  setAuthEmail(simulatedProfile.email);
-                  setAuthPhone(simulatedProfile.phone);
-                  setJwtToken("mock-jwt-token-simulated");
-                  
-                  if (simulatedProfile.role === "ADMIN" || simulatedProfile.role === "HOSPITAL") {
-                    setActiveTab("admin");
-                  } else if (simulatedProfile.role === "DOCTOR") {
-                    setActiveTab("consultation");
-                  } else {
-                    setActiveTab("overview");
-                  }
-                  setIsAuthenticated(true);
-                  loadData();
-                  showToast("⚡ Logged in via Quick Simulator Access (Offline Bypass)!");
-                }}
-                className={`w-full py-3.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 border cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all shadow-md ${
-                  isAppDarkMode 
-                    ? "bg-slate-900 border-cyan-500/30 text-cyan-400 hover:bg-slate-800 shadow-cyan-950/20" 
-                    : "bg-blue-50 border-blue-200/60 hover:bg-blue-100 text-blue-900 shadow-blue-900/5"
-                }`}
-              >
-                <Zap className="h-4.5 w-4.5 text-cyan-500 animate-bounce" />
-                Quick Simulator Mode (Bypass Auth Problems)
               </button>
             </div>
           )}
@@ -2943,8 +3024,46 @@ export default function App() {
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-900 mt-1 focus:outline-none focus:border-blue-500 focus:bg-white font-semibold"
                     placeholder="Create a personalized passcode"
                   />
+                  {authPasscode && (
+                    <div className="mt-2 space-y-1">
+                      <div className="flex justify-between items-center text-[10px] font-bold">
+                        <span className="text-slate-500">Password Strength:</span>
+                        <span className={
+                          authPasscode.length < 6 
+                            ? "text-rose-500" 
+                            : /^[a-zA-Z0-9]+$/.test(authPasscode) || authPasscode.length < 8
+                              ? "text-amber-500" 
+                              : "text-emerald-500"
+                        }>
+                          {authPasscode.length < 6 
+                            ? "Weak" 
+                            : /^[a-zA-Z0-9]+$/.test(authPasscode) || authPasscode.length < 8
+                              ? "Fair" 
+                              : "Strong"}
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div className={`h-full transition-all duration-300 ${
+                          authPasscode.length < 6 
+                            ? "w-1/3 bg-rose-500" 
+                            : /^[a-zA-Z0-9]+$/.test(authPasscode) || authPasscode.length < 8
+                              ? "w-2/3 bg-amber-500" 
+                              : "w-full bg-emerald-500"
+                        }`} />
+                      </div>
+                      <p className="text-[9px] text-slate-400 font-medium leading-tight">
+                        {authPasscode.length < 6 
+                          ? "Password must be at least 6 characters." 
+                          : /^[a-zA-Z0-9]+$/.test(authPasscode) || authPasscode.length < 8
+                            ? "Add mix of upper/lower case letters, numbers and special symbols for maximum security." 
+                            : "Excellent! Your password is secure."}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} isDarkMode={isAppDarkMode} />
 
               <button 
                 type="button"
@@ -2952,52 +3071,6 @@ export default function App() {
                 className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-xs py-3.5 rounded-xl shadow-lg shadow-cyan-500/15 cursor-pointer text-center transition-all active:scale-[0.98]"
               >
                 Complete Registration Setup
-              </button>
-
-              <button 
-                type="button"
-                onClick={() => {
-                  console.warn("Activating Democare Custom Simulator registration bypass.");
-                  const tempPolicy = `CH-POL-${Math.floor(10000 + Math.random() * 90000)}`;
-                  const simulatedProfile = {
-                    uid: `sim-${Date.now()}`,
-                    name: authName.trim() || "City Healer User",
-                    email: authEmail.trim() || "custom.patient@cityhealer.com",
-                    phone: authPhone.trim() || "+91 98101 22334",
-                    role: authRoleSelection,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    age: 34,
-                    gender: "Male",
-                    bloodGroup: "O+",
-                    policyNo: tempPolicy
-                  };
-                  localStorage.setItem("simulated_auth_profile", JSON.stringify(simulatedProfile));
-                  setActiveRole(simulatedProfile.role);
-                  setAuthName(simulatedProfile.name);
-                  setAuthEmail(simulatedProfile.email);
-                  setAuthPhone(simulatedProfile.phone);
-                  setJwtToken("mock-jwt-token-simulated");
-                  
-                  if (simulatedProfile.role === "ADMIN" || simulatedProfile.role === "HOSPITAL") {
-                    setActiveTab("admin");
-                  } else if (simulatedProfile.role === "DOCTOR") {
-                    setActiveTab("consultation");
-                  } else {
-                    setActiveTab("overview");
-                  }
-                  setIsAuthenticated(true);
-                  loadData();
-                  showToast(`⚡ Registered successfully as ${simulatedProfile.name} in Simulator mode!`);
-                }}
-                className={`w-full py-3.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 border cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all shadow-md ${
-                  isAppDarkMode 
-                    ? "bg-slate-900 border-cyan-500/30 text-cyan-400 hover:bg-slate-800 shadow-cyan-950/20" 
-                    : "bg-blue-50 border-blue-200/60 hover:bg-blue-100 text-blue-900 shadow-blue-900/5"
-                }`}
-              >
-                <Zap className="h-4.5 w-4.5 text-cyan-500 animate-bounce" />
-                Register in Simulator Mode (Bypass Auth Problems)
               </button>
             </div>
           )}
@@ -3015,6 +3088,9 @@ export default function App() {
                 placeholder="+91 98101 22334"
                 onChange={(e) => setAuthPhone(e.target.value)}
               />
+
+              <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} isDarkMode={isAppDarkMode} />
+
               <div className="flex gap-3">
                 <button 
                   type="button"
@@ -3063,6 +3139,8 @@ export default function App() {
                 </p>
               </div>
 
+              <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} isDarkMode={isAppDarkMode} />
+
               <div className="flex gap-3">
                 <button 
                   type="button"
@@ -3086,6 +3164,31 @@ export default function App() {
     );
   }
 
+  const renderTimeoutWarningModal = () => {
+    if (!showTimeoutWarning) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
+        <div className={`w-full max-w-sm rounded-3xl p-6 border shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200 ${
+          isAppDarkMode ? "bg-slate-900 border-slate-800 text-slate-100 shadow-slate-950/50" : "bg-white border-slate-100 text-slate-900 shadow-blue-900/10"
+        }`}>
+          <div className="flex items-center gap-3 text-amber-500">
+            <AlertTriangle className="h-6 w-6 animate-bounce" />
+            <h3 className="font-black text-sm uppercase tracking-wide">Security Session Alert</h3>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Your clinical session will expire in 5 minutes due to inactivity. Please extend your session to prevent automated termination.
+          </p>
+          <button
+            onClick={() => setLastActivity(Date.now())}
+            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-extrabold text-xs transition-all shadow-lg shadow-amber-500/10 cursor-pointer"
+          >
+            Extend Session
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   if (activeTab === "overview") {
     return (
       <div className={`w-full font-sans antialiased selection:bg-cyan-500/20 transition-colors duration-300 ${isAppDarkMode ? "bg-slate-950 text-slate-100" : "bg-[#F8FAFC] text-slate-900"}`}>
@@ -3095,6 +3198,7 @@ export default function App() {
           setActiveTab(tab);
         }} />
         <LandingPage onNavigate={setActiveTab} hospitals={hospitals} isAppDarkMode={isAppDarkMode} />
+        {renderTimeoutWarningModal()}
       </div>
     );
   }
@@ -10220,6 +10324,7 @@ export default function App() {
           </div>
         )}
       </main>
+      {renderTimeoutWarningModal()}
     </div>
   );
 }

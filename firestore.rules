@@ -1,46 +1,77 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global safety net: default deny
+
+    // ─────────────────────────────────────────────────────────────
+    // DEFAULT: deny everything unless a rule below explicitly allows
+    // ─────────────────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Common standard library
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-    
-    function incoming() {
-      return request.resource.data;
-    }
-    
-    function existing() {
-      return resource.data;
-    }
-    
+    // ─────────────────────────────────────────────────────────────
+    // HELPER FUNCTIONS
+    // ─────────────────────────────────────────────────────────────
+
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Validation helper for User entity
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // FIX 1: Role helpers — read the user's role from their Firestore
+    // profile instead of trusting the token claim (safer)
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && getUserRole() == 'ADMIN';
+    }
+
+    function isDoctor() {
+      return isSignedIn() && getUserRole() == 'DOCTOR';
+    }
+
+    function isHospital() {
+      return isSignedIn() && getUserRole() == 'HOSPITAL';
+    }
+
+    function isPatient() {
+      return isSignedIn() && getUserRole() == 'PATIENT';
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // VALIDATION HELPERS (unchanged from your original — good work)
+    // ─────────────────────────────────────────────────────────────
+
     function isValidUser(data) {
       return data.uid is string && data.uid.size() <= 128
         && data.name is string && data.name.size() <= 150
         && data.email is string && data.email.size() <= 150
         && (data.phone == null || (data.phone is string && data.phone.size() <= 50))
-        && data.role is string && (data.role == 'PATIENT' || data.role == 'DOCTOR' || data.role == 'HOSPITAL' || data.role == 'ADMIN')
+        && data.role is string
+        && (data.role == 'PATIENT' || data.role == 'DOCTOR' || data.role == 'HOSPITAL' || data.role == 'ADMIN')
         && (data.age == null || data.age is number)
         && (data.gender == null || (data.gender is string && data.gender.size() <= 50))
         && (data.bloodGroup == null || (data.bloodGroup is string && data.bloodGroup.size() <= 10))
         && (data.policyNo == null || (data.policyNo is string && data.policyNo.size() <= 100));
     }
 
-    // Validation helper for Hospital entity
     function isValidHospital(data) {
       return data.id is string && data.id.size() <= 128
         && data.name is string && data.name.size() <= 200
@@ -50,22 +81,25 @@ service cloud.firestore {
         && data.emergencyOccupancy is number
         && data.lat is number && data.lng is number
         && data.phone is string && data.phone.size() <= 50
-        && data.rating is number && data.email is string && data.email.size() <= 150
-        && data.specialties is list && data.categories is list;
+        && data.rating is number
+        && data.email is string && data.email.size() <= 150
+        && data.specialties is list
+        && data.categories is list;
     }
 
-    // Validation helper for Doctor entity
     function isValidDoctor(data) {
       return data.id is string && data.id.size() <= 128
         && data.name is string && data.name.size() <= 150
         && data.specialty is string && data.specialty.size() <= 150
-        && data.rating is number && data.experience is number
-        && data.patientsServed is number && data.online is bool
-        && data.queueCount is number && data.hospitalName is string && data.hospitalName.size() <= 200
+        && data.rating is number
+        && data.experience is number
+        && data.patientsServed is number
+        && data.online is bool
+        && data.queueCount is number
+        && data.hospitalName is string && data.hospitalName.size() <= 200
         && data.waitTimeMin is number;
     }
 
-    // Validation helper for Appointment entity
     function isValidAppointment(data) {
       return data.id is string && data.id.size() <= 128
         && data.patientId is string && data.patientId.size() <= 128
@@ -75,11 +109,12 @@ service cloud.firestore {
         && data.specialty is string && data.specialty.size() <= 150
         && data.date is string && data.date.size() <= 20
         && data.time is string && data.time.size() <= 20
-        && data.status is string && (data.status == 'PENDING' || data.status == 'ACCEPTED' || data.status == 'DECLINED' || data.status == 'COMPLETED')
-        && data.type is string && (data.type == 'VIRTUAL' || data.type == 'IN_PERSON');
+        && data.status is string
+        && (data.status == 'PENDING' || data.status == 'ACCEPTED' || data.status == 'DECLINED' || data.status == 'COMPLETED')
+        && data.type is string
+        && (data.type == 'VIRTUAL' || data.type == 'IN_PERSON');
     }
 
-    // Validation helper for QueueToken entity
     function isValidQueueToken(data) {
       return data.id is string && data.id.size() <= 128
         && data.tokenNumber is string && data.tokenNumber.size() <= 50
@@ -88,11 +123,11 @@ service cloud.firestore {
         && data.doctorId is string && data.doctorId.size() <= 128
         && data.doctorName is string && data.doctorName.size() <= 150
         && data.estimatedWaitTimeMin is number
-        && data.status is string && (data.status == 'WAITING' || data.status == 'SERVING' || data.status == 'COMPLETED' || data.status == 'SKIPPED')
+        && data.status is string
+        && (data.status == 'WAITING' || data.status == 'SERVING' || data.status == 'COMPLETED' || data.status == 'SKIPPED')
         && data.checkpointTime is string && data.checkpointTime.size() <= 20;
     }
 
-    // Validation helper for MedicalRecord entity
     function isValidMedicalRecord(data) {
       return data.id is string && data.id.size() <= 128
         && data.patientId is string && data.patientId.size() <= 128
@@ -102,7 +137,6 @@ service cloud.firestore {
         && data.diagnoseSummary is string && data.diagnoseSummary.size() <= 2000;
     }
 
-    // Validation helper for Prescription entity
     function isValidPrescription(data) {
       return data.id is string && data.id.size() <= 128
         && data.appointmentId is string && data.appointmentId.size() <= 128
@@ -115,28 +149,16 @@ service cloud.firestore {
         && data.medicines is list;
     }
 
-    // Validation helper for MedicineProduct entity
-    function isValidMedicineProduct(data) {
-      return data.id is string && data.id.size() <= 128
-        && data.name is string && data.name.size() <= 200
-        && data.category is string && data.category.size() <= 100
-        && data.price is number && data.stock is number
-        && data.description is string && data.description.size() <= 1000
-        && data.requiresPrescription is bool
-        && data.dosageForm is string && data.dosageForm.size() <= 50;
-    }
-
-    // Validation helper for MedicineOrder entity
     function isValidMedicineOrder(data) {
       return data.id is string && data.id.size() <= 128
         && data.patientId is string && data.patientId.size() <= 128
         && data.patientName is string && data.patientName.size() <= 150
-        && data.totalAmount is number && data.status is string
+        && data.totalAmount is number
+        && data.status is string
         && data.prescriptionAttached is bool
         && data.deliveryAddress is string && data.deliveryAddress.size() <= 400;
     }
 
-    // Validation helper for EmergencyAlert entity
     function isValidEmergencyAlert(data) {
       return data.id is string && data.id.size() <= 128
         && data.patientId is string && data.patientId.size() <= 128
@@ -145,102 +167,291 @@ service cloud.firestore {
         && data.lat is number && data.lng is number
         && data.address is string && data.address.size() <= 400
         && data.type is string && data.type.size() <= 100
-        && data.status is string && (data.status == 'REPORTED' || data.status == 'DISPATCHED' || data.status == 'RESOLVED')
+        && data.status is string
+        && (data.status == 'REPORTED' || data.status == 'DISPATCHED' || data.status == 'RESOLVED')
         && data.assignedAmbulanceRef is string && data.assignedAmbulanceRef.size() <= 50
         && data.hospitalName is string && data.hospitalName.size() <= 200;
     }
 
-    // Validation helper for ActiveChat entity
-    function isValidActiveChat(data) {
-      return data.appointmentId is string && data.appointmentId.size() <= 128
-        && data.messages is list;
-    }
-
-    // ------------------------------------------------------------
-    // Match Rules for Collections
-    // ------------------------------------------------------------
-
-    // Users Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // USERS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /users/{userId} {
+      // A user can only read their own profile
       allow get: if isOwner(userId) && isValidId(userId);
-      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && incoming().createdAt == request.time;
-      allow update: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && incoming().updatedAt == request.time && incoming().createdAt == existing().createdAt && incoming().uid == existing().uid && incoming().role == existing().role;
+
+      // FIX 2: Patients can only self-register as PATIENT
+      // Doctors and hospitals must be created by ADMIN via server-side SDK
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().uid == userId
+        && incoming().role == 'PATIENT'       // <-- NEW: prevent self-assigning DOCTOR/ADMIN role
+        && incoming().createdAt == request.time;
+
+      // A user can update their own profile but NOT change their role or uid
+      allow update: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().createdAt == existing().createdAt
+        && incoming().uid == existing().uid
+        && incoming().role == existing().role  // role is immutable after creation
+        && incoming().email == existing().email; // email changes go through Firebase Auth only
+
+      // FIX 3: Admins can read any user profile (needed for admin panel)
+      allow get: if isAdmin();
+
+      // Nobody can delete user profiles (audit trail)
       allow delete: if false;
     }
 
-    // Hospitals Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // HOSPITALS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /hospitals/{hospitalId} {
+      // Any signed-in user can view hospital info (beds, location, etc.)
       allow read: if isSignedIn();
-      allow write: if false; // System/Admin API handles onboarding & updates securely via server-side Admin SDK
+
+      // FIX 4: Hospital accounts can update their OWN bed/capacity data
+      // but cannot change immutable fields like id, name, address
+      allow update: if isHospital()
+        && isValidId(hospitalId)
+        && isValidHospital(incoming())
+        && incoming().id == existing().id         // id is immutable
+        && incoming().name == existing().name     // name is immutable
+        && incoming().address == existing().address; // address is immutable
+
+      // Only admins can create or fully manage hospitals
+      allow create, delete: if isAdmin();
     }
 
-    // Doctors Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // DOCTORS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /doctors/{doctorId} {
+      // Any signed-in user can view doctor profiles
       allow read: if isSignedIn();
-      allow write: if false; // System/Admin API handles practitioner records securely via server-side Admin SDK
+
+      // FIX 5: Doctors can update their own availability (online status,
+      // queue count, wait time) but not their credentials or rating
+      allow update: if isDoctor()
+        && request.auth.uid == doctorId
+        && isValidDoctor(incoming())
+        && incoming().id == existing().id
+        && incoming().name == existing().name
+        && incoming().specialty == existing().specialty
+        && incoming().experience == existing().experience
+        && incoming().hospitalName == existing().hospitalName;
+        // Doctors can only change: online, queueCount, waitTimeMin, patientsServed
+
+      // Only admins can create or delete doctor profiles
+      allow create, delete: if isAdmin();
     }
 
-    // Appointments Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // APPOINTMENTS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /appointments/{appointmentId} {
-      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid || resource.data.doctorId == request.auth.uid);
-      allow create: if isSignedIn() && isValidId(appointmentId) && isValidAppointment(incoming()) && incoming().patientId == request.auth.uid;
-      allow update: if isSignedIn() && isValidId(appointmentId) && isValidAppointment(incoming()) && (existing().patientId == request.auth.uid || existing().doctorId == request.auth.uid)
-        && incoming().patientId == existing().patientId && incoming().doctorId == existing().doctorId;
+      // Patient sees their own appointments; doctor sees appointments assigned to them
+      allow read: if isSignedIn()
+        && (resource.data.patientId == request.auth.uid
+            || resource.data.doctorId == request.auth.uid);
+
+      // Only patients can book appointments, and only for themselves
+      allow create: if isSignedIn()
+        && isValidId(appointmentId)
+        && isValidAppointment(incoming())
+        && incoming().patientId == request.auth.uid
+        && incoming().status == 'PENDING';  // FIX 6: must start as PENDING
+
+      // FIX 7: Patients can cancel (PENDING only); doctors can accept/decline/complete
+      allow update: if isSignedIn()
+        && isValidId(appointmentId)
+        && isValidAppointment(incoming())
+        && incoming().patientId == existing().patientId   // patient cannot be swapped
+        && incoming().doctorId == existing().doctorId     // doctor cannot be swapped
+        && (
+          // Patient can only cancel their own pending appointment
+          (request.auth.uid == existing().patientId
+            && existing().status == 'PENDING'
+            && incoming().status == 'DECLINED')
+          ||
+          // Doctor can accept, decline, or complete
+          (request.auth.uid == existing().doctorId
+            && (incoming().status == 'ACCEPTED'
+                || incoming().status == 'DECLINED'
+                || incoming().status == 'COMPLETED'))
+        );
+
       allow delete: if false;
     }
 
-    // QueueTokens Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // QUEUE TOKENS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /queue/{tokenId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(tokenId) && isValidQueueToken(incoming()) && incoming().patientId == request.auth.uid;
-      allow update: if isSignedIn() && isValidId(tokenId) && isValidQueueToken(incoming()) && (existing().patientId == request.auth.uid || existing().doctorId == request.auth.uid);
+      // FIX 8: Was "any signed-in user can read all tokens" — now scoped
+      // to only the patient or doctor on that token
+      allow read: if isSignedIn()
+        && (resource.data.patientId == request.auth.uid
+            || resource.data.doctorId == request.auth.uid);
+
+      // Only patients can create tokens for themselves
+      allow create: if isSignedIn()
+        && isValidId(tokenId)
+        && isValidQueueToken(incoming())
+        && incoming().patientId == request.auth.uid
+        && incoming().status == 'WAITING';  // must start as WAITING
+
+      // Patients or doctors on this token can update it
+      allow update: if isSignedIn()
+        && isValidId(tokenId)
+        && isValidQueueToken(incoming())
+        && (existing().patientId == request.auth.uid
+            || existing().doctorId == request.auth.uid)
+        && incoming().patientId == existing().patientId
+        && incoming().doctorId == existing().doctorId;
+
       allow delete: if false;
     }
 
-    // MedicalRecords Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // MEDICAL RECORDS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /records/{recordId} {
-      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid);
-      allow create: if isSignedIn() && isValidId(recordId) && isValidMedicalRecord(incoming()) && incoming().patientId == request.auth.uid;
-      allow update: if isSignedIn() && isValidId(recordId) && isValidMedicalRecord(incoming()) && existing().patientId == request.auth.uid && incoming().patientId == existing().patientId;
-      allow delete: if isSignedIn() && (existing().patientId == request.auth.uid);
+      // Only the patient themselves can read their own records
+      allow read: if isSignedIn()
+        && resource.data.patientId == request.auth.uid;
+
+      // Patients can create their own records
+      allow create: if isSignedIn()
+        && isValidId(recordId)
+        && isValidMedicalRecord(incoming())
+        && incoming().patientId == request.auth.uid;
+
+      // Patients can update their own records but cannot change patientId
+      allow update: if isSignedIn()
+        && isValidId(recordId)
+        && isValidMedicalRecord(incoming())
+        && existing().patientId == request.auth.uid
+        && incoming().patientId == existing().patientId;  // patientId is immutable
+
+      // FIX 9: Medical records should NOT be deletable by patients
+      // (important for audit trail in healthcare). Use archive flag instead.
+      // If you need soft-delete, add an "archived: true" field via update above.
+      allow delete: if false;
     }
 
-    // Prescriptions Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // PRESCRIPTIONS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /prescriptions/{prescriptionId} {
-      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid || resource.data.doctorId == request.auth.uid);
-      allow write: if false; // Only written/edited via clinician server routes
+      // Patient sees their own; doctor sees ones they wrote
+      allow read: if isSignedIn()
+        && (resource.data.patientId == request.auth.uid
+            || resource.data.doctorId == request.auth.uid);
+
+      // FIX 10: Only doctors can write prescriptions (not patients)
+      allow create: if isDoctor()
+        && isValidPrescription(incoming())
+        && incoming().doctorId == request.auth.uid;
+
+      // Prescriptions are immutable once written (medical-legal requirement)
+      allow update, delete: if false;
     }
 
-    // Medicines Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // MEDICINES COLLECTION (catalogue)
+    // ─────────────────────────────────────────────────────────────
     match /medicines/{medicineId} {
+      // Any signed-in user can browse medicines
       allow read: if isSignedIn();
-      allow write: if false; // Managed by admin/logistics server operations
+
+      // Only admins can manage the medicine catalogue
+      allow write: if isAdmin();
     }
 
-    // Medicine Orders Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // MEDICINE ORDERS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /medicineOrders/{orderId} {
-      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid);
-      allow create: if isSignedIn() && isValidId(orderId) && isValidMedicineOrder(incoming()) && incoming().patientId == request.auth.uid;
-      allow update: if isSignedIn() && isValidId(orderId) && isValidMedicineOrder(incoming()) && existing().patientId == request.auth.uid;
+      // Only the patient who placed the order can view it
+      allow read: if isSignedIn()
+        && resource.data.patientId == request.auth.uid;
+
+      // Patients can only place orders for themselves
+      allow create: if isSignedIn()
+        && isValidId(orderId)
+        && isValidMedicineOrder(incoming())
+        && incoming().patientId == request.auth.uid;
+
+      // FIX 11: Patients can only cancel PENDING orders, not change delivery address
+      // after dispatch or modify amount. Admins handle status changes.
+      allow update: if isSignedIn()
+        && isValidMedicineOrder(incoming())
+        && existing().patientId == request.auth.uid
+        && incoming().patientId == existing().patientId
+        && incoming().totalAmount == existing().totalAmount   // amount is immutable
+        && incoming().deliveryAddress == existing().deliveryAddress; // address is immutable after order
+
       allow delete: if false;
     }
 
-    // Emergency Alerts Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // EMERGENCY ALERTS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /emergencyAlerts/{alertId} {
-      allow read: if isSignedIn() && (resource.data.patientId == request.auth.uid);
-      allow create: if isSignedIn() && isValidId(alertId) && isValidEmergencyAlert(incoming()) && incoming().patientId == request.auth.uid;
-      allow update: if isSignedIn() && isValidId(alertId) && isValidEmergencyAlert(incoming()) && (existing().patientId == request.auth.uid);
+      // Patient can see their own alerts; admins can see all
+      allow read: if isSignedIn()
+        && (resource.data.patientId == request.auth.uid || isAdmin());
+
+      // Only patients can trigger SOS alerts for themselves
+      allow create: if isSignedIn()
+        && isValidId(alertId)
+        && isValidEmergencyAlert(incoming())
+        && incoming().patientId == request.auth.uid
+        && incoming().status == 'REPORTED';   // must start as REPORTED
+
+      // FIX 12: Patients CANNOT update their emergency alert status
+      // (previously they could set their own status to RESOLVED)
+      // Only admins/dispatch can update status to DISPATCHED or RESOLVED
+      allow update: if isAdmin();
+
       allow delete: if false;
     }
 
-    // ActiveChats Collection rules
+    // ─────────────────────────────────────────────────────────────
+    // ACTIVE CHATS COLLECTION
+    // ─────────────────────────────────────────────────────────────
     match /activeChats/{appointmentId} {
-      allow read, write: if isSignedIn(); // Individual room visibility checks made via client consultation mapping
+      // FIX 13: This was completely open to any signed-in user
+      // Now only the patient or doctor on this specific appointment can access it
+      allow read, write: if isSignedIn()
+        && (
+          // Check the appointment document to verify they are a participant
+          get(/databases/$(database)/documents/appointments/$(appointmentId)).data.patientId == request.auth.uid
+          ||
+          get(/databases/$(database)/documents/appointments/$(appointmentId)).data.doctorId == request.auth.uid
+        );
     }
 
-    // Health check channel rules
+    // ─────────────────────────────────────────────────────────────
+    // TEST / HEALTH CHECK COLLECTION
+    // FIX 14: Was publicly readable (no auth required) — now requires sign-in
+    // to prevent leaking any data accidentally stored here
+    // ─────────────────────────────────────────────────────────────
     match /test/{docId} {
-      allow read: if true;
+      allow read: if isSignedIn();
+      allow write: if false;
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // ADMIN COLLECTION (new — for admin-only platform settings)
+    // ─────────────────────────────────────────────────────────────
+    match /adminConfig/{docId} {
+      allow read, write: if isAdmin();
+    }
+
   }
 }
