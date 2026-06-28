@@ -189,7 +189,9 @@ googleProvider.addScope('profile');
 googleProvider.addScope('email');
 
 const getFriendlyAuthErrorMessage = (code: string): string => {
-  switch (code) {
+  if (!code) return "An unknown authentication error occurred. Please try again.";
+  const normalized = code.toLowerCase().startsWith("auth/") ? code.toLowerCase() : `auth/${code.toLowerCase()}`;
+  switch (normalized) {
     case "auth/user-not-found":
       return "No account found with this email.";
     case "auth/wrong-password":
@@ -210,6 +212,10 @@ const getFriendlyAuthErrorMessage = (code: string): string => {
       return "Popup blocked by your browser. Attempting direct redirect...";
     case "auth/popup-closed-by-user":
       return "Google sign-in was cancelled by the user.";
+    case "auth/operation-not-allowed":
+      return "Email & Password sign-in is not enabled in your Firebase console. Go to Authentication > Sign-in method to enable it, or choose 'Bypass in Demo Mode' below to explore.";
+    case "auth/unauthorized-domain":
+      return "This domain is not authorized in your Firebase Project's OAuth settings. To resolve, go to Firebase Console > Authentication > Settings > Authorized domains and add this app's URL, or choose 'Bypass in Demo Mode' below to proceed.";
     default:
       return "An unknown authentication error occurred. Please try again.";
   }
@@ -2510,6 +2516,28 @@ export default function App() {
     }
   };
 
+  const handleOfflineBypass = () => {
+    setIsAuthenticated(true);
+    setActiveRole(authRoleSelection);
+    const emailVal = getUserEmailFromInput() || "simulated@cityhealer.com";
+    const nameVal = authName.trim() || "City Healer User";
+    const phoneVal = authPhone.trim() || "";
+    setAuthName(nameVal);
+    setAuthEmail(emailVal);
+    setAuthPhone(phoneVal);
+    const fakeJwtToken = "mock-jwt-token-simulated";
+    setJwtToken(fakeJwtToken);
+    
+    if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
+      setActiveTab("admin");
+    } else if (authRoleSelection === "DOCTOR") {
+      setActiveTab("consultation");
+    } else {
+      setActiveTab("overview");
+    }
+    showToast(`⚡ Signed in via offline demo fallback! Role: ${authRoleSelection}`);
+  };
+
   // Keep simulated triggers compatible
   const triggerSendOTP = () => {
     handleFirebaseLogin(authPasscode);
@@ -2785,380 +2813,43 @@ export default function App() {
             <p className={`text-xs font-medium ${isAppDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Healing Cities Through Connected Care • Delhi NCR</p>
           </div>
 
-          {authMode === "LOGIN" && (
-            <div className="space-y-4">
-              <div className={`p-1 rounded-2xl flex border transition-all ${isAppDarkMode ? "bg-slate-950 border-slate-800" : "bg-slate-100/80 border-slate-200/40"}`}>
-                <button 
-                  onClick={() => setAuthMode("LOGIN")} 
-                  className={`flex-1 text-center py-2 text-xs font-bold rounded-xl transition-all border ${
-                    isAppDarkMode 
-                      ? "bg-slate-800 border-slate-700 text-white shadow-sm" 
-                      : "bg-white text-blue-950 shadow-sm border-slate-200/30"
-                  }`}
-                >
-                  Sign In
-                </button>
-                <button 
-                  onClick={() => setAuthMode("SIGNUP")} 
-                  className={`flex-1 text-center py-2 text-xs font-bold transition-all ${
-                    isAppDarkMode ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-blue-900"
-                  }`}
-                >
-                  Register
-                </button>
-              </div>
-
-              <div className="space-y-3.5">
-                <div>
-                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Simulate Role Authorization</label>
-                  <select 
-                    value={authRoleSelection}
-                    onChange={(e: any) => setAuthRoleSelection(e.target.value)}
-                    className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
-                      isAppDarkMode 
-                        ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900 cursor-pointer" 
-                        : "bg-slate-55 border-slate-200 text-slate-900 focus:bg-white cursor-pointer"
-                    }`}
-                  >
-                    <option value="PATIENT" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>PATIENT (Raghav Sharma / Family Profiles)</option>
-                    <option value="DOCTOR" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>DOCTOR (Physician Care Portal)</option>
-                    <option value="HOSPITAL" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>HOSPITAL ADMIN (Bed Allocation Coordinator)</option>
-                    <option value="ADMIN" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>SYSTEM ADMIN (Delhi NCR Health Registry)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Mobile Number or Email Address</label>
-                  <input 
-                    type="text" 
-                    value={authPhone} 
-                    onChange={(e) => setAuthPhone(e.target.value)}
-                    className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
-                      isAppDarkMode 
-                        ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900" 
-                        : "bg-slate-55 border-slate-200 text-slate-900 focus:bg-white"
-                    }`}
-                    placeholder="Enter email or mobile number"
-                  />
-                </div>
-
-                <div>
-                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Authorization Passcode</label>
-                  <input 
-                    type="password" 
-                    value={authPasscode}
-                    onChange={(e) => setAuthPasscode(e.target.value)}
-                    className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
-                      isAppDarkMode 
-                        ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900" 
-                        : "bg-slate-55 border-slate-200 text-slate-900 focus:bg-white"
-                    }`}
-                  />
-                  <div className="flex justify-between items-center mt-2.5">
-                    <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-slate-500">
-                      <input 
-                        type="checkbox" 
-                        checked={rememberMe} 
-                        onChange={(e) => setRememberMe(e.target.checked)}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                      Remember me
-                    </label>
-                    <div className="flex items-center gap-2.5">
-                      <button 
-                        type="button"
-                        onClick={handleResendVerification}
-                        className="text-[10px] text-emerald-600 font-bold hover:underline cursor-pointer"
-                      >
-                        Resend verification
-                      </button>
-                      <span className={isAppDarkMode ? "text-slate-800" : "text-slate-200"}>|</span>
-                      <button 
-                        onClick={() => setAuthMode("FORGOT")}
-                        className="text-[10px] text-blue-600 font-bold hover:underline cursor-pointer"
-                      >
-                        Forgot Password?
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 select-none py-1">
-                  <input 
-                    type="checkbox" 
-                    id="rememberMeCheckbox" 
-                    checked={rememberMe} 
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                  />
-                  <label htmlFor="rememberMeCheckbox" className={`text-xs font-semibold cursor-pointer ${isAppDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-                    Remember me on this device
-                  </label>
-                </div>
-              </div>
-
-              <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} isDarkMode={isAppDarkMode} />
-
-              {lockoutTimer > 0 && (
-                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-xl font-bold text-center">
-                  ⚠️ Too many failed attempts. Please wait {lockoutTimer} seconds.
-                </div>
-              )}
-
-              <button 
-                onClick={() => handleFirebaseLogin(authPasscode)}
-                disabled={lockoutTimer > 0}
-                className={`w-full font-extrabold text-xs py-3.5 rounded-xl shadow-lg transition-all text-white ${
-                  lockoutTimer > 0 
-                    ? "bg-slate-700/50 cursor-not-allowed text-slate-500" 
-                    : "bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-cyan-500/15 cursor-pointer active:scale-[0.98]"
+          <div className="space-y-5">
+            <div>
+              <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Simulate Role Authorization</label>
+              <p className={`text-[11px] mb-2 ${isAppDarkMode ? "text-slate-500" : "text-slate-400"}`}>Select your role to access different areas of the platform after authentication.</p>
+              <select 
+                value={authRoleSelection}
+                onChange={(e: any) => setAuthRoleSelection(e.target.value)}
+                className={`w-full border rounded-xl px-4 py-3.5 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
+                  isAppDarkMode 
+                    ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900 cursor-pointer" 
+                    : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white cursor-pointer"
                 }`}
               >
-                Authenticate Session
-              </button>
-
-              <div className="relative flex py-1 items-center">
-                <div className={`flex-grow border-t ${isAppDarkMode ? "border-slate-800" : "border-slate-200/60"}`}></div>
-                <span className="flex-shrink mx-4 text-[9px] uppercase font-bold text-slate-400 tracking-wider">or rapid authentication</span>
-                <div className={`flex-grow border-t ${isAppDarkMode ? "border-slate-800" : "border-slate-200/60"}`}></div>
-              </div>
-
-              {isBiometricEnabled && (
-                <button
-                  type="button"
-                  onClick={handleLaunchBiometricLogin}
-                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-extrabold text-xs py-3.5 rounded-xl flex items-center justify-center gap-2.5 cursor-pointer transition-all shadow-lg shadow-emerald-500/10 border border-emerald-500/30"
-                >
-                  {biometricVerifyType === "FINGERPRINT" ? (
-                    <Fingerprint className="h-4.5 w-4.5 text-emerald-100 animate-pulse" />
-                  ) : (
-                    <ScanFace className="h-4.5 w-4.5 text-emerald-100 animate-pulse" />
-                  )}
-                  Unlock via Enrolled Biometrics
-                </button>
-              )}
-
-              <button 
-                type="button"
-                onClick={handleGoogleLogin}
-                className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24">
-                  <path fill="#EA4335" d="M12 5.04c1.65 0 3.13.57 4.3 1.69l3.22-3.22C17.56 1.63 14.99 1 12 1 7.35 1 3.39 3.63 1.5 7.5l3.86 3.03C6.27 7.54 8.92 5.04 12 5.04z" />
-                  <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.47h6.44c-.28 1.47-1.11 2.71-2.36 3.55l3.65 2.83c2.13-1.97 3.36-4.87 3.36-8.49z" />
-                  <path fill="#FBBC05" d="M5.36 14.47c-.24-.72-.37-1.49-.37-2.47s.13-1.75.37-2.47L1.5 6.5C.54 8.43 0 10.15 0 12s.54 3.57 1.5 5.5l3.86-3.03z" />
-                  <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.65-2.83c-1.01.68-2.3 1.09-4.31 1.09-3.08 0-5.73-2.5-6.66-5.49L1.48 15.88C3.37 19.75 7.33 23 12 23z" />
-                </svg>
-                Continue with Google Secure Auth
-              </button>
+                <option value="PATIENT" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>PATIENT (Raghav Sharma / Family Profiles)</option>
+                <option value="DOCTOR" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>DOCTOR (Physician Care Portal)</option>
+                <option value="HOSPITAL" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>HOSPITAL ADMIN (Bed Allocation Coordinator)</option>
+                <option value="ADMIN" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>SYSTEM ADMIN (Delhi NCR Health Registry)</option>
+              </select>
             </div>
-          )}
 
-          {authMode === "SIGNUP" && (
-            <div className="space-y-4">
-              <div className="flex bg-slate-100/80 border border-slate-200/40 p-1 rounded-2xl">
-                <button 
-                  onClick={() => setAuthMode("LOGIN")} 
-                  className="flex-1 text-center py-2 text-xs font-bold text-slate-500 hover:text-blue-900"
-                >
-                  Sign In
-                </button>
-                <button 
-                  onClick={() => setAuthMode("SIGNUP")} 
-                  className="flex-1 text-center py-2 text-xs font-bold rounded-xl bg-white text-blue-950 shadow-sm border border-slate-200/30"
-                >
-                  Register
-                </button>
-              </div>
+            <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} onBypass={handleOfflineBypass} isDarkMode={isAppDarkMode} />
 
-              <div className="space-y-3.5">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Simulate Role Authorization</label>
-                  <select 
-                    value={authRoleSelection}
-                    onChange={(e: any) => setAuthRoleSelection(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white cursor-pointer mt-1 font-semibold"
-                  >
-                    <option value="PATIENT">PATIENT (Raghav Sharma / Family Profiles)</option>
-                    <option value="DOCTOR">DOCTOR (Physician Care Portal)</option>
-                    <option value="HOSPITAL">HOSPITAL ADMIN (Bed Allocation Coordinator)</option>
-                    <option value="ADMIN">SYSTEM ADMIN (Delhi NCR Health Registry)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Full Name</label>
-                  <input 
-                    type="text" 
-                    value={authName}
-                    onChange={(e) => setAuthName(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-900 mt-1 focus:outline-none focus:border-blue-500 focus:bg-white font-semibold"
-                    placeholder="Raghav Sharma"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Email Address</label>
-                  <input 
-                    type="email" 
-                    value={authEmail}
-                    onChange={(e) => setAuthEmail(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-900 mt-1 focus:outline-none focus:border-blue-500 focus:bg-white font-semibold"
-                    placeholder="raghavramghat@gmail.com"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Mobile Number</label>
-                  <input 
-                    type="text" 
-                    value={authPhone}
-                    onChange={(e) => setAuthPhone(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-900 mt-1 focus:outline-none focus:border-blue-500 focus:bg-white font-semibold"
-                    placeholder="+91 98101 22334"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Choose Authorization Passcode (Passcode / PIN)</label>
-                  <input 
-                    type="password" 
-                    value={authPasscode}
-                    onChange={(e) => setAuthPasscode(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-900 mt-1 focus:outline-none focus:border-blue-500 focus:bg-white font-semibold"
-                    placeholder="Create a personalized passcode"
-                  />
-                  {authPasscode && (
-                    <div className="mt-2 space-y-1">
-                      <div className="flex justify-between items-center text-[10px] font-bold">
-                        <span className="text-slate-500">Password Strength:</span>
-                        <span className={
-                          authPasscode.length < 6 
-                            ? "text-rose-500" 
-                            : /^[a-zA-Z0-9]+$/.test(authPasscode) || authPasscode.length < 8
-                              ? "text-amber-500" 
-                              : "text-emerald-500"
-                        }>
-                          {authPasscode.length < 6 
-                            ? "Weak" 
-                            : /^[a-zA-Z0-9]+$/.test(authPasscode) || authPasscode.length < 8
-                              ? "Fair" 
-                              : "Strong"}
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                        <div className={`h-full transition-all duration-300 ${
-                          authPasscode.length < 6 
-                            ? "w-1/3 bg-rose-500" 
-                            : /^[a-zA-Z0-9]+$/.test(authPasscode) || authPasscode.length < 8
-                              ? "w-2/3 bg-amber-500" 
-                              : "w-full bg-emerald-500"
-                        }`} />
-                      </div>
-                      <p className="text-[9px] text-slate-400 font-medium leading-tight">
-                        {authPasscode.length < 6 
-                          ? "Password must be at least 6 characters." 
-                          : /^[a-zA-Z0-9]+$/.test(authPasscode) || authPasscode.length < 8
-                            ? "Add mix of upper/lower case letters, numbers and special symbols for maximum security." 
-                            : "Excellent! Your password is secure."}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} isDarkMode={isAppDarkMode} />
-
-              <button 
-                type="button"
-                onClick={() => handleFirebaseSignUp(authPasscode)}
-                className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-xs py-3.5 rounded-xl shadow-lg shadow-cyan-500/15 cursor-pointer text-center transition-all active:scale-[0.98]"
-              >
-                Complete Registration Setup
-              </button>
-            </div>
-          )}
-
-          {authMode === "FORGOT" && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-blue-950 text-center uppercase tracking-wide">Reset Account Passcode</h3>
-              <p className="text-xs text-slate-500 leading-normal text-center">
-                Provide your registered mobile number under Delhi NCR registry system. We will broadcast a credentials repair link.
-              </p>
-              <input 
-                type="text" 
-                value={authPhone}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white font-semibold"
-                placeholder="+91 98101 22334"
-                onChange={(e) => setAuthPhone(e.target.value)}
-              />
-
-              <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} isDarkMode={isAppDarkMode} />
-
-              <div className="flex gap-3">
-                <button 
-                  type="button"
-                  onClick={() => setAuthMode("LOGIN")}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-3 rounded-xl cursor-pointer transition-all border border-slate-200/40"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    showToast("🔓 Password repair credentials dispatched successfully via SMS.");
-                    setAuthMode("LOGIN");
-                  }}
-                  className="flex-1 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-extrabold text-xs py-3 rounded-xl cursor-pointer shadow"
-                >
-                  Send Reset Link
-                </button>
-              </div>
-            </div>
-          )}
-
-          {authMode === "OTP_VERIFY" && (
-            <div className="space-y-4">
-              <div className="text-center space-y-1">
-                <h3 className="text-sm font-bold text-blue-950 uppercase tracking-wider">SMS Key Authentication</h3>
-                <p className="text-xs text-slate-500">Sent code to {authPhone}</p>
-                {authOtpSent && (
-                  <p className="text-xs text-blue-600 font-black bg-blue-50 inline-block px-3 py-1 rounded-lg border border-blue-100 mt-1 font-mono">
-                    Dispatched Code: {authOtpSent}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <input 
-                  type="text" 
-                  value={authOtpInput}
-                  onChange={(e) => setAuthOtpInput(e.target.value)}
-                  className="w-full bg-slate-50 border-2 border-dashed border-blue-400 rounded-xl px-4 py-4 text-center text-lg font-black tracking-widest text-blue-600 focus:outline-none focus:bg-white focus:border-solid"
-                  placeholder="------"
-                  maxLength={6}
-                />
-                <p className="text-[10px] text-slate-400 text-center mt-2 leading-relaxed">
-                  Tip: Look at the simulated code above, or use bypass override code <strong className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded">123456</strong>
-                </p>
-              </div>
-
-              <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} isDarkMode={isAppDarkMode} />
-
-              <div className="flex gap-3">
-                <button 
-                  type="button"
-                  onClick={() => setAuthMode("LOGIN")}
-                  className={`flex-1 font-bold text-xs py-3 rounded-xl cursor-pointer border transition-all ${isAppDarkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/40"}`}
-                >
-                  Go Back
-                </button>
-                <button 
-                  type="button"
-                  onClick={handleVerifyOTP}
-                  className="flex-1 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-extrabold text-xs py-3 rounded-xl cursor-pointer shadow-lg shadow-blue-500/15"
-                >
-                  Verify & Continue
-                </button>
-              </div>
-            </div>
-          )}
+            <button 
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={authLoading}
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-sm py-4 rounded-xl flex items-center justify-center gap-3 cursor-pointer transition-all shadow-lg shadow-blue-500/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className="w-5 h-5 bg-white p-0.5 rounded-full" viewBox="0 0 24 24">
+                <path fill="#EA4335" d="M12 5.04c1.65 0 3.13.57 4.3 1.69l3.22-3.22C17.56 1.63 14.99 1 12 1 7.35 1 3.39 3.63 1.5 7.5l3.86 3.03C6.27 7.54 8.92 5.04 12 5.04z" />
+                <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.47h6.44c-.28 1.47-1.11 2.71-2.36 3.55l3.65 2.83c2.13-1.97 3.36-4.87 3.36-8.49z" />
+                <path fill="#FBBC05" d="M5.36 14.47c-.24-.72-.37-1.49-.37-2.47s.13-1.75.37-2.47L1.5 6.5C.54 8.43 0 10.15 0 12s.54 3.57 1.5 5.5l3.86-3.03z" />
+                <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.65-2.83c-1.01.68-2.3 1.09-4.31 1.09-3.08 0-5.73-2.5-6.66-5.49L1.48 15.88C3.37 19.75 7.33 23 12 23z" />
+              </svg>
+              {authLoading ? "Authenticating Session..." : "Continue with Google Secure Auth"}
+            </button>
+          </div>
         </div>
       </div>
     );
