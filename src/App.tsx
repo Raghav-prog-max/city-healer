@@ -125,6 +125,31 @@ enum OperationType {
   WRITE = 'write',
 }
 
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      console.warn("Storage access denied in iframe context:", e);
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn("Storage write denied in iframe context:", e);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn("Storage delete denied in iframe context:", e);
+    }
+  }
+};
+
 interface FirestoreErrorInfo {
   error: string;
   operationType: OperationType;
@@ -339,7 +364,7 @@ export default function App() {
   // Feature Configuration Switcher state (enables/disables components in sidebar & portal dynamically)
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = localStorage.getItem("ggh-enabled-features");
+      const saved = safeStorage.getItem("ggh-enabled-features");
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return {
@@ -360,7 +385,7 @@ export default function App() {
   const handleToggleFeature = (featureId: string) => {
     const newVal = { ...enabledFeatures, [featureId]: !enabledFeatures[featureId] };
     setEnabledFeatures(newVal);
-    localStorage.setItem("ggh-enabled-features", JSON.stringify(newVal));
+    safeStorage.setItem("ggh-enabled-features", JSON.stringify(newVal));
     showToast(`⚙️ Tab module "${featureId}" is now ${newVal[featureId] ? "Enabled" : "Disabled"}`);
   };
 
@@ -682,13 +707,13 @@ export default function App() {
   });
   const [isBiometricEnabled, setIsBiometricEnabled] = useState<boolean>(false);
   const [isAppDarkMode, setIsAppDarkMode] = useState<boolean>(() => {
-    return localStorage.getItem("ggh-app-dark-mode") === "true";
+    return safeStorage.getItem("ggh-app-dark-mode") === "true";
   });
 
   const handleToggleDarkMode = () => {
     const nextVal = !isAppDarkMode;
     setIsAppDarkMode(nextVal);
-    localStorage.setItem("ggh-app-dark-mode", String(nextVal));
+    safeStorage.setItem("ggh-app-dark-mode", String(nextVal));
     showToast(`🌙 Dark mode ${nextVal ? "enabled" : "disabled"}`);
   };
 
@@ -713,11 +738,11 @@ export default function App() {
 
   // Module B: AI Health Copilot States
   const [appLanguage, setAppLanguage] = useState<LanguageCode>(() => {
-    const saved = localStorage.getItem("cityhealer_lang");
+    const saved = safeStorage.getItem("cityhealer_lang");
     return (saved === "hi" ? "hi" : "en") as LanguageCode;
   });
   const [copilotHistory, setCopilotHistory] = useState<Array<{ sender: "user" | "copilot"; text: string; time: string; attachment?: string }>>(() => {
-    const saved = localStorage.getItem("cityhealer_lang");
+    const saved = safeStorage.getItem("cityhealer_lang");
     const isSavedHi = saved === "hi";
     return [
       {
@@ -731,7 +756,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem("cityhealer_lang", appLanguage);
+    safeStorage.setItem("cityhealer_lang", appLanguage);
     setCopilotHistory(prev => {
       if (prev.length === 0) return prev;
       return prev.map((msg, idx) => {
@@ -2550,7 +2575,7 @@ export default function App() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      localStorage.removeItem("simulated_auth_profile");
+      safeStorage.removeItem("simulated_auth_profile");
       setIsAuthenticated(false);
       setAuthMode("LOGIN");
       setAuthOtpInput("");
@@ -2848,6 +2873,24 @@ export default function App() {
                 <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.65-2.83c-1.01.68-2.3 1.09-4.31 1.09-3.08 0-5.73-2.5-6.66-5.49L1.48 15.88C3.37 19.75 7.33 23 12 23z" />
               </svg>
               {authLoading ? "Authenticating Session..." : "Continue with Google Secure Auth"}
+            </button>
+
+            <div className="relative flex py-1 items-center">
+              <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
+              <span className="flex-shrink mx-4 text-[10px] text-slate-400 dark:text-slate-500 font-bold tracking-wider uppercase">Or</span>
+              <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
+            </div>
+
+            <button 
+              type="button"
+              onClick={handleOfflineBypass}
+              className={`w-full font-bold text-xs py-3.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] ${
+                isAppDarkMode 
+                  ? "bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white" 
+                  : "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 hover:text-slate-900"
+              }`}
+            >
+              🚀 Explore in Demo / Sandbox Mode
             </button>
           </div>
         </div>

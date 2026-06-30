@@ -47,10 +47,8 @@ try {
         console.log(`[Firebase Admin Firestore] Successfully verified access to database: ${databaseId}`);
       })
       .catch((err) => {
-        if (err.message && (err.message.includes("PERMISSION_DENIED") || err.message.includes("permission") || err.message.includes("Missing or insufficient permissions"))) {
-          console.warn(`[Firebase Admin Firestore] Custom named database "${databaseId}" is inaccessible due to PERMISSION_DENIED. Falling back to default database.`);
-          db = getFirestore(appInstance);
-        }
+        console.warn(`[Firebase Admin Firestore] Custom named database "${databaseId}" is inaccessible or not found (Error: ${err.message}). Falling back to default database.`);
+        db = getFirestore(appInstance);
       });
   }
 } catch (error) {
@@ -2986,18 +2984,14 @@ async function seedFirestoreIfNeeded() {
   try {
     await db.collection("hospitals").limit(1).get();
   } catch (err: any) {
-    const errMsg = err.message || "";
-    if (errMsg.includes("PERMISSION_DENIED") || errMsg.includes("permission") || errMsg.includes("Missing or insufficient permissions")) {
-      console.warn(`[Firebase Admin Seeding] Target named database is inaccessible due to PERMISSION_DENIED. Dynamically falling back to the "(default)" database...`);
-      try {
-        const appInstance = admin.app();
-        db = getFirestore(appInstance);
-        console.log(`[Firebase Admin Seeding] Successfully configured fallback to default database.`);
-      } catch (fallbackErr) {
-        console.error("[Firebase Admin Seeding] Failed to switch to default database fallback:", fallbackErr);
-      }
-    } else {
-      console.warn("[Firebase Admin Seeding] Access test warning:", err.message);
+    console.warn("[Firebase Admin Seeding] Access test failed on target database:", err.message);
+    console.warn(`[Firebase Admin Seeding] Dynamically falling back to the "(default)" database...`);
+    try {
+      const appInstance = admin.app();
+      db = getFirestore(appInstance);
+      console.log(`[Firebase Admin Seeding] Successfully configured fallback to default database.`);
+    } catch (fallbackErr) {
+      console.error("[Firebase Admin Seeding] Failed to switch to default database fallback:", fallbackErr);
     }
   }
 
