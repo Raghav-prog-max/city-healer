@@ -237,4 +237,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ condition, preference }),
     }),
+
+  // AI Developer Pipeline Sandbox
+  runDeveloperAiPipeline: (prompt: string, preference?: string) =>
+    apiFetch<any>("/api/developer/ai-pipeline", {
+      method: "POST",
+      body: JSON.stringify({ prompt, preference }),
+    }),
 };

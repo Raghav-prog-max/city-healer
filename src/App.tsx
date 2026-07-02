@@ -93,8 +93,9 @@ import {
 import { api } from "./utils/api";
 import { getTranslation, LanguageCode, translations } from "./utils/i18n";
 import { useLocation, useNavigate } from "react-router-dom";
-import { auth, db } from "./firebase";
 import { 
+  auth, 
+  db,
   signInWithPopup, 
   GoogleAuthProvider, 
   signInWithEmailAndPassword, 
@@ -106,15 +107,13 @@ import {
   setPersistence,
   browserLocalPersistence,
   browserSessionPersistence,
-  signInWithRedirect
-} from "firebase/auth";
-import { 
+  signInWithRedirect,
   doc, 
   getDoc, 
   setDoc, 
   serverTimestamp, 
   getDocFromServer
-} from "firebase/firestore";
+} from "./firebase";
 
 enum OperationType {
   CREATE = 'create',
@@ -205,6 +204,7 @@ import CityHealthNetwork, { CITIES_DATA } from "./components/CityHealthNetwork";
 import { MedicineProductImage } from "./components/MedicineProductImage";
 import LandingPage from "./components/LandingPage";
 import { AuthErrorMessage } from "./components/AuthErrorMessage";
+import DeveloperHub from "./components/DeveloperHub";
 import { PageTransition } from "./components/animations/PageTransition";
 import { GrainOverlay } from "./components/animations/GrainOverlay";
 import { CustomCursor } from "./components/animations/CustomCursor";
@@ -266,6 +266,7 @@ export default function App() {
       case "/smart-network": return "smart-network";
       case "/chn": return "chn";
       case "/trends": return "trends";
+      case "/developer": return "developer-hub";
       default: return "overview";
     }
   };
@@ -287,7 +288,8 @@ export default function App() {
       "super-app": "/super-app",
       "smart-network": "/smart-network",
       chn: "/chn",
-      trends: "/trends"
+      trends: "/trends",
+      "developer-hub": "/developer"
     };
     navigate(tabToPath[tab] || "/");
   };
@@ -3230,7 +3232,8 @@ export default function App() {
               { id: "insurance", label: getTranslation(appLanguage, "tabInsurance"), icon: Shield },
               { id: "sos", label: getTranslation(appLanguage, "tabSos"), icon: Ambulance },
               { id: "admin", label: getTranslation(appLanguage, "tabAdmin"), icon: Settings },
-            ].filter(tab => tab.id === "admin" || enabledFeatures[tab.id] !== false).map((tab) => {
+              { id: "developer-hub", label: getTranslation(appLanguage, "tabDeveloperHub"), icon: Cpu },
+            ].filter(tab => tab.id === "admin" || tab.id === "developer-hub" || enabledFeatures[tab.id] !== false).map((tab) => {
               const IconComp = tab.icon;
               const isSelected = activeTab === tab.id;
               return (
@@ -9086,6 +9089,10 @@ export default function App() {
 
             {activeTab === "trends" && (
               <AIHealthTrends activityLog={activityLog} isAppDarkMode={isAppDarkMode} />
+            )}
+
+            {activeTab === "developer-hub" && (
+              <DeveloperHub isAppDarkMode={isAppDarkMode} />
             )}
           </motion.div>
         </AnimatePresence>

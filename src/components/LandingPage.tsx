@@ -396,7 +396,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
     };
     const targetPath = sectionToPath[section] || "/";
     if ((window as any).cityHealerTransition) {
-      (window as any).cityHealerTransition(targetPath);
+      (window as any).cityHealerTransition(section);
     } else {
       navigate(targetPath);
     }

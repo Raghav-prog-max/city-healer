@@ -32,6 +32,7 @@ export interface TranslationDictionary {
   tabSos: string;
   tabAdmin: string;
   tabChn: string;
+  tabDeveloperHub: string;
 
   // Dashboard Overview
   diagnosticsChecks: string;
@@ -92,6 +93,7 @@ export const translations: Record<LanguageCode, TranslationDictionary> = {
     tabSos: "Ambulance Panic SOS",
     tabAdmin: "Registry Manager",
     tabChn: "City Health Network (CHN)",
+    tabDeveloperHub: "Developer Console & Sandbox",
 
     diagnosticsChecks: "CUSTOM DIAGNOSTICS CHECKS",
     pharmacyOrders: "E-PHARMACY PLACED ORDERS",
@@ -147,6 +149,7 @@ export const translations: Record<LanguageCode, TranslationDictionary> = {
     tabSos: "एम्बुलेंस पैनिक एसओएस",
     tabAdmin: "रजिस्ट्री प्रबंधक",
     tabChn: "सिटी हेल्थ नेटवर्क (CHN)",
+    tabDeveloperHub: "डेवलपर कंसोल और सैंडबॉक्स",
 
     diagnosticsChecks: "कस्टम डायग्नोस्टिक्स जांचें",
     pharmacyOrders: "ई-फार्मेसी ऑर्डर संख्या",
