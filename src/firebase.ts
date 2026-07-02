@@ -1,4 +1,6 @@
 // Local mock implementation of Firebase SDK for City Healer Dedicated Backend Integration
+// Supports dual-mode: communicates with the Express backend if online, and falls back to 
+// in-browser LocalStorage database simulation if offline (e.g., hosted statically on Vercel)
 
 export interface MockUser {
   uid: string;
@@ -63,25 +65,62 @@ export async function setPersistence(authInst: any, persistenceType: any) {
   return Promise.resolve();
 }
 
-// Sign In
-export async function signInWithEmailAndPassword(authInst: typeof auth, email: string, pass: string) {
-  const res = await fetch("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password: pass })
-  });
+// In-Browser Database Seeding & Mock Accessors
+function getLocalStorageUsers(): any[] {
+  const usersStr = localStorage.getItem("city_healer_mock_users");
+  if (!usersStr) {
+    // Default seed users matching database.ts
+    const defaultUsers = [
+      {
+        uid: "user-default-patient-123",
+        name: "Raghav Sharma",
+        email: "raghav@cityhealer.com",
+        password: "password123",
+        phone: "+91 98765 43210",
+        role: "PATIENT",
+        age: 34,
+        gender: "Male"
+      },
+      {
+        uid: "user-default-doctor-123",
+        name: "Dr. Ananya Iyer",
+        email: "ananya@cityhealer.com",
+        password: "password123",
+        phone: "+91 98888 77777",
+        role: "DOCTOR",
+        age: 41,
+        gender: "Female"
+      },
+      {
+        uid: "user-default-admin-123",
+        name: "Delhi Health Admin",
+        email: "admin@cityhealer.com",
+        password: "password123",
+        phone: "+91 99999 88888",
+        role: "ADMIN",
+        age: 45,
+        gender: "Male"
+      }
+    ];
+    localStorage.setItem("city_healer_mock_users", JSON.stringify(defaultUsers));
+    return defaultUsers;
+  }
+  try {
+    return JSON.parse(usersStr);
+  } catch (e) {
+    return [];
+  }
+}
 
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
+function signInLocalStorage(authInst: typeof auth, email: string, pass: string) {
+  const users = getLocalStorageUsers();
+  const user = users.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+  if (!user || user.password !== pass) {
     throw {
       code: "auth/invalid-credential",
-      message: errorData.error || "Invalid email or passcode."
+      message: "Invalid email or passcode. (In-Browser Sandbox)"
     };
   }
-
-  const data = await res.json();
-  const token = data.token;
-  const user = data.user;
 
   const mockUser: MockUser = {
     uid: user.uid,
@@ -92,10 +131,10 @@ export async function signInWithEmailAndPassword(authInst: typeof auth, email: s
     isAnonymous: false,
     tenantId: null,
     providerData: [],
-    getIdToken: async () => token
+    getIdToken: async () => "mock-jwt-token-local-storage"
   };
 
-  localStorage.setItem("city_healer_jwt", token);
+  localStorage.setItem("city_healer_jwt", "mock-jwt-token-local-storage");
   localStorage.setItem("city_healer_user", JSON.stringify(user));
   authInst.currentUser = mockUser;
   authInst.notify();
@@ -103,25 +142,115 @@ export async function signInWithEmailAndPassword(authInst: typeof auth, email: s
   return { user: mockUser };
 }
 
-// Sign Up / Create User
-export async function createUserWithEmailAndPassword(authInst: typeof auth, email: string, pass: string) {
-  // Pass a placeholder name which will be updated by setDoc immediately afterwards
-  const res = await fetch("/api/auth/register", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password: pass, name: "City Healer User" })
-  });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
+function createUserLocalStorage(authInst: typeof auth, email: string, pass: string) {
+  const users = getLocalStorageUsers();
+  const existing = users.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+  if (existing) {
     throw {
       code: "auth/email-already-in-use",
-      message: errorData.error || "Email already in use."
+      message: "Email already in use. (In-Browser Sandbox)"
     };
   }
 
-  // Registering automatically logs the user in briefly to trigger the profile setup
-  return signInWithEmailAndPassword(authInst, email, pass);
+  const uid = "user-mock-" + Date.now();
+  const newUser = {
+    uid,
+    name: "City Healer User",
+    email: email.toLowerCase().trim(),
+    password: pass,
+    phone: "",
+    role: "PATIENT",
+    age: 34,
+    gender: "Male"
+  };
+
+  users.push(newUser);
+  localStorage.setItem("city_healer_mock_users", JSON.stringify(users));
+
+  return signInLocalStorage(authInst, email, pass);
+}
+
+// Sign In
+export async function signInWithEmailAndPassword(authInst: typeof auth, email: string, pass: string) {
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: pass })
+    });
+
+    if (res.status === 404) {
+      throw { is404: true };
+    }
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw {
+        code: "auth/invalid-credential",
+        message: errorData.error || "Invalid email or passcode."
+      };
+    }
+
+    const data = await res.json();
+    const token = data.token;
+    const user = data.user;
+
+    const mockUser: MockUser = {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.name,
+      phoneNumber: user.phone || "",
+      emailVerified: true,
+      isAnonymous: false,
+      tenantId: null,
+      providerData: [],
+      getIdToken: async () => token
+    };
+
+    localStorage.setItem("city_healer_jwt", token);
+    localStorage.setItem("city_healer_user", JSON.stringify(user));
+    authInst.currentUser = mockUser;
+    authInst.notify();
+
+    return { user: mockUser };
+  } catch (err: any) {
+    if (err.code === "auth/invalid-credential") {
+      throw err;
+    }
+    console.warn("[Auth API Offline] Falling back to browser LocalStorage database simulation.");
+    return signInLocalStorage(authInst, email, pass);
+  }
+}
+
+// Sign Up / Create User
+export async function createUserWithEmailAndPassword(authInst: typeof auth, email: string, pass: string) {
+  try {
+    const res = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: pass, name: "City Healer User" })
+    });
+
+    if (res.status === 404) {
+      throw { is404: true };
+    }
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw {
+        code: "auth/email-already-in-use",
+        message: errorData.error || "Email already in use."
+      };
+    }
+
+    return signInWithEmailAndPassword(authInst, email, pass);
+  } catch (err: any) {
+    if (err.code === "auth/email-already-in-use") {
+      throw err;
+    }
+    console.warn("[Register API Offline] Falling back to browser LocalStorage database simulation.");
+    return createUserLocalStorage(authInst, email, pass);
+  }
 }
 
 // Sign Out
@@ -151,13 +280,23 @@ export async function signInWithPopup(authInst: typeof auth, provider: any) {
   try {
     return await signInWithEmailAndPassword(authInst, "google-user@cityhealer.com", "google-pass-123");
   } catch (err) {
-    // If not exists, register first
-    await fetch("/api/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "google-user@cityhealer.com", password: "google-pass-123", name: "Google User", role: "PATIENT" })
-    });
-    return await signInWithEmailAndPassword(authInst, "google-user@cityhealer.com", "google-pass-123");
+    // If not exists in local storage, register first
+    const users = getLocalStorageUsers();
+    const existing = users.find(u => u.email === "google-user@cityhealer.com");
+    if (!existing) {
+      users.push({
+        uid: "user-google-mock",
+        name: "Google User",
+        email: "google-user@cityhealer.com",
+        password: "google-pass-123",
+        phone: "",
+        role: "PATIENT",
+        age: 34,
+        gender: "Male"
+      });
+      localStorage.setItem("city_healer_mock_users", JSON.stringify(users));
+    }
+    return signInLocalStorage(authInst, "google-user@cityhealer.com", "google-pass-123");
   }
 }
 
@@ -180,46 +319,85 @@ export function doc(dbInst: any, collectionName: string, id: string): MockDocRef
 }
 
 export async function getDoc(docRef: MockDocRef) {
-  const token = localStorage.getItem("city_healer_jwt");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  try {
+    const token = localStorage.getItem("city_healer_jwt");
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
 
-  const res = await fetch(`/api/users/${docRef.id}`, { headers });
-  
-  if (!res.ok) {
+    const res = await fetch(`/api/users/${docRef.id}`, { headers });
+    if (res.status === 404) {
+      throw { is404: true };
+    }
+    
+    if (!res.ok) {
+      return {
+        exists: () => false,
+        data: () => null
+      };
+    }
+
+    const data = await res.json();
+    return {
+      exists: () => true,
+      data: () => data
+    };
+  } catch (e) {
+    // LocalStorage fallback
+    if (docRef.collection === "users") {
+      const users = getLocalStorageUsers();
+      const user = users.find(u => u.uid === docRef.id);
+      if (user) {
+        return {
+          exists: () => true,
+          data: () => user
+        };
+      }
+    }
     return {
       exists: () => false,
       data: () => null
     };
   }
-
-  const data = await res.json();
-  return {
-    exists: () => true,
-    data: () => data
-  };
 }
 
 export const getDocFromServer = getDoc;
 
 export async function setDoc(docRef: MockDocRef, data: any) {
-  const token = localStorage.getItem("city_healer_jwt");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  try {
+    const token = localStorage.getItem("city_healer_jwt");
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
 
-  const res = await fetch(`/api/users/${docRef.id}`, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify(data)
-  });
+    const res = await fetch(`/api/users/${docRef.id}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(data)
+    });
 
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || "Failed to update profile data on local backend.");
+    if (res.status === 404) {
+      throw { is404: true };
+    }
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.error || "Failed to update profile data.");
+    }
+  } catch (e) {
+    // LocalStorage fallback
+    if (docRef.collection === "users") {
+      const users = getLocalStorageUsers();
+      const userIdx = users.findIndex(u => u.uid === docRef.id);
+      if (userIdx !== -1) {
+        users[userIdx] = { ...users[userIdx], ...data };
+      } else {
+        users.push({ uid: docRef.id, ...data });
+      }
+      localStorage.setItem("city_healer_mock_users", JSON.stringify(users));
+    }
   }
 
   // Update locally stored user profile info
