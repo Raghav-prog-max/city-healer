@@ -4,6 +4,69 @@
 import { auth } from "../firebase";
 import * as seed from "../../seedData";
 
+// Client-side local recommendation scoring for static environments
+function recommendHospitalsLocal(specialistType: string, urgencyLevel: string, userLat?: number, userLng?: number) {
+  const specLower = (specialistType || "").toLowerCase();
+  const hospitals = seed.hospitals;
+
+  const scored = hospitals.map((h) => {
+    let score = 0;
+    
+    // 1. Specialty matching
+    let matchesSpecialty = false;
+    if (h.specialties) {
+      h.specialties.forEach((spec: string) => {
+        if (specLower.includes(spec.toLowerCase()) || spec.toLowerCase().includes(specLower)) {
+          matchesSpecialty = true;
+        }
+      });
+    }
+    if (matchesSpecialty) score += 50;
+    
+    // 2. Bed & ICU score
+    if (h.availableBeds > 0) score += 10;
+    if (urgencyLevel === "CRITICAL" || urgencyLevel === "HIGH") {
+      if (h.icuAvailable > 0) score += 20;
+    }
+    
+    // 3. Rating score
+    score += (h.rating || 4.2) * 5;
+    
+    // 4. Distance score (simulate centered at Connaught Place if no coords)
+    const latRef = userLat || 28.6139;
+    const lngRef = userLng || 77.2090;
+    const distDeg = Math.sqrt(Math.pow(h.lat - latRef, 2) + Math.pow(h.lng - lngRef, 2));
+    const distKM = distDeg * 111;
+    const distScore = Math.max(0, 40 - distKM);
+    score += distScore;
+    
+    // 5. Traffic simulation
+    const baseTravelTimeMin = distKM * 2;
+    const trafficFactor = 1.0 + (Math.random() * 0.8);
+    const travelTimeMin = Math.round(baseTravelTimeMin * trafficFactor);
+    
+    return {
+      hospital: h,
+      score,
+      distanceKM: Number(distKM.toFixed(1)),
+      travelTimeMin,
+      matchReason: matchesSpecialty 
+        ? `Department specialized in ${h.specialties[0]}`
+        : `${h.categories ? h.categories[0] : 'Partner Clinic'} with active bed availability`
+    };
+  });
+  
+  scored.sort((a, b) => b.score - a.score);
+  
+  return scored.slice(0, 3).map((item) => ({
+    ...item.hospital,
+    distanceKM: item.distanceKM,
+    travelTimeMin: item.travelTimeMin,
+    recommendationScore: Math.round(item.score),
+    matchReason: item.matchReason
+  }));
+}
+
 // Client-side LocalStorage database fallback for static hosting/Vercel environments
 function fallbackClientDb(url: string, options?: RequestInit): any {
   console.warn(`[API Offline Fallback] Servicing request to ${url} entirely in-browser.`);
@@ -281,17 +344,116 @@ function fallbackClientDb(url: string, options?: RequestInit): any {
     }
   }
 
-  // AI Symptoms check fallback
+  // AI Symptoms Check Fallback - Return full structure matching React requirements
   if (url === "/api/symptoms/check" && method === "POST") {
-    return {
-      analysis: `### In-Browser AI Symptom Analysis\nBased on symptoms: *${body.symptoms}*.\n\n1. **Potential Conditions**: General fatigue, seasonal allergies.\n2. **Urgency**: Low.\n3. **Recommended Actions**: Rest, stay hydrated, consult a physician if symptoms persist.\n*(Simulated Gemini Response)*`
+    const symptoms = body.symptoms || "";
+    const lower = symptoms.toLowerCase();
+    
+    let result: any = {
+      suspectedCondition: "Mild Upper Respiratory Tract Infection",
+      explanation: "A viral congestion typically affecting throat, nasal passage and airway tubes, causing fatigue.",
+      specialistType: "General Physician",
+      urgencyLevel: "LOW",
+      recommendations: ["Ensure adequate thermal fluid intake", "Monitor body temperature daily", "Practice steam inhalation twice daily"],
+      flagUrgentSOS: false
     };
+
+    if (lower.includes("chest") || lower.includes("heart") || lower.includes("breathe") || lower.includes("gasp") || lower.includes("pain")) {
+      result = {
+        suspectedCondition: "Potential Cardio/Respiratory Distress Warning",
+        explanation: "Signs of respiratory or cardiovascular pressure which could represent cardiac angina or asthma exacerbation.",
+        specialistType: "Cardiologist / Pulmonologist",
+        urgencyLevel: "CRITICAL",
+        recommendations: ["Discontinue physical activity instantly", "Keep medical oxygen accessible if present", "Request immediate clinical supervision"],
+        flagUrgentSOS: true
+      };
+    } else if (lower.includes("stomach") || lower.includes("abdomen") || lower.includes("vomit")) {
+      result = {
+        suspectedCondition: "Acute Gastroenteritis / Dyspepsia",
+        explanation: "An inflammation of the stomach lining and digestive tract caused by bacteria, viral infection, or dietary irritants.",
+        specialistType: "Gastroenterologist",
+        urgencyLevel: "MEDIUM",
+        recommendations: ["Sip oral rehydration salts", "Avoid solid heavy diets temporarily", "Rest in a comfortable incline position"],
+        flagUrgentSOS: false
+      };
+    } else if (lower.includes("head") || lower.includes("migraine") || lower.includes("vision")) {
+      result = {
+        suspectedCondition: "Tension Headache or Migraine Flare-up",
+        explanation: "A neurological syndrome featuring throbbing central headaches, photo-sensitivity, or neuro-muscular fatigue.",
+        specialistType: "Neurologist",
+        urgencyLevel: "LOW",
+        recommendations: ["Rest in a quiet, dark, well-ventilated room", "Apply cold or warm compresses over the temple", "Hydrate immediately"],
+        flagUrgentSOS: false
+      };
+    }
+
+    result.recommendedHospitals = recommendHospitalsLocal(result.specialistType, result.urgencyLevel, body.userLat, body.userLng);
+    return result;
   }
 
+  // AI Lab Report Analyzer Fallback - Return detailed structure matching CBC, lipid, or thyroid
   if (url === "/api/records/analyze" && method === "POST") {
-    return {
-      analysis: `### Simulated Lab Report Analysis\n- **CBC Parameters**: Normal.\n- **Hemoglobin**: 14.2 g/dL (Optimal).\n- **White Blood Cell Count**: 7,200/mcL (Normal).\n*(Simulated Gemini Lab Review)*`
+    const templateId = body.templateId || "blood_cbc";
+    
+    const fallbackReports: Record<string, any> = {
+      blood_cbc: {
+        reportType: "Complete Blood Count (CBC) with Haemoglobin scan",
+        patientProfile: "Raghav Sharma, 34 yr, Male (Delhi NCR Central Registry)",
+        biomarkers: [
+          { name: "Haemoglobin", value: "11.2 g/dL", status: "LOW", referenceRange: "13.0 - 17.0 g/dL" },
+          { name: "Total WBC Count", value: "11,800 /uL", status: "HIGH", referenceRange: "4,000 - 11,000 /uL" },
+          { name: "Platelet Count", value: "1,85,000 /uL", status: "NORMAL", referenceRange: "1,50,000 - 4,50,000 /uL" },
+          { name: "RBC Count", value: "4.1 Million/uL", status: "LOW", referenceRange: "4.5 - 5.5 Million/uL" },
+        ],
+        aiInterpretation: "Mild Microcytic Hypochromic Anemia with reactive Neutrophilic Leukocytosis. This likely represents an early nutritional iron deficit combined with a mild reactive inflammation or sub-clinical respiratory congestion.",
+        doctorAlerts: "Borderline low Haemoglobin. Air smog exposure might worsen respiratory fatigue. Carry inhaler if sensitive.",
+        urgencyRating: "LOW",
+        recommendedSpecialist: "General Physician / Clinical Haematologist",
+        actions: [
+          "Include therapeutic iron intake (Spinach, Ragi, Pomegranates, Beetroot)",
+          "Repeat CBC Haemoglobin assay in 3 weeks to measure stability",
+          "Avoid intense outdoor cardio triggers during high PM 2.5 times in Delhi"
+        ]
+      },
+      lipid_profile: {
+        reportType: "Lipid Profile Cardiovascular Biomarkers",
+        patientProfile: "Raghav Sharma, 34 yr, Male (Delhi NCR Central Registry)",
+        biomarkers: [
+          { name: "Total Cholesterol", value: "248 mg/dL", status: "HIGH", referenceRange: "< 200 mg/dL" },
+          { name: "LDL 'Bad' Cholesterol", value: "168 mg/dL", status: "HIGH", referenceRange: "< 100 mg/dL" },
+          { name: "HDL 'Good' Cholesterol", value: "35 mg/dL", status: "LOW", referenceRange: "> 40 mg/dL" },
+          { name: "Triglycerides", value: "220 mg/dL", status: "HIGH", referenceRange: "< 150 mg/dL" },
+        ],
+        aiInterpretation: "Hyperlipidemia & Metabolic Cardiovascular Stress. Markedly elevated LDL with critically low HDL increases coronary artery plaque risk. Prompt anti-lipid dietary control and cardiovascular tracking are indicated.",
+        doctorAlerts: "LDL is significantly above optimal values. Ensure regular physical exercise and cardiovascular screening.",
+        urgencyRating: "MEDIUM",
+        recommendedSpecialist: "Cardiologist / General Physician",
+        actions: [
+          "Incorporate Omega-3 rich foods (Flaxseeds, Walnuts) and limit fried foods completely",
+          "Start 30 mins of active brisk walking early mornings or indoors",
+          "Consider clinical discussion for lipid-lowering medical support"
+        ]
+      },
+      thyroid_panel: {
+        reportType: "Thyroid Stimulating Hormone Assay (TSH)",
+        patientProfile: "Raghav Sharma, 34 yr, Male (Delhi NCR Central Registry)",
+        biomarkers: [
+          { name: "Serum TSH", value: "6.9 uIU/mL", status: "HIGH", referenceRange: "0.45 - 4.50 uIU/mL" },
+          { name: "Free Triiodothyronine (FT3)", value: "2.4 pg/mL", status: "NORMAL", referenceRange: "2.0 - 4.4 pg/mL" },
+          { name: "Free Thyroxine (FT4)", value: "0.85 ng/dL", status: "LOW", referenceRange: "0.90 - 1.70 ng/dL" },
+        ],
+        aiInterpretation: "Subclinical Hypothyroidism. Elevated TSH accompanied by borderline low Free T4 indices points to early thyroid gland fatigue and metabolic decelerations.",
+        doctorAlerts: "Mild Hypothyroid indicators. Check family thyroid history and check iodine intake status.",
+        urgencyRating: "MEDIUM",
+        recommendedSpecialist: "Endocrinologist",
+        actions: [
+          "Review selenium and iodine-sufficient nutritional options (ensure double-fortified iodized salt)",
+          "Schedule consult with Endocrinologist for metabolic analysis"
+        ]
+      }
     };
+
+    return fallbackReports[templateId] || fallbackReports.blood_cbc;
   }
 
   if (url === "/api/diet/recommend" && method === "POST") {
