@@ -27,9 +27,16 @@ class MockAuth {
       const savedUser = localStorage.getItem("city_healer_user");
       const savedToken = localStorage.getItem("city_healer_jwt");
       if (savedUser && savedToken) {
+        // Stored object is the server user record ({ uid, name, email, phone, ... }),
+        // so map it onto the MockUser shape — emailVerified must be true or the app
+        // force-signs-out every restored session on reload.
         const userObj = JSON.parse(savedUser);
         this.currentUser = {
-          ...userObj,
+          uid: userObj.uid,
+          email: userObj.email || "",
+          displayName: userObj.name || userObj.displayName || "",
+          phoneNumber: userObj.phone || "",
+          emailVerified: true,
           isAnonymous: false,
           tenantId: null,
           providerData: [],
@@ -275,28 +282,57 @@ export async function sendPasswordResetEmail(authInst: any, email: string) {
   return Promise.resolve();
 }
 
-// Mock Google Sign-In
-export async function signInWithPopup(authInst: typeof auth, provider: any) {
+// Mock Google Sign-In — signs in as the identity provided by the login form,
+// so the session reflects the actual person's name and email id.
+export async function signInWithPopup(
+  authInst: typeof auth,
+  provider: any,
+  identity?: { email?: string; name?: string; role?: string }
+) {
+  const email = (identity?.email || "").trim().toLowerCase() || "google-user@cityhealer.com";
+  const isDefaultAccount = email === "google-user@cityhealer.com";
+  const name =
+    (identity?.name || "").trim() ||
+    (isDefaultAccount
+      ? "Google User"
+      : email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
+  const password = isDefaultAccount ? "google-pass-123" : `google-sso-${email}`;
+  const role = identity?.role || "PATIENT";
+
+  // 1. Existing account (server first, LocalStorage sandbox inside on 404/offline)
   try {
-    return await signInWithEmailAndPassword(authInst, "google-user@cityhealer.com", "google-pass-123");
+    return await signInWithEmailAndPassword(authInst, email, password);
   } catch (err) {
-    // If not exists in local storage, register first
-    const users = getLocalStorageUsers();
-    const existing = users.find(u => u.email === "google-user@cityhealer.com");
-    if (!existing) {
-      users.push({
-        uid: "user-google-mock",
-        name: "Google User",
-        email: "google-user@cityhealer.com",
-        password: "google-pass-123",
-        phone: "",
-        role: "PATIENT",
-        age: 34,
-        gender: "Male"
+    // 2. First sign-in for this email: register on the server with the real name, then log in
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, name, role })
       });
-      localStorage.setItem("city_healer_mock_users", JSON.stringify(users));
+      if (res.ok) {
+        return await signInWithEmailAndPassword(authInst, email, password);
+      }
+      throw { is404: res.status === 404 };
+    } catch (registerErr) {
+      // 3. Static hosting / offline: create the account in the LocalStorage sandbox
+      const users = getLocalStorageUsers();
+      const existing = users.find(u => u.email.toLowerCase() === email);
+      if (!existing) {
+        users.push({
+          uid: "user-google-" + Date.now(),
+          name,
+          email,
+          password,
+          phone: "",
+          role,
+          age: 34,
+          gender: "Male"
+        });
+        localStorage.setItem("city_healer_mock_users", JSON.stringify(users));
+      }
+      return signInLocalStorage(authInst, email, password);
     }
-    return signInLocalStorage(authInst, "google-user@cityhealer.com", "google-pass-123");
   }
 }
 

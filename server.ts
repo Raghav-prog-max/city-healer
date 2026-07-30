@@ -12,10 +12,49 @@ import { dbRun, dbGet, dbAll, initializeDatabase } from "./database";
 dns.setDefaultResultOrder("ipv4first");
 
 const app = express();
-const PORT = 3000;
-const JWT_SECRET = process.env.JWT_SECRET || "city-healer-secret-key-12345";
+const IS_PROD = process.env.NODE_ENV === "production";
+const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+// In production a real secret is mandatory — refuse to boot with a guessable one.
+if (IS_PROD && !process.env.JWT_SECRET) {
+  console.error("[FATAL] JWT_SECRET environment variable must be set in production. Refusing to start.");
+  process.exit(1);
+}
+const JWT_SECRET = process.env.JWT_SECRET || "city-healer-dev-only-secret";
+if (!process.env.JWT_SECRET) {
+  console.warn("[Security] JWT_SECRET not set — using an insecure development-only secret.");
+}
+
+app.disable("x-powered-by");
+app.use(express.json({ limit: "512kb" }));
+
+// Baseline security headers for all responses
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
+  next();
+});
+
+// Lightweight fixed-window rate limiter for credential endpoints (per IP)
+const authRateWindow = new Map<string, { count: number; windowStart: number }>();
+const AUTH_RATE_LIMIT = 20;
+const AUTH_RATE_WINDOW_MS = 10 * 60 * 1000;
+app.use("/api/auth", (req, res, next) => {
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  const entry = authRateWindow.get(ip);
+  if (!entry || now - entry.windowStart > AUTH_RATE_WINDOW_MS) {
+    authRateWindow.set(ip, { count: 1, windowStart: now });
+    return next();
+  }
+  entry.count += 1;
+  if (entry.count > AUTH_RATE_LIMIT) {
+    return res.status(429).json({ error: "Too many authentication attempts. Please try again later." });
+  }
+  next();
+});
 
 // Initialize Database on Startup
 initializeDatabase()
@@ -30,9 +69,9 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
   }
 
   const token = authHeader.split("Bearer ")[1];
-  
-  // Directly bypass local mock/simulated tokens used for diagnostic resilience
-  if (token === "mock-jwt-token-simulated" || token === "mock-jwt-token-simulated-fallback" || token.startsWith("mock-")) {
+
+  // Simulated tokens power the offline demo experience — never honored in production.
+  if (!IS_PROD && (token === "mock-jwt-token-simulated" || token === "mock-jwt-token-simulated-fallback" || token.startsWith("mock-"))) {
     (req as any).user = { uid: "sim-user-id", email: "simulated@cityhealer.com", role: "PATIENT" };
     return next();
   }
@@ -40,9 +79,11 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     (req as any).user = decoded;
-    console.log(`[Auth Session] Validated session for UID: ${decoded.uid}, Email: ${decoded.email}`);
     next();
   } catch (error: any) {
+    if (IS_PROD) {
+      return res.status(401).json({ error: "Invalid or expired session token." });
+    }
     console.warn("[Auth Session] Token verification failed. Proceeding with guest fallback:", error.message);
     (req as any).user = { uid: "guest-fallback", email: "guest@cityhealer.com", role: "PATIENT", isGuest: true };
     next();
@@ -239,6 +280,20 @@ app.post("/api/auth/register", async (req, res) => {
   if (!email || !password || !name) {
     return res.status(400).json({ error: "Email, password, and name are required." });
   }
+  if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "A valid email address is required." });
+  }
+  if (typeof password !== "string" || password.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters long." });
+  }
+  const ALLOWED_ROLES = ["PATIENT", "DOCTOR", "HOSPITAL", "ADMIN"];
+  if (role && !ALLOWED_ROLES.includes(role)) {
+    return res.status(400).json({ error: "Invalid role." });
+  }
+  // Privileged roles cannot be self-assigned at public registration in production
+  if (IS_PROD && (role === "ADMIN" || role === "HOSPITAL")) {
+    return res.status(403).json({ error: "Privileged roles must be provisioned by an administrator." });
+  }
 
   try {
     const existing = await dbGet("SELECT * FROM users WHERE email = ?", [email.toLowerCase().trim()]);
@@ -259,7 +314,7 @@ app.post("/api/auth/register", async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, 34, 'Male', 'O+', ?, ?, ?)
     `, [uid, name, email.toLowerCase().trim(), passwordHash, phone || "", userRole, tempPolicy, now, now]);
 
-    console.log(`[Auth Register] Registered new user ${name} (${email}) with role ${userRole}`);
+    console.log(`[Auth Register] Registered new user ${uid} with role ${userRole}`);
     res.json({ success: true, user: { uid, name, email, role: userRole } });
   } catch (err: any) {
     console.error("[Auth Register Error]", err);
@@ -291,7 +346,7 @@ app.post("/api/auth/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    console.log(`[Auth Login] Login successful for user: ${user.name}`);
+    console.log(`[Auth Login] Login successful for uid: ${user.uid}`);
     res.json({
       success: true,
       token,

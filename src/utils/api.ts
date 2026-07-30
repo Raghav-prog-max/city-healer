@@ -261,9 +261,10 @@ function fallbackClientDb(url: string, options?: RequestInit): any {
   if (url === "/api/medicines/search-nationwide" && method === "POST") {
     const medicines = getStore("city_healer_mock_medicines", seed.medicineProducts);
     const query = (body.query || "").toLowerCase();
-    const matches = medicines.filter((m: any) => 
-      m.name.toLowerCase().includes(query) || 
-      m.saltName.toLowerCase().includes(query)
+    const matches = medicines.filter((m: any) =>
+      (m.name || "").toLowerCase().includes(query) ||
+      (m.category || "").toLowerCase().includes(query) ||
+      (m.description || "").toLowerCase().includes(query)
     );
     return { matches, source: "In-Browser Local Database Sandbox" };
   }
@@ -286,9 +287,34 @@ function fallbackClientDb(url: string, options?: RequestInit): any {
   }
 
   if (url === "/api/medicines/guide" && method === "POST") {
+    // Mirrors the structured guide shape served by /api/medicines/guide on the server
     return {
-      success: true,
-      guide: `Mock Medication Guide for **${body.name}**:\n- **Usage**: Take as prescribed by doctor.\n- **Side Effects**: Drowsiness, mild nausea.\n- **Storage**: Cool and dry place.\n*(Simulated response)*`
+      name: body.name,
+      purpose: "General pharmaceutical treatment using authorized clinical compounds",
+      dosage: {
+        standard: "As directed by your healthcare specialist.",
+        maximum: "Locate dosage limit boundaries on your specific packaging sleeve."
+      },
+      instructions: [
+        "Take with warm water at regular consistent times daily.",
+        "Do not crush, split, or chew tablets unless suggested by a clinical pharmacist."
+      ],
+      localFoodInteractions: [
+        {
+          item: "Alcoholic or fermented beverages",
+          risk: "High",
+          explanation: "Increases risk of drug-solvent interactive side-effects and speeds or slows drug absorption."
+        },
+        {
+          item: "Sweet Citrus / Mosambi Juice",
+          risk: "Moderate",
+          explanation: "Concentrated citrus enzymes can inhibit liver enzymes, altering standard dosage effectiveness."
+        }
+      ],
+      safetyPrecautions: [
+        "Store in a cool dry cupboard away from direct sunlight & children.",
+        "Always complete the entire prescribed dose course even if you feel completely recovered."
+      ]
     };
   }
 
@@ -339,8 +365,24 @@ function fallbackClientDb(url: string, options?: RequestInit): any {
         timestamp: new Date().toISOString()
       };
       chats.push(newMsg);
+
+      // Simulated doctor auto-reply, mirroring the server's offline chat behavior
+      if (body.sender === "PATIENT") {
+        const appts = getStore<any>("city_healer_mock_appointments", seed.appointments);
+        const appt = appts.find((a: any) => a.id === appointmentId);
+        const doctorName = appt?.doctorName || "your City Healer clinician";
+        const symptoms = appt?.symptoms || "";
+        chats.push({
+          id: "chat-mock-ai-" + Date.now(),
+          appointmentId,
+          sender: "DOCTOR",
+          text: `Hello, I am ${doctorName}. I have reviewed your symptom note ("${symptoms}"). Please continue taking warm water and rest. Let's discuss further in our next virtual session.`,
+          timestamp: new Date(Date.now() + 1).toISOString()
+        });
+      }
+
       saveStore("city_healer_mock_chats", chats);
-      return newMsg;
+      return chats.filter((c: any) => c.appointmentId === appointmentId);
     }
   }
 
@@ -457,14 +499,61 @@ function fallbackClientDb(url: string, options?: RequestInit): any {
   }
 
   if (url === "/api/diet/recommend" && method === "POST") {
+    // Mirrors the structured plan shape served by /api/diet/recommend on the server
     return {
-      plan: `### In-Browser Nutrition Recommendation\n- **Goal**: General Health for ${body.condition}.\n- **Preference**: ${body.preference}.\n- **Suggested Diet**: Balanced whole foods, leafy greens, lean protein, complex carbs.\n*(Simulated Gemini Diet Advice)*`
+      condition: body.condition || "Type-2 Diabetes mellitus",
+      dietOption: `${body.preference === "Non-Veg" ? "Balanced Non-Vegetarian" : "Pure Vegetarian"} Indian Diet Plan`,
+      energyProfile: "1,550 kCal - Balanced Glycemic Control",
+      ayurvedicElement: "Methi Seeds & Amla (Bitter-Astringent therapeutic nodes)",
+      schedule: [
+        { meal: "Early Morning (06:30 AM)", items: "1 glass lukewarm water with 1 tsp soaked fenugreek (Methi) seeds + 5 soaked almonds", benefit: "Helps stabilize blood glucose spike on waking" },
+        { meal: "Breakfast (08:30 AM)", items: "2 steamed Ragi (Finger millet) Idlis with tomato-onion mint chutney + 1 cup boiled chana sprouts salad", benefit: "High fiber slow sustained carb release" },
+        { meal: "Mid-Morning (11:00 AM)", items: "1 glass fresh thinned buttermilk with a pinch of roasted cumin (Jeera) and fresh coriander", benefit: "Promotes healthy hydration and gut microflora" },
+        { meal: "Lunch (01:15 PM)", items: "2 multigrain wheat-barley-chana chapattis + 1 bowl yellow moong dal + 1 cup stir-cooked Bittergourd (Karela) or Okra sabzi", benefit: "Active peptide bitter compounds supporting islet function" },
+        { meal: "Evening Snack (04:30 PM)", items: "1 cup green tea or black ginger tea (no sugar) + 1 small handful of dry-roasted chickpeas (Chana)", benefit: "Prevents evening hypoglycemia safely" },
+        { meal: "Dinner (08:00 PM)", items: "1 big bowl of home-cooked Mixed Vegetable Lentil Soup or boiled Paneer tikka with green salad (cucumber, lettuce, tomato)", benefit: "Low carbohydrate, high protein to prevent high fasting glucose" }
+      ],
+      medicinalTip: "Consume 1 tsp of home-pressed Amla and Turmeric juice on an empty fasting stomach."
     };
   }
 
   if (url === "/api/developer/ai-pipeline" && method === "POST") {
+    // Mirrors the full pipeline shape served by /api/developer/ai-pipeline on the server
+    const prompt = (body.prompt || "").toLowerCase();
+    let intent = "GENERAL_INFO";
+    if (prompt.includes("diet") || prompt.includes("eat") || prompt.includes("nutrition")) {
+      intent = "DIET_RECO";
+    } else if (prompt.includes("doctor") || prompt.includes("appointment") || prompt.includes("counsel")) {
+      intent = "OPD_SCHEDULING";
+    } else if (prompt.includes("medicine") || prompt.includes("pharmacy") || prompt.includes("drug")) {
+      intent = "MEDICINE_LOOKUP";
+    } else if (prompt.includes("sos") || prompt.includes("emergency") || prompt.includes("ambulance")) {
+      intent = "SOS_EMERGENCY";
+    }
+
+    const pipelineResults: Record<string, string> = {
+      DIET_RECO: "Diet Recommendation Fallback: For type-2 diabetes, prefer a low-glycemic Ragi (Finger millet) Idli and fresh buttermilk. Store Amla & ginger infusions.",
+      OPD_SCHEDULING: "OPD Appointment Fallback: Found Dr. Rajesh Sharma (General Medicine) and Dr. Naresh Trehan (Cardiology) online at Max/Medanta Delhi NCR.",
+      MEDICINE_LOOKUP: "Medicine Lookup Fallback: Medicine 'Crocin Advance 650mg' and 'Combiflam' are available in stock at Apollo Pharmacy.",
+      SOS_EMERGENCY: "SOS Emergency Fallback: Emergency Trauma centers are active. Medanta has 14 ICU beds, Fortis has 18 available.",
+      GENERAL_INFO: "General Info Fallback: Welcome to City Healer Delhi console. Running in-browser sandbox mode — connect the backend to enable live generative responses."
+    };
+
     return {
-      result: `Developer AI Pipeline Sandbox Execution Success:\nPrompt received: "${body.prompt}"\nResult: Successfully processed through simulated NLP compiler. (LocalStorage Sandbox)`
+      intent,
+      confidence: 1.0,
+      plan: [
+        `[Fallback Step 1] Detect intent: ${intent}`,
+        "[Fallback Step 2] Run query match on local tables",
+        "[Fallback Step 3] Generate simulated response"
+      ],
+      executionLogs: [
+        `[Initiating Pipeline] Received query: "${body.prompt}"`,
+        "⚠️ Running fully in-browser sandbox pipeline (no backend detected).",
+        `[Intent recognized] Class: ${intent} (Confidence: 1.0)`,
+        "[Execution] Scanning local databases for match..."
+      ],
+      result: pipelineResults[intent]
     };
   }
 
