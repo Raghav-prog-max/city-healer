@@ -1406,6 +1406,21 @@ export default function App() {
     showToast(`Successfully logged ${vitalInputType.toUpperCase()} vitals data points!`);
   };
 
+  /**
+   * The dispatch stream carries other patients' phone numbers and GPS, so the server
+   * restricts it to HOSPITAL/ADMIN. Mirror that here so patient sessions don't spam
+   * requests they will always be denied. The server remains the enforcement point.
+   */
+  const canReadEmergencyStream = (): boolean => {
+    try {
+      const raw = localStorage.getItem("city_healer_user");
+      const role = raw ? JSON.parse(raw).role : null;
+      return role === "HOSPITAL" || role === "ADMIN";
+    } catch {
+      return false;
+    }
+  };
+
   // Scope loadData at component level so it can be re-triggered on network sync re-activation
   const loadData = async () => {
     try {
@@ -1427,7 +1442,9 @@ export default function App() {
         safeFetch(api.getRecords(), [], "records"),
         safeFetch(api.getMedicines(), [], "medicines"),
         safeFetch(api.getOrders(), [], "orders"),
-        safeFetch(api.getEmergencyAlerts(), [], "alerts")
+        canReadEmergencyStream()
+          ? safeFetch(api.getEmergencyAlerts(), [], "alerts")
+          : Promise.resolve([] as any[])
       ]);
 
       setHospitals(hData);
@@ -1635,7 +1652,7 @@ export default function App() {
         try {
           const [hData, alData, qData] = await Promise.all([
             api.getHospitals(),
-            api.getEmergencyAlerts(),
+            canReadEmergencyStream() ? api.getEmergencyAlerts() : Promise.resolve([] as any[]),
             api.getQueue()
           ]);
           setHospitals(hData);

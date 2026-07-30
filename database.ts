@@ -76,9 +76,20 @@ export async function initializeDatabase() {
         bloodGroup TEXT DEFAULT 'O+',
         policyNo TEXT,
         createdAt TEXT,
-        updatedAt TEXT
+        updatedAt TEXT,
+        doctorId TEXT
       )
     `);
+
+    // 1b. Additive migration for databases created before doctorId existed.
+    // doctorId links a DOCTOR-role account to its row in `doctors`, which is what
+    // lets record access be scoped to "patients this doctor actually treats".
+    // A DOCTOR with a NULL doctorId is linked to no patients and therefore sees none.
+    const userCols = await dbAll<{ name: string }>("PRAGMA table_info(users)");
+    if (!userCols.some((c) => c.name === "doctorId")) {
+      console.log("[SQLite Migration] Adding users.doctorId for doctor-patient scoping...");
+      await dbExec("ALTER TABLE users ADD COLUMN doctorId TEXT");
+    }
 
     // 2. Hospitals
     await dbExec(`
