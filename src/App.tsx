@@ -188,6 +188,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 import {
   Hospital,
+  RecommendedHospital,
   Doctor,
   Appointment,
   QueueToken,
@@ -307,9 +308,9 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [authMode, setAuthMode] = useState<"LOGIN" | "SIGNUP" | "FORGOT" | "OTP_VERIFY">("LOGIN");
   const [authError, setAuthError] = useState<{ code: string; message: string } | null>(null);
-  const [authEmail, setAuthEmail] = useState("raghavramghat@gmail.com");
-  const [authPhone, setAuthPhone] = useState("+91 98101 22334");
-  const [authName, setAuthName] = useState("Raghav Sharma");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPhone, setAuthPhone] = useState("");
+  const [authName, setAuthName] = useState("");
   const [authOtpSent, setAuthOtpSent] = useState<string>("");
   const [authOtpInput, setAuthOtpInput] = useState("");
   const [authRoleSelection, setAuthRoleSelection] = useState<"PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN">("PATIENT");
@@ -350,8 +351,19 @@ export default function App() {
   // Family profile selector state (converted from static array to support adding new patients dynamically)
   const [activeFamilyMember, setActiveFamilyMember] = useState<string>("Self");
   const [familyMembers, setFamilyMembers] = useState<any[]>([
-    { name: "Self", relation: "Primary User (Raghav Sharma)", gender: "Male", age: 34, bloodGroup: "O+", policyNo: "CH-POL-98101" }
+    { name: "Self", relation: `Primary User (${authName})`, gender: "Male", age: 34, bloodGroup: "O+", policyNo: "CH-POL-98101" }
   ]);
+
+  // Keep the "Self" profile label in sync with whoever is actually logged in
+  useEffect(() => {
+    setFamilyMembers(prev =>
+      prev.map((m, idx) =>
+        idx === 0 && m.name === "Self"
+          ? { ...m, relation: `Primary User (${authName.trim() || "You"})` }
+          : m
+      )
+    );
+  }, [authName]);
 
   // Addition fields for dynamic Patient onboarding
   const [isAddPatientOpen, setIsAddPatientOpen] = useState<boolean>(false);
@@ -661,9 +673,13 @@ export default function App() {
         } else if (error.code === error.TIMEOUT) {
           errorMsg = "Location request timed out.";
         }
-        setLocationStatusMessage(errorMsg);
-        showToast(`⚠️ ${errorMsg}`);
-        console.error("Location error:", error);
+        // Fall back to baseline coordinates (Connaught Place, Delhi) so
+        // distance-based features keep working when GPS is unavailable
+        setUserLocationCoords({ lat: 28.6139, lng: 77.2090 });
+        setUserLocationName("Baseline (Connaught Place, Delhi)");
+        setLocationStatusMessage(`${errorMsg} Using baseline Delhi coordinates.`);
+        showToast(`⚠️ ${errorMsg} Using baseline coordinates.`);
+        console.warn(`[Geolocation] ${errorMsg} (code ${error.code}) — falling back to baseline coordinates.`);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
@@ -743,15 +759,18 @@ export default function App() {
     const saved = safeStorage.getItem("cityhealer_lang");
     return (saved === "hi" ? "hi" : "en") as LanguageCode;
   });
+  const copilotGreetingText = (isHi: boolean, fullName: string) => {
+    const firstName = (fullName || "").trim().split(/\s+/)[0] || "there";
+    return isHi
+      ? `नमस्ते, ${firstName}! मैं आपका सिटी हीलर एआई स्वास्थ्य कोपायलट हूं। मैं जटिल मेडिकल लैब रिपोर्ट की व्याख्या कर सकता हूं, विश्लेषण कर सकता हूं, और डॉक्टरों से मिला सकता हूं। आप क्या तलाशना चाहेंगे?`
+      : `Namaste, ${firstName}! I am your City Healer AI Health Copilot. I can explain complex medical lab reports, analyze prescription dosages, track your recovery milestones, or match you with regional clinical specialists. What would you like to explore?`;
+  };
   const [copilotHistory, setCopilotHistory] = useState<Array<{ sender: "user" | "copilot"; text: string; time: string; attachment?: string }>>(() => {
     const saved = safeStorage.getItem("cityhealer_lang");
-    const isSavedHi = saved === "hi";
     return [
       {
         sender: "copilot",
-        text: isSavedHi 
-          ? "नमस्ते, राघव! मैं आपका सिटी हीलर एआई स्वास्थ्य कोपायलट हूं। मैं जटिल मेडिकल लैब रिपोर्ट की व्याख्या कर सकता हूं, विश्लेषण कर सकता हूं, और डॉक्टरों से मिला सकता हूं। आप क्या तलाशना चाहेंगे?"
-          : "Namaste, Raghav! I am your City Healer AI Health Copilot. I can explain complex medical lab reports, analyze prescription dosages, track your recovery milestones, or match you with regional clinical specialists. What would you like to explore?",
+        text: copilotGreetingText(saved === "hi", authName),
         time: "10:45 AM"
       }
     ];
@@ -759,28 +778,16 @@ export default function App() {
 
   useEffect(() => {
     safeStorage.setItem("cityhealer_lang", appLanguage);
+    // Keep the opening greeting synced to the active language and the logged-in user's name
     setCopilotHistory(prev => {
       if (prev.length === 0) return prev;
-      return prev.map((msg, idx) => {
-        if (idx === 0 && msg.sender === "copilot") {
-          const isEnGreeting = msg.text.startsWith("Namaste, Raghav!");
-          const isHiGreeting = msg.text.startsWith("नमस्ते, राघव!");
-          if (appLanguage === "hi" && isEnGreeting) {
-            return {
-              ...msg,
-              text: "नमस्ते, राघव! मैं आपका सिटी हीलर एआई स्वास्थ्य कोपायलट हूं। मैं जटिल मेडिकल लैब रिपोर्ट की व्याख्या कर सकता हूं, विश्लेषण कर सकता हूं, और डॉक्टरों से मिला सकता हूं। आप क्या तलाशना चाहेंगे?"
-            };
-          } else if (appLanguage === "en" && isHiGreeting) {
-            return {
-              ...msg,
-              text: "Namaste, Raghav! I am your City Healer AI Health Copilot. I can explain complex medical lab reports, analyze prescription dosages, track your recovery milestones, or match you with regional clinical specialists. What would you like to explore?"
-            };
-          }
-        }
-        return msg;
-      });
+      return prev.map((msg, idx) =>
+        idx === 0 && msg.sender === "copilot"
+          ? { ...msg, text: copilotGreetingText(appLanguage === "hi", authName) }
+          : msg
+      );
     });
-  }, [appLanguage]);
+  }, [appLanguage, authName]);
   const [copilotInputText, setCopilotInputText] = useState<string>("");
   const [copilotQuickAnalysisType, setCopilotQuickAnalysisType] = useState<string>("CBC");
   const [copilotSelectedDrug, setCopilotSelectedDrug] = useState<string>("Metformin");
@@ -795,10 +802,11 @@ export default function App() {
   });
 
   // Module A: Unified Health ID States
-  const [abhaIdInput, setAbhaIdInput] = useState<string>("91-0421-8890-4412");
-  const [abhaNameInput, setAbhaNameInput] = useState<string>("Raghav");
+  // Seeded from the authenticated account on sign-in; blank until then.
+  const [abhaIdInput, setAbhaIdInput] = useState<string>("");
+  const [abhaNameInput, setAbhaNameInput] = useState<string>("");
   const [abhaGroupInput, setAbhaGroupInput] = useState<string>("O-Positive");
-  const [abhaAgeInput, setAbhaAgeInput] = useState<number>(31);
+  const [abhaAgeInput, setAbhaAgeInput] = useState<number>(0);
   const [abhaSyncing, setAbhaSyncing] = useState<boolean>(false);
   const [healthRecordsList, setHealthRecordsList] = useState<Array<{ id: string; title: string; hospital: string; date: string; type: string; status: "SYNCED" | "PENDING"; doctor: string }>>([
     { id: "rec-1", title: "Complete Blood Count (CBC) Report", hospital: "Max Gurgaon Memorial", date: "2026-05-12", type: "LAB_REPORT", status: "SYNCED", doctor: "Dr. Rajesh Sharma" },
@@ -1250,6 +1258,7 @@ export default function App() {
     urgencyLevel: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
     recommendations: string[];
     flagUrgentSOS: boolean;
+    recommendedHospitals?: RecommendedHospital[];
   } | null>(null);
 
   // Emergency SOS Form Details
@@ -1398,6 +1407,21 @@ export default function App() {
     showToast(`Successfully logged ${vitalInputType.toUpperCase()} vitals data points!`);
   };
 
+  /**
+   * The dispatch stream carries other patients' phone numbers and GPS, so the server
+   * restricts it to HOSPITAL/ADMIN. Mirror that here so patient sessions don't spam
+   * requests they will always be denied. The server remains the enforcement point.
+   */
+  const canReadEmergencyStream = (): boolean => {
+    try {
+      const raw = localStorage.getItem("city_healer_user");
+      const role = raw ? JSON.parse(raw).role : null;
+      return role === "HOSPITAL" || role === "ADMIN";
+    } catch {
+      return false;
+    }
+  };
+
   // Scope loadData at component level so it can be re-triggered on network sync re-activation
   const loadData = async () => {
     try {
@@ -1419,7 +1443,9 @@ export default function App() {
         safeFetch(api.getRecords(), [], "records"),
         safeFetch(api.getMedicines(), [], "medicines"),
         safeFetch(api.getOrders(), [], "orders"),
-        safeFetch(api.getEmergencyAlerts(), [], "alerts")
+        canReadEmergencyStream()
+          ? safeFetch(api.getEmergencyAlerts(), [], "alerts")
+          : Promise.resolve([] as any[])
       ]);
 
       setHospitals(hData);
@@ -1555,14 +1581,15 @@ export default function App() {
             setAuthPhone(profileData.phone || firebaseUser.phoneNumber || "");
             const userRole = profileData.role || "PATIENT";
             setActiveRole(userRole);
-            
-            // Route to correct tab based on user's authorized role
-            if (userRole === "ADMIN" || userRole === "HOSPITAL") {
-              setActiveTab("admin");
-            } else if (userRole === "DOCTOR") {
-              setActiveTab("consultation");
-            } else {
-              setActiveTab("overview");
+
+            // Route by role only from entry pages — never yank a restored session
+            // off a deep link like /dashboard or /pharmacy on reload.
+            if (window.location.pathname === "/" || window.location.pathname === "/login") {
+              if (userRole === "ADMIN" || userRole === "HOSPITAL") {
+                setActiveTab("admin");
+              } else if (userRole === "DOCTOR") {
+                setActiveTab("consultation");
+              }
             }
           } else {
             const tempPolicy = `CH-POL-${Math.floor(10000 + Math.random() * 90000)}`;
@@ -1588,17 +1615,38 @@ export default function App() {
             setAuthName(profileData.name);
             setAuthEmail(profileData.email);
             setAuthPhone(profileData.phone);
-            
-            // Route to correct tab based on new user role
-            if (userRole === "ADMIN" || userRole === "HOSPITAL") {
-              setActiveTab("admin");
-            } else if (userRole === "DOCTOR") {
-              setActiveTab("consultation");
-            } else {
-              setActiveTab("overview");
+
+            // Route by role only from entry pages — never yank a restored session
+            // off a deep link on reload.
+            if (window.location.pathname === "/" || window.location.pathname === "/login") {
+              if (userRole === "ADMIN" || userRole === "HOSPITAL") {
+                setActiveTab("admin");
+              } else if (userRole === "DOCTOR") {
+                setActiveTab("consultation");
+              }
             }
           }
           
+          // Seed the "Self" profile from the real account so the Unified Health ID
+          // card and family selector show this user's details, not placeholder ones.
+          setFamilyMembers(prev =>
+            prev.map((m, idx) =>
+              idx === 0 && m.name === "Self"
+                ? {
+                    ...m,
+                    relation: `Primary User (${profileData.name || "You"})`,
+                    gender: profileData.gender || m.gender,
+                    age: profileData.age ?? m.age,
+                    bloodGroup: profileData.bloodGroup || m.bloodGroup,
+                    policyNo: profileData.policyNo || m.policyNo
+                  }
+                : m
+            )
+          );
+          if (profileData.policyNo) {
+            setAbhaIdInput(profileData.policyNo);
+          }
+
           setIsAuthenticated(true);
           const tokenStr = await firebaseUser.getIdToken();
           setJwtToken(tokenStr);
@@ -1625,7 +1673,7 @@ export default function App() {
         try {
           const [hData, alData, qData] = await Promise.all([
             api.getHospitals(),
-            api.getEmergencyAlerts(),
+            canReadEmergencyStream() ? api.getEmergencyAlerts() : Promise.resolve([] as any[]),
             api.getQueue()
           ]);
           setHospitals(hData);
@@ -2376,7 +2424,11 @@ export default function App() {
       setAuthError(null);
       setAuthLoading(true);
       const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider, {
+        email: authEmail,
+        name: authName,
+        role: authRoleSelection
+      });
       
       // Fast route adjustments to showcase views on login based on selected role
       if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
@@ -2554,7 +2606,8 @@ export default function App() {
     setAuthPhone(phoneVal);
     const fakeJwtToken = "mock-jwt-token-simulated";
     setJwtToken(fakeJwtToken);
-    
+    loadData();
+
     if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
       setActiveTab("admin");
     } else if (authRoleSelection === "DOCTOR") {
@@ -2853,16 +2906,47 @@ export default function App() {
                     : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white cursor-pointer"
                 }`}
               >
-                <option value="PATIENT" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>PATIENT (Raghav Sharma / Family Profiles)</option>
+                <option value="PATIENT" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>PATIENT (Primary User / Family Profiles)</option>
                 <option value="DOCTOR" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>DOCTOR (Physician Care Portal)</option>
                 <option value="HOSPITAL" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>HOSPITAL ADMIN (Bed Allocation Coordinator)</option>
                 <option value="ADMIN" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>SYSTEM ADMIN (Delhi NCR Health Registry)</option>
               </select>
             </div>
 
+            <div className="space-y-3">
+              <div>
+                <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Full Name</label>
+                <input
+                  type="text"
+                  value={authName}
+                  onChange={(e) => setAuthName(e.target.value)}
+                  placeholder="e.g. Ananya Verma"
+                  className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
+                    isAppDarkMode
+                      ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900"
+                      : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white"
+                  }`}
+                />
+              </div>
+              <div>
+                <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Email ID</label>
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
+                    isAppDarkMode
+                      ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900"
+                      : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white"
+                  }`}
+                />
+              </div>
+            </div>
+
             <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} onBypass={handleOfflineBypass} isDarkMode={isAppDarkMode} />
 
-            <button 
+            <button
               type="button"
               onClick={handleGoogleLogin}
               disabled={authLoading}
@@ -7476,8 +7560,8 @@ export default function App() {
                               const target = hospitals.find(h => h.id === val);
                               if (target) {
                                 setAdminAvailBeds(target.availableBeds);
-                                setAdminIcuAvail(target.icuBedsAvailable || 0);
-                                setAdminOccupancy(target.occupancyRate || 80);
+                                setAdminIcuAvail(target.icuAvailable || 0);
+                                setAdminOccupancy(target.emergencyOccupancy || 80);
                               }
                             }}
                             className={`w-full border p-2.5 rounded-xl text-xs cursor-pointer focus:outline-none font-semibold transition-all ${

@@ -16,6 +16,24 @@ export interface Hospital {
   lat: number;
   lng: number;
   phone: string;
+  rating?: number;
+  specialties?: string[];
+  categories?: string[];
+  hasAmbulanceSupport?: boolean;
+  ambulanceSupportCount?: number;
+  isGovernment?: boolean;
+  hasTelemedicine?: boolean;
+  hasOpdBooking?: boolean;
+  email?: string;
+  doctorsAvailableCount?: number;
+}
+
+/** Hospital enriched by the AI triage recommendation engine. */
+export interface RecommendedHospital extends Hospital {
+  distanceKM: number;
+  travelTimeMin: number;
+  recommendationScore: number;
+  matchReason: string;
 }
 
 export interface Doctor {

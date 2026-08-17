@@ -6,50 +6,264 @@ import { createServer as createViteServer } from "vite";
 import dns from "dns";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { dbRun, dbGet, dbAll, initializeDatabase } from "./database";
 
 // Fix node localhost resolution issues
 dns.setDefaultResultOrder("ipv4first");
 
 const app = express();
-const PORT = 3000;
-const JWT_SECRET = process.env.JWT_SECRET || "city-healer-secret-key-12345";
+const IS_PROD = process.env.NODE_ENV === "production";
+const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+// Anonymous access is opt-in only. Defaults to false; must be set explicitly.
+const DEMO_MODE = process.env.DEMO_MODE === "true";
+if (DEMO_MODE) {
+  console.warn("[Security] DEMO_MODE=true — anonymous callers are served a synthetic sandbox identity. Never enable this for a real deployment.");
+}
+
+/**
+ * Resolve the JWT signing secret.
+ *
+ * There is deliberately no hardcoded fallback. This repository is public, so any
+ * literal committed here would let anyone mint a validly-signed token for any uid
+ * and role, defeating every downstream guard. When no secret is configured outside
+ * production we generate a random one per process instead: sessions do not survive
+ * a restart, but nothing forgeable is ever written to source.
+ */
+function resolveJwtSecret(): string {
+  const fromEnv = process.env.JWT_SECRET;
+  if (fromEnv) {
+    if (fromEnv.length < 32) {
+      console.error("[FATAL] JWT_SECRET must be at least 32 characters. Refusing to start.");
+      process.exit(1);
+    }
+    return fromEnv;
+  }
+  if (IS_PROD) {
+    console.error("[FATAL] JWT_SECRET environment variable must be set in production. Refusing to start.");
+    process.exit(1);
+  }
+  const ephemeral = crypto.randomBytes(32).toString("hex");
+  console.warn("[Security] JWT_SECRET not set — generated a random ephemeral secret for this process only. Existing sessions are invalidated on restart. Set JWT_SECRET for stable local sessions.");
+  return ephemeral;
+}
+const JWT_SECRET = resolveJwtSecret();
+
+app.disable("x-powered-by");
+app.use(express.json({ limit: "512kb" }));
+
+// Baseline security headers for all responses
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
+  next();
+});
+
+// Lightweight fixed-window rate limiter for credential endpoints (per IP)
+const authRateWindow = new Map<string, { count: number; windowStart: number }>();
+const AUTH_RATE_LIMIT = 20;
+const AUTH_RATE_WINDOW_MS = 10 * 60 * 1000;
+app.use("/api/auth", (req, res, next) => {
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  const entry = authRateWindow.get(ip);
+  if (!entry || now - entry.windowStart > AUTH_RATE_WINDOW_MS) {
+    authRateWindow.set(ip, { count: 1, windowStart: now });
+    return next();
+  }
+  entry.count += 1;
+  if (entry.count > AUTH_RATE_LIMIT) {
+    return res.status(429).json({ error: "Too many authentication attempts. Please try again later." });
+  }
+  next();
+});
+
+/**
+ * Surface DOCTOR accounts that have not been linked to a `doctors` row. Record access
+ * is scoped through that link, so an unlinked account silently sees zero patients —
+ * which is safe, but looks like a bug unless it is visible at boot.
+ */
+async function warnAboutUnlinkedDoctors() {
+  try {
+    const unlinked = await dbAll(
+      "SELECT uid, name, email FROM users WHERE role = 'DOCTOR' AND (doctorId IS NULL OR doctorId = '')"
+    );
+    if (unlinked.length === 0) return;
+    console.warn(`[Provisioning] ${unlinked.length} DOCTOR account(s) are not linked to a doctor record and will see no patients:`);
+    for (const d of unlinked) {
+      console.warn(`  - ${d.name} <${d.email}>  uid=${d.uid}`);
+    }
+    console.warn('[Provisioning] Link them with: npm run link-doctor -- --uid <uid> --doctorId <doc-id>');
+  } catch (err: any) {
+    console.warn("[Provisioning] Could not check doctor linkage:", err.message);
+  }
+}
 
 // Initialize Database on Startup
 initializeDatabase()
-  .then(() => console.log("[SQLite] Database schema initialized and seeded successfully."))
+  .then(async () => {
+    console.log("[SQLite] Database schema initialized and seeded successfully.");
+    await warnAboutUnlinkedDoctors();
+  })
   .catch((err) => console.error("[SQLite Error] Database initialization failed:", err));
 
-// Global Authentication Middleware using custom JWT
+// ----------------------------------------------------------------
+// Authentication & Authorization
+// ----------------------------------------------------------------
+
+export type Role = "PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN";
+interface AuthUser {
+  uid: string;
+  email: string;
+  role: Role;
+  isDemo?: boolean;
+}
+
+// The synthetic identity used only when DEMO_MODE=true. Its uid matches no real
+// patient, so ownership-scoped queries return nothing belonging to a real person.
+const DEMO_USER: AuthUser = {
+  uid: "demo-sandbox-user",
+  email: "demo@cityhealer.invalid",
+  role: "PATIENT",
+  isDemo: true
+};
+
+// Routes that carry no patient data and are reachable without a session.
+const PUBLIC_ROUTES: Array<{ method: string; pattern: RegExp }> = [
+  { method: "POST", pattern: /^\/api\/auth\/(register|login)$/ },
+  { method: "GET", pattern: /^\/api\/health$/ },
+  { method: "GET", pattern: /^\/api\/hospitals$/ },
+  { method: "GET", pattern: /^\/api\/doctors$/ },
+  { method: "GET", pattern: /^\/api\/medicines$/ }
+];
+
+const isPublicRoute = (method: string, path: string) =>
+  PUBLIC_ROUTES.some((r) => r.method === method && r.pattern.test(path));
+
 const authenticateUser = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  if (!req.path.startsWith("/api/") || isPublicRoute(req.method, req.path)) {
     return next();
   }
 
-  const token = authHeader.split("Bearer ")[1];
-  
-  // Directly bypass local mock/simulated tokens used for diagnostic resilience
-  if (token === "mock-jwt-token-simulated" || token === "mock-jwt-token-simulated-fallback" || token.startsWith("mock-")) {
-    (req as any).user = { uid: "sim-user-id", email: "simulated@cityhealer.com", role: "PATIENT" };
-    return next();
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
+
+  if (!token) {
+    if (DEMO_MODE) {
+      (req as any).user = DEMO_USER;
+      return next();
+    }
+    return res.status(401).json({ error: "Authentication required." });
   }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    (req as any).user = decoded;
-    console.log(`[Auth Session] Validated session for UID: ${decoded.uid}, Email: ${decoded.email}`);
-    next();
+    if (!decoded?.uid || !decoded?.role) {
+      return res.status(401).json({ error: "Malformed session token." });
+    }
+
+    // The token's role is a stale snapshot from issue time. Re-read the account so a
+    // deleted user is rejected immediately and a role change takes effect at once,
+    // rather than persisting for the remaining lifetime of an already-issued token.
+    const account = await dbGet("SELECT uid, email, role FROM users WHERE uid = ?", [decoded.uid]);
+    if (!account) {
+      return res.status(401).json({ error: "Session no longer valid." });
+    }
+
+    (req as any).user = { uid: account.uid, email: account.email, role: account.role } as AuthUser;
+    return next();
   } catch (error: any) {
-    console.warn("[Auth Session] Token verification failed. Proceeding with guest fallback:", error.message);
-    (req as any).user = { uid: "guest-fallback", email: "guest@cityhealer.com", role: "PATIENT", isGuest: true };
-    next();
+    // No guest fallback. An unverifiable token is rejected in every environment;
+    // DEMO_MODE downgrades to the synthetic sandbox identity, never to real data.
+    if (DEMO_MODE) {
+      (req as any).user = DEMO_USER;
+      return next();
+    }
+    return res.status(401).json({ error: "Invalid or expired session token." });
   }
 };
 
 app.use(authenticateUser);
+
+const getAuthUser = (req: express.Request): AuthUser | null => (req as any).user || null;
+
+/** Restrict a route to the listed roles. Assumes authenticateUser has already run. */
+const requireRole = (...roles: Role[]) =>
+  (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const user = getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ error: "Authentication required." });
+    }
+    if (!roles.includes(user.role)) {
+      return res.status(403).json({ error: "Insufficient permissions for this operation." });
+    }
+    next();
+  };
+
+/**
+ * Per-user quota for routes that spend money on a Gemini call. Keyed by the verified
+ * uid rather than IP, so one account cannot burn the budget from many addresses, and
+ * so the shared DEMO_MODE identity has a single collective bucket.
+ */
+const AI_RATE_LIMIT = Number(process.env.AI_RATE_LIMIT) || 30;
+const AI_RATE_WINDOW_MS = 60 * 60 * 1000;
+const aiRateWindow = new Map<string, { count: number; windowStart: number }>();
+
+const aiRateLimit = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: "Authentication required." });
+  }
+
+  const now = Date.now();
+
+  // Opportunistic prune so the map cannot grow without bound.
+  if (aiRateWindow.size > 5000) {
+    for (const [k, v] of aiRateWindow) {
+      if (now - v.windowStart > AI_RATE_WINDOW_MS) aiRateWindow.delete(k);
+    }
+  }
+
+  const entry = aiRateWindow.get(user.uid);
+  if (!entry || now - entry.windowStart > AI_RATE_WINDOW_MS) {
+    aiRateWindow.set(user.uid, { count: 1, windowStart: now });
+    return next();
+  }
+
+  entry.count += 1;
+  if (entry.count > AI_RATE_LIMIT) {
+    const retryAfterSeconds = Math.ceil((entry.windowStart + AI_RATE_WINDOW_MS - now) / 1000);
+    res.setHeader("Retry-After", String(retryAfterSeconds));
+    return res.status(429).json({
+      error: `AI request quota exceeded (${AI_RATE_LIMIT} per hour). Please try again later.`,
+      retryAfterSeconds
+    });
+  }
+  next();
+};
+
+/**
+ * Resolve the doctors.id owned by a DOCTOR account. Returns null when the account
+ * is not linked, which callers must treat as "linked to no patients" (fail closed).
+ */
+async function resolveDoctorId(uid: string): Promise<string | null> {
+  const row = await dbGet("SELECT doctorId FROM users WHERE uid = ?", [uid]);
+  return row?.doctorId || null;
+}
+
+/** True when this doctor account is clinically linked to the patient by an appointment. */
+async function doctorTreatsPatient(doctorUid: string, patientId: string): Promise<boolean> {
+  const doctorId = await resolveDoctorId(doctorUid);
+  if (!doctorId) return false;
+  const link = await dbGet(
+    "SELECT 1 AS ok FROM appointments WHERE doctorId = ? AND patientId = ? LIMIT 1",
+    [doctorId, patientId]
+  );
+  return !!link;
+}
 
 // Initialize Gemini Client
 const apiKey = process.env.GEMINI_API_KEY;
@@ -239,6 +453,20 @@ app.post("/api/auth/register", async (req, res) => {
   if (!email || !password || !name) {
     return res.status(400).json({ error: "Email, password, and name are required." });
   }
+  if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "A valid email address is required." });
+  }
+  if (typeof password !== "string" || password.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters long." });
+  }
+  const ALLOWED_ROLES = ["PATIENT", "DOCTOR", "HOSPITAL", "ADMIN"];
+  if (role && !ALLOWED_ROLES.includes(role)) {
+    return res.status(400).json({ error: "Invalid role." });
+  }
+  // Privileged roles cannot be self-assigned at public registration in production
+  if (IS_PROD && (role === "ADMIN" || role === "HOSPITAL")) {
+    return res.status(403).json({ error: "Privileged roles must be provisioned by an administrator." });
+  }
 
   try {
     const existing = await dbGet("SELECT * FROM users WHERE email = ?", [email.toLowerCase().trim()]);
@@ -259,7 +487,7 @@ app.post("/api/auth/register", async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, 34, 'Male', 'O+', ?, ?, ?)
     `, [uid, name, email.toLowerCase().trim(), passwordHash, phone || "", userRole, tempPolicy, now, now]);
 
-    console.log(`[Auth Register] Registered new user ${name} (${email}) with role ${userRole}`);
+    console.log(`[Auth Register] Registered new user ${uid} with role ${userRole}`);
     res.json({ success: true, user: { uid, name, email, role: userRole } });
   } catch (err: any) {
     console.error("[Auth Register Error]", err);
@@ -291,7 +519,7 @@ app.post("/api/auth/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    console.log(`[Auth Login] Login successful for user: ${user.name}`);
+    console.log(`[Auth Login] Login successful for uid: ${user.uid}`);
     res.json({
       success: true,
       token,
@@ -316,6 +544,13 @@ app.post("/api/auth/login", async (req, res) => {
 // Get User profile
 app.get("/api/users/:uid", async (req, res) => {
   const { uid } = req.params;
+  const caller = getAuthUser(req)!;
+
+  // A profile is readable by its owner and by ADMIN. No cross-user reads.
+  if (caller.uid !== uid && caller.role !== "ADMIN") {
+    return res.status(403).json({ error: "You may only access your own profile." });
+  }
+
   try {
     const user = await dbGet("SELECT * FROM users WHERE uid = ?", [uid]);
     if (!user) {
@@ -343,6 +578,20 @@ app.get("/api/users/:uid", async (req, res) => {
 app.put("/api/users/:uid", async (req, res) => {
   const { uid } = req.params;
   const { name, phone, age, gender, bloodGroup, policyNo, role } = req.body;
+  const caller = getAuthUser(req)!;
+
+  // A profile is writable by its owner and by ADMIN. No cross-user writes.
+  if (caller.uid !== uid && caller.role !== "ADMIN") {
+    return res.status(403).json({ error: "You may only modify your own profile." });
+  }
+  // Privilege escalation guard: role is assignable by ADMIN only, never by self-service.
+  if (role !== undefined && caller.role !== "ADMIN") {
+    return res.status(403).json({ error: "Role changes require an administrator." });
+  }
+  const ALLOWED_ROLES = ["PATIENT", "DOCTOR", "HOSPITAL", "ADMIN"];
+  if (role !== undefined && !ALLOWED_ROLES.includes(role)) {
+    return res.status(400).json({ error: "Invalid role." });
+  }
 
   try {
     const user = await dbGet("SELECT * FROM users WHERE uid = ?", [uid]);
@@ -405,7 +654,7 @@ app.get("/api/hospitals", async (req, res) => {
 });
 
 // Update hospital bed metrics (Administrative simulation)
-app.put("/api/hospitals/:id/beds", async (req, res) => {
+app.put("/api/hospitals/:id/beds", requireRole("HOSPITAL", "ADMIN"), async (req, res) => {
   const { id } = req.params;
   const { availableBeds, icuAvailable, emergencyOccupancy } = req.body;
 
@@ -451,7 +700,7 @@ app.put("/api/hospitals/:id/beds", async (req, res) => {
 });
 
 // Register a new hospital dynamically (Onboarding Hub)
-app.post("/api/hospitals", async (req, res) => {
+app.post("/api/hospitals", requireRole("HOSPITAL", "ADMIN"), async (req, res) => {
   const {
     name, address, totalBeds, icuBeds, phone, lat, lng, email,
     specialties, categories, hasAmbulanceSupport, ambulanceSupportCount,
@@ -514,7 +763,7 @@ app.post("/api/hospitals", async (req, res) => {
 });
 
 // Update standard characteristics of a hospital (Management Console)
-app.put("/api/hospitals/:id", async (req, res) => {
+app.put("/api/hospitals/:id", requireRole("HOSPITAL", "ADMIN"), async (req, res) => {
   const { id } = req.params;
   const {
     name, address, totalBeds, availableBeds, icuBeds, icuAvailable,
@@ -599,7 +848,7 @@ app.put("/api/hospitals/:id", async (req, res) => {
 });
 
 // Add clinical doctors directly linked from onboarded hospital
-app.post("/api/hospitals/:id/doctors", async (req, res) => {
+app.post("/api/hospitals/:id/doctors", requireRole("HOSPITAL", "ADMIN"), async (req, res) => {
   const { id } = req.params;
   const { name, specialty, rating, experience, online } = req.body;
 
@@ -661,7 +910,7 @@ app.get("/api/doctors", async (req, res) => {
 });
 
 // Toggle Doctor Online Status
-app.put("/api/doctors/:id/online", async (req, res) => {
+app.put("/api/doctors/:id/online", requireRole("DOCTOR", "HOSPITAL", "ADMIN"), async (req, res) => {
   const { id } = req.params;
   const { online } = req.body;
 
@@ -682,8 +931,22 @@ app.put("/api/doctors/:id/online", async (req, res) => {
 
 // GET Appointments
 app.get("/api/appointments", async (req, res) => {
+  const caller = getAuthUser(req)!;
   try {
-    const list = await dbAll("SELECT * FROM appointments");
+    let list: any[];
+
+    if (caller.role === "ADMIN" || caller.role === "HOSPITAL") {
+      list = await dbAll("SELECT * FROM appointments");
+    } else if (caller.role === "DOCTOR") {
+      const doctorId = await resolveDoctorId(caller.uid);
+      if (!doctorId) {
+        return res.json([]);
+      }
+      list = await dbAll("SELECT * FROM appointments WHERE doctorId = ?", [doctorId]);
+    } else {
+      list = await dbAll("SELECT * FROM appointments WHERE patientId = ?", [caller.uid]);
+    }
+
     const result = list.map(a => ({
       ...a,
       prescriptionJson: a.prescriptionJson ? JSON.parse(a.prescriptionJson) : null
@@ -704,8 +967,10 @@ app.post("/api/appointments", async (req, res) => {
       return res.status(404).json({ error: "Doctor not found" });
     }
 
-    const userUid = patientId || (req as any).user?.uid || "guest-patient";
-    const userName = patientName || (req as any).user?.name || "Unregistered Patient";
+    // Ownership always comes from the verified token, never from the request body.
+    const caller = getAuthUser(req)!;
+    const userUid = caller.uid;
+    const userName = patientName || caller.email || "Unregistered Patient";
     const apptId = "appt-" + Date.now();
 
     const newApp = {
@@ -739,7 +1004,7 @@ app.post("/api/appointments", async (req, res) => {
 });
 
 // Update Appointment Status
-app.put("/api/appointments/:id/status", async (req, res) => {
+app.put("/api/appointments/:id/status", requireRole("DOCTOR", "ADMIN"), async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
@@ -766,7 +1031,7 @@ app.put("/api/appointments/:id/status", async (req, res) => {
 });
 
 // Doctor writes prescription
-app.post("/api/appointments/:id/prescription", async (req, res) => {
+app.post("/api/appointments/:id/prescription", requireRole("DOCTOR", "ADMIN"), async (req, res) => {
   const { id } = req.params;
   const { diagnosis, medicines, instructions } = req.body;
 
@@ -817,8 +1082,29 @@ app.post("/api/appointments/:id/prescription", async (req, res) => {
 
 // GET Medical Records
 app.get("/api/records", async (req, res) => {
+  const caller = getAuthUser(req)!;
   try {
-    const list = await dbAll("SELECT * FROM medical_records");
+    let list: any[];
+
+    if (caller.role === "ADMIN") {
+      list = await dbAll("SELECT * FROM medical_records");
+    } else if (caller.role === "DOCTOR") {
+      // Scoped to patients this doctor is clinically linked to by an appointment.
+      // An unlinked doctor account resolves to no doctorId and therefore no rows.
+      const doctorId = await resolveDoctorId(caller.uid);
+      if (!doctorId) {
+        return res.json([]);
+      }
+      list = await dbAll(
+        `SELECT * FROM medical_records
+         WHERE patientId IN (SELECT DISTINCT patientId FROM appointments WHERE doctorId = ?)`,
+        [doctorId]
+      );
+    } else {
+      // PATIENT and HOSPITAL: own records only, scoped from the verified token uid.
+      list = await dbAll("SELECT * FROM medical_records WHERE patientId = ?", [caller.uid]);
+    }
+
     res.json(list);
   } catch (err: any) {
     res.status(500).json({ error: "Failed to fetch medical records", message: err.message });
@@ -832,7 +1118,7 @@ app.post("/api/records", async (req, res) => {
     const recId = "rec-" + Date.now();
     const newRec = {
       id: recId,
-      patientId: (req as any).user?.uid || "patient-default",
+      patientId: getAuthUser(req)!.uid,
       date: new Date().toISOString().split("T")[0],
       title: title || "Uploaded Health Record",
       doctorName: doctorName || "Self-Uploaded",
@@ -853,8 +1139,17 @@ app.post("/api/records", async (req, res) => {
 
 // GET Queue tokens
 app.get("/api/queue", async (req, res) => {
+  const caller = getAuthUser(req)!;
   try {
-    const list = await dbAll("SELECT * FROM queue_tokens");
+    let list: any[];
+    if (caller.role === "ADMIN" || caller.role === "HOSPITAL") {
+      list = await dbAll("SELECT * FROM queue_tokens");
+    } else if (caller.role === "DOCTOR") {
+      const doctorId = await resolveDoctorId(caller.uid);
+      list = doctorId ? await dbAll("SELECT * FROM queue_tokens WHERE doctorId = ?", [doctorId]) : [];
+    } else {
+      list = await dbAll("SELECT * FROM queue_tokens WHERE patientId = ?", [caller.uid]);
+    }
     res.json(list);
   } catch (err: any) {
     res.status(500).json({ error: "Failed to fetch queue tokens", message: err.message });
@@ -870,8 +1165,9 @@ app.post("/api/queue/take", async (req, res) => {
       return res.status(404).json({ error: "Doctor not found" });
     }
 
-    const patientId = (req as any).user?.uid || "guest-patient";
-    const pName = patientName || (req as any).user?.name || "OPD Patient Walkin";
+    const caller = getAuthUser(req)!;
+    const patientId = caller.uid;
+    const pName = patientName || caller.email || "OPD Patient Walkin";
 
     const tokenId = "tok-" + Date.now();
     const tokenNo = docInfo.specialty.substring(0, 3).toUpperCase() + "-" + (docInfo.queueCount + 101);
@@ -907,7 +1203,7 @@ app.post("/api/queue/take", async (req, res) => {
 });
 
 // Update Queue status
-app.put("/api/queue/:id/status", async (req, res) => {
+app.put("/api/queue/:id/status", requireRole("DOCTOR", "HOSPITAL", "ADMIN"), async (req, res) => {
   const { id } = req.params;
   const { status } = req.body; // WAITING, IN_CONSULTATION, COMPLETED, SKIPPED
 
@@ -945,7 +1241,7 @@ app.get("/api/medicines", async (req, res) => {
 });
 
 // Search Nationwide medicines
-app.post("/api/medicines/search-nationwide", async (req, res) => {
+app.post("/api/medicines/search-nationwide", aiRateLimit, async (req, res) => {
   const { query } = req.body;
   if (!query) {
     return res.status(400).json({ error: "Search query is required." });
@@ -991,8 +1287,12 @@ Format strictly as a JSON object: { "matches": [...] }`;
 
 // GET Pharmacy Orders
 app.get("/api/medicines/orders", async (req, res) => {
+  const caller = getAuthUser(req)!;
   try {
-    const list = await dbAll("SELECT * FROM medicine_orders");
+    const list =
+      caller.role === "ADMIN"
+        ? await dbAll("SELECT * FROM medicine_orders")
+        : await dbAll("SELECT * FROM medicine_orders WHERE patientId = ?", [caller.uid]);
     const result = list.map(o => ({
       ...o,
       items: JSON.parse(o.itemsJson),
@@ -1014,8 +1314,9 @@ app.post("/api/medicines/order", async (req, res) => {
 
   try {
     const orderId = "order-" + Date.now() + "-" + Math.floor(Math.random() * 100);
-    const patientId = (req as any).user?.uid || "guest-patient";
-    const pName = patientName || (req as any).user?.name || "Pharmacy Guest Patient";
+    const caller = getAuthUser(req)!;
+    const patientId = caller.uid;
+    const pName = patientName || caller.email || "Pharmacy Guest Patient";
 
     const newOrder = {
       id: orderId,
@@ -1078,7 +1379,7 @@ app.post("/api/emergency/sos", async (req, res) => {
     const alertId = "sos-" + Date.now();
     const alert = {
       id: alertId,
-      patientId: (req as any).user?.uid || "anonymous-sos",
+      patientId: getAuthUser(req)!.uid,
       patientName: patientName || "Emergency Distress Caller",
       patientPhone: patientPhone || "+91 99999-99999",
       lat: tLat,
@@ -1110,7 +1411,8 @@ app.post("/api/emergency/sos", async (req, res) => {
 });
 
 // GET Emergency Alerts
-app.get("/api/emergency/alerts", async (req, res) => {
+// Dispatch stream carries caller name, phone and GPS — responders only.
+app.get("/api/emergency/alerts", requireRole("HOSPITAL", "ADMIN"), async (req, res) => {
   try {
     const list = await dbAll("SELECT * FROM emergency_alerts");
     res.json(list);
@@ -1120,7 +1422,7 @@ app.get("/api/emergency/alerts", async (req, res) => {
 });
 
 // Update SOS Alert status
-app.put("/api/emergency/alerts/:id/status", async (req, res) => {
+app.put("/api/emergency/alerts/:id/status", requireRole("HOSPITAL", "ADMIN"), async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
@@ -1148,9 +1450,29 @@ app.put("/api/emergency/alerts/:id/status", async (req, res) => {
 // ----------------------------------------------------------------
 
 // GET chat messages
+/**
+ * Confirm the caller is a party to this consultation. Returns the appointment when
+ * allowed, or null. The check runs against the verified token uid, never request input.
+ */
+async function getAppointmentIfParty(req: express.Request, appointmentId: string): Promise<any | null> {
+  const caller = getAuthUser(req)!;
+  const appt = await dbGet("SELECT * FROM appointments WHERE id = ?", [appointmentId]);
+  if (!appt) return null;
+  if (caller.role === "ADMIN") return appt;
+  if (caller.role === "DOCTOR") {
+    const doctorId = await resolveDoctorId(caller.uid);
+    return doctorId && appt.doctorId === doctorId ? appt : null;
+  }
+  return appt.patientId === caller.uid ? appt : null;
+}
+
 app.get("/api/chat/:appointmentId", async (req, res) => {
   const { appointmentId } = req.params;
   try {
+    const appt = await getAppointmentIfParty(req, appointmentId);
+    if (!appt) {
+      return res.status(403).json({ error: "You are not a party to this consultation." });
+    }
     const list = await dbAll("SELECT * FROM chat_messages WHERE appointmentId = ? ORDER BY timestamp ASC", [appointmentId]);
     res.json(list);
   } catch (err: any) {
@@ -1159,7 +1481,7 @@ app.get("/api/chat/:appointmentId", async (req, res) => {
 });
 
 // Send chat message (Triggers Gemini AI Doctor responder if doctor offline)
-app.post("/api/chat/:appointmentId", async (req, res) => {
+app.post("/api/chat/:appointmentId", aiRateLimit, async (req, res) => {
   const { appointmentId } = req.params;
   const { sender, text } = req.body;
 
@@ -1168,6 +1490,10 @@ app.post("/api/chat/:appointmentId", async (req, res) => {
   }
 
   try {
+    if (!(await getAppointmentIfParty(req, appointmentId))) {
+      return res.status(403).json({ error: "You are not a party to this consultation." });
+    }
+
     const msgId = "msg-" + Date.now() + "-" + Math.floor(Math.random() * 100);
     const now = new Date().toISOString();
 
@@ -1239,7 +1565,7 @@ Generate a professional, short, reassuring clinical reply. Address the query dir
 // ----------------------------------------------------------------
 
 // Symptom checker
-app.post("/api/symptoms/check", async (req, res) => {
+app.post("/api/symptoms/check", aiRateLimit, async (req, res) => {
   const { symptoms, history, userLat, userLng } = req.body;
 
   if (!symptoms) {
@@ -1358,7 +1684,7 @@ Do not output conversational markdown preamble; return strictly the structured J
 });
 
 // Lab reports OCR analyzer
-app.post("/api/records/analyze", async (req, res) => {
+app.post("/api/records/analyze", aiRateLimit, async (req, res) => {
   const { templateId } = req.body;
 
   if (!templateId) {
@@ -1472,7 +1798,7 @@ Analyze the report biomarkers carefully to output medical wisdom. Ensure the res
 });
 
 // Medicine guide route
-app.post("/api/medicines/guide", async (req, res) => {
+app.post("/api/medicines/guide", aiRateLimit, async (req, res) => {
   const { name } = req.body;
 
   if (!name) {
@@ -1564,7 +1890,7 @@ Output strictly JSON matching this schema:
 });
 
 // Diet recommendations planner
-app.post("/api/diet/recommend", async (req, res) => {
+app.post("/api/diet/recommend", aiRateLimit, async (req, res) => {
   const { condition, preference } = req.body;
 
   if (!condition || !preference) {
@@ -1640,7 +1966,7 @@ Output strictly JSON matching this schema:
 });
 
 // AI Agentic Pipeline - Developer Sandbox Route
-app.post("/api/developer/ai-pipeline", async (req, res) => {
+app.post("/api/developer/ai-pipeline", aiRateLimit, async (req, res) => {
   const { prompt, preference } = req.body;
 
   if (!prompt) {
@@ -1806,7 +2132,11 @@ Generate a clear, friendly, and medically safe response to the user's query. Inc
 // Development/Production Serve Configuration
 // ----------------------------------------------------------------
 async function initServer() {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.API_ONLY === "true") {
+    // Used by the access-matrix suite: the API is the subject under test, and
+    // booting Vite to compile a 600KB client adds minutes for no benefit.
+    console.log("[Server] API_ONLY=true — skipping the frontend middleware.");
+  } else if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
