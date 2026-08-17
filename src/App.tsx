@@ -308,9 +308,9 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [authMode, setAuthMode] = useState<"LOGIN" | "SIGNUP" | "FORGOT" | "OTP_VERIFY">("LOGIN");
   const [authError, setAuthError] = useState<{ code: string; message: string } | null>(null);
-  const [authEmail, setAuthEmail] = useState("raghavramghat@gmail.com");
-  const [authPhone, setAuthPhone] = useState("+91 98101 22334");
-  const [authName, setAuthName] = useState("Raghav Sharma");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPhone, setAuthPhone] = useState("");
+  const [authName, setAuthName] = useState("");
   const [authOtpSent, setAuthOtpSent] = useState<string>("");
   const [authOtpInput, setAuthOtpInput] = useState("");
   const [authRoleSelection, setAuthRoleSelection] = useState<"PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN">("PATIENT");
@@ -802,10 +802,11 @@ export default function App() {
   });
 
   // Module A: Unified Health ID States
-  const [abhaIdInput, setAbhaIdInput] = useState<string>("91-0421-8890-4412");
-  const [abhaNameInput, setAbhaNameInput] = useState<string>("Raghav");
+  // Seeded from the authenticated account on sign-in; blank until then.
+  const [abhaIdInput, setAbhaIdInput] = useState<string>("");
+  const [abhaNameInput, setAbhaNameInput] = useState<string>("");
   const [abhaGroupInput, setAbhaGroupInput] = useState<string>("O-Positive");
-  const [abhaAgeInput, setAbhaAgeInput] = useState<number>(31);
+  const [abhaAgeInput, setAbhaAgeInput] = useState<number>(0);
   const [abhaSyncing, setAbhaSyncing] = useState<boolean>(false);
   const [healthRecordsList, setHealthRecordsList] = useState<Array<{ id: string; title: string; hospital: string; date: string; type: string; status: "SYNCED" | "PENDING"; doctor: string }>>([
     { id: "rec-1", title: "Complete Blood Count (CBC) Report", hospital: "Max Gurgaon Memorial", date: "2026-05-12", type: "LAB_REPORT", status: "SYNCED", doctor: "Dr. Rajesh Sharma" },
@@ -1626,6 +1627,26 @@ export default function App() {
             }
           }
           
+          // Seed the "Self" profile from the real account so the Unified Health ID
+          // card and family selector show this user's details, not placeholder ones.
+          setFamilyMembers(prev =>
+            prev.map((m, idx) =>
+              idx === 0 && m.name === "Self"
+                ? {
+                    ...m,
+                    relation: `Primary User (${profileData.name || "You"})`,
+                    gender: profileData.gender || m.gender,
+                    age: profileData.age ?? m.age,
+                    bloodGroup: profileData.bloodGroup || m.bloodGroup,
+                    policyNo: profileData.policyNo || m.policyNo
+                  }
+                : m
+            )
+          );
+          if (profileData.policyNo) {
+            setAbhaIdInput(profileData.policyNo);
+          }
+
           setIsAuthenticated(true);
           const tokenStr = await firebaseUser.getIdToken();
           setJwtToken(tokenStr);

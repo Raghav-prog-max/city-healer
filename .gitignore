@@ -7,5 +7,15 @@ coverage/
 .env*
 !.env.example
 *.db
+*.db-journal
+*.sqlite
+*.sqlite3
 city_healer.db
+
+# Credential material — never commit
+*.pem
+*.p12
+*.key
+service-account*.json
+serviceAccountKey*.json
 

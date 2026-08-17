@@ -9,7 +9,9 @@ import {
   medicalRecords as seedMedicalRecords
 } from "./seedData";
 
-const dbPath = path.resolve(process.cwd(), "city_healer.db");
+// DB_PATH lets the access-matrix test suite run against a throwaway database
+// instead of the developer's working one. Defaults to the normal location.
+const dbPath = path.resolve(process.cwd(), process.env.DB_PATH || "city_healer.db");
 
 // Connect to SQLite Database
 export const sqliteDb = new sqlite3.Database(dbPath, (err) => {

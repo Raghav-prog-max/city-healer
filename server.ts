@@ -6,6 +6,7 @@ import { createServer as createViteServer } from "vite";
 import dns from "dns";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { dbRun, dbGet, dbAll, initializeDatabase } from "./database";
 
 // Fix node localhost resolution issues
@@ -21,15 +22,33 @@ if (DEMO_MODE) {
   console.warn("[Security] DEMO_MODE=true — anonymous callers are served a synthetic sandbox identity. Never enable this for a real deployment.");
 }
 
-// In production a real secret is mandatory — refuse to boot with a guessable one.
-if (IS_PROD && !process.env.JWT_SECRET) {
-  console.error("[FATAL] JWT_SECRET environment variable must be set in production. Refusing to start.");
-  process.exit(1);
+/**
+ * Resolve the JWT signing secret.
+ *
+ * There is deliberately no hardcoded fallback. This repository is public, so any
+ * literal committed here would let anyone mint a validly-signed token for any uid
+ * and role, defeating every downstream guard. When no secret is configured outside
+ * production we generate a random one per process instead: sessions do not survive
+ * a restart, but nothing forgeable is ever written to source.
+ */
+function resolveJwtSecret(): string {
+  const fromEnv = process.env.JWT_SECRET;
+  if (fromEnv) {
+    if (fromEnv.length < 32) {
+      console.error("[FATAL] JWT_SECRET must be at least 32 characters. Refusing to start.");
+      process.exit(1);
+    }
+    return fromEnv;
+  }
+  if (IS_PROD) {
+    console.error("[FATAL] JWT_SECRET environment variable must be set in production. Refusing to start.");
+    process.exit(1);
+  }
+  const ephemeral = crypto.randomBytes(32).toString("hex");
+  console.warn("[Security] JWT_SECRET not set — generated a random ephemeral secret for this process only. Existing sessions are invalidated on restart. Set JWT_SECRET for stable local sessions.");
+  return ephemeral;
 }
-const JWT_SECRET = process.env.JWT_SECRET || "city-healer-dev-only-secret";
-if (!process.env.JWT_SECRET) {
-  console.warn("[Security] JWT_SECRET not set — using an insecure development-only secret.");
-}
+const JWT_SECRET = resolveJwtSecret();
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "512kb" }));
@@ -62,9 +81,33 @@ app.use("/api/auth", (req, res, next) => {
   next();
 });
 
+/**
+ * Surface DOCTOR accounts that have not been linked to a `doctors` row. Record access
+ * is scoped through that link, so an unlinked account silently sees zero patients —
+ * which is safe, but looks like a bug unless it is visible at boot.
+ */
+async function warnAboutUnlinkedDoctors() {
+  try {
+    const unlinked = await dbAll(
+      "SELECT uid, name, email FROM users WHERE role = 'DOCTOR' AND (doctorId IS NULL OR doctorId = '')"
+    );
+    if (unlinked.length === 0) return;
+    console.warn(`[Provisioning] ${unlinked.length} DOCTOR account(s) are not linked to a doctor record and will see no patients:`);
+    for (const d of unlinked) {
+      console.warn(`  - ${d.name} <${d.email}>  uid=${d.uid}`);
+    }
+    console.warn('[Provisioning] Link them with: npm run link-doctor -- --uid <uid> --doctorId <doc-id>');
+  } catch (err: any) {
+    console.warn("[Provisioning] Could not check doctor linkage:", err.message);
+  }
+}
+
 // Initialize Database on Startup
 initializeDatabase()
-  .then(() => console.log("[SQLite] Database schema initialized and seeded successfully."))
+  .then(async () => {
+    console.log("[SQLite] Database schema initialized and seeded successfully.");
+    await warnAboutUnlinkedDoctors();
+  })
   .catch((err) => console.error("[SQLite Error] Database initialization failed:", err));
 
 // ----------------------------------------------------------------
@@ -121,7 +164,16 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
     if (!decoded?.uid || !decoded?.role) {
       return res.status(401).json({ error: "Malformed session token." });
     }
-    (req as any).user = { uid: decoded.uid, email: decoded.email, role: decoded.role } as AuthUser;
+
+    // The token's role is a stale snapshot from issue time. Re-read the account so a
+    // deleted user is rejected immediately and a role change takes effect at once,
+    // rather than persisting for the remaining lifetime of an already-issued token.
+    const account = await dbGet("SELECT uid, email, role FROM users WHERE uid = ?", [decoded.uid]);
+    if (!account) {
+      return res.status(401).json({ error: "Session no longer valid." });
+    }
+
+    (req as any).user = { uid: account.uid, email: account.email, role: account.role } as AuthUser;
     return next();
   } catch (error: any) {
     // No guest fallback. An unverifiable token is rejected in every environment;
@@ -150,6 +202,48 @@ const requireRole = (...roles: Role[]) =>
     }
     next();
   };
+
+/**
+ * Per-user quota for routes that spend money on a Gemini call. Keyed by the verified
+ * uid rather than IP, so one account cannot burn the budget from many addresses, and
+ * so the shared DEMO_MODE identity has a single collective bucket.
+ */
+const AI_RATE_LIMIT = Number(process.env.AI_RATE_LIMIT) || 30;
+const AI_RATE_WINDOW_MS = 60 * 60 * 1000;
+const aiRateWindow = new Map<string, { count: number; windowStart: number }>();
+
+const aiRateLimit = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: "Authentication required." });
+  }
+
+  const now = Date.now();
+
+  // Opportunistic prune so the map cannot grow without bound.
+  if (aiRateWindow.size > 5000) {
+    for (const [k, v] of aiRateWindow) {
+      if (now - v.windowStart > AI_RATE_WINDOW_MS) aiRateWindow.delete(k);
+    }
+  }
+
+  const entry = aiRateWindow.get(user.uid);
+  if (!entry || now - entry.windowStart > AI_RATE_WINDOW_MS) {
+    aiRateWindow.set(user.uid, { count: 1, windowStart: now });
+    return next();
+  }
+
+  entry.count += 1;
+  if (entry.count > AI_RATE_LIMIT) {
+    const retryAfterSeconds = Math.ceil((entry.windowStart + AI_RATE_WINDOW_MS - now) / 1000);
+    res.setHeader("Retry-After", String(retryAfterSeconds));
+    return res.status(429).json({
+      error: `AI request quota exceeded (${AI_RATE_LIMIT} per hour). Please try again later.`,
+      retryAfterSeconds
+    });
+  }
+  next();
+};
 
 /**
  * Resolve the doctors.id owned by a DOCTOR account. Returns null when the account
@@ -1147,7 +1241,7 @@ app.get("/api/medicines", async (req, res) => {
 });
 
 // Search Nationwide medicines
-app.post("/api/medicines/search-nationwide", async (req, res) => {
+app.post("/api/medicines/search-nationwide", aiRateLimit, async (req, res) => {
   const { query } = req.body;
   if (!query) {
     return res.status(400).json({ error: "Search query is required." });
@@ -1387,7 +1481,7 @@ app.get("/api/chat/:appointmentId", async (req, res) => {
 });
 
 // Send chat message (Triggers Gemini AI Doctor responder if doctor offline)
-app.post("/api/chat/:appointmentId", async (req, res) => {
+app.post("/api/chat/:appointmentId", aiRateLimit, async (req, res) => {
   const { appointmentId } = req.params;
   const { sender, text } = req.body;
 
@@ -1471,7 +1565,7 @@ Generate a professional, short, reassuring clinical reply. Address the query dir
 // ----------------------------------------------------------------
 
 // Symptom checker
-app.post("/api/symptoms/check", async (req, res) => {
+app.post("/api/symptoms/check", aiRateLimit, async (req, res) => {
   const { symptoms, history, userLat, userLng } = req.body;
 
   if (!symptoms) {
@@ -1590,7 +1684,7 @@ Do not output conversational markdown preamble; return strictly the structured J
 });
 
 // Lab reports OCR analyzer
-app.post("/api/records/analyze", async (req, res) => {
+app.post("/api/records/analyze", aiRateLimit, async (req, res) => {
   const { templateId } = req.body;
 
   if (!templateId) {
@@ -1704,7 +1798,7 @@ Analyze the report biomarkers carefully to output medical wisdom. Ensure the res
 });
 
 // Medicine guide route
-app.post("/api/medicines/guide", async (req, res) => {
+app.post("/api/medicines/guide", aiRateLimit, async (req, res) => {
   const { name } = req.body;
 
   if (!name) {
@@ -1796,7 +1890,7 @@ Output strictly JSON matching this schema:
 });
 
 // Diet recommendations planner
-app.post("/api/diet/recommend", async (req, res) => {
+app.post("/api/diet/recommend", aiRateLimit, async (req, res) => {
   const { condition, preference } = req.body;
 
   if (!condition || !preference) {
@@ -1872,7 +1966,7 @@ Output strictly JSON matching this schema:
 });
 
 // AI Agentic Pipeline - Developer Sandbox Route
-app.post("/api/developer/ai-pipeline", async (req, res) => {
+app.post("/api/developer/ai-pipeline", aiRateLimit, async (req, res) => {
   const { prompt, preference } = req.body;
 
   if (!prompt) {
@@ -2038,7 +2132,11 @@ Generate a clear, friendly, and medically safe response to the user's query. Inc
 // Development/Production Serve Configuration
 // ----------------------------------------------------------------
 async function initServer() {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.API_ONLY === "true") {
+    // Used by the access-matrix suite: the API is the subject under test, and
+    // booting Vite to compile a 600KB client adds minutes for no benefit.
+    console.log("[Server] API_ONLY=true — skipping the frontend middleware.");
+  } else if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
