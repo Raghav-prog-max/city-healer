@@ -12,6 +12,9 @@
     "test": "tsx --test tests/access-matrix.test.ts",
     "link-doctor": "tsx scripts/link-doctor.ts"
   },
+  "optionalDependencies": {
+    "@tailwindcss/oxide-linux-x64-gnu": "^4.1.14"
+  },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@gsap/react": "^2.1.2",
