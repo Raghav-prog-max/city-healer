@@ -69,9 +69,21 @@ npm run set-role -- --email you@example.com --role ADMIN
 npm run set-role -- --list
 ```
 
-Register the account through the app first, then promote it. On Railway, run this
-with `railway run` so `DB_PATH` points at the mounted volume. It refuses to demote
+Register the account through the app first, then promote it. It refuses to demote
 the last remaining `ADMIN`.
+
+On a deployed host the database lives inside the container, on the mounted volume,
+so the command has to run **there** — `railway run` would execute on your machine
+with the remote variables and write to a local path that is not the volume. The
+build bundles the CLI to `dist/set-role.cjs` for exactly this:
+
+```bash
+railway ssh
+```
+
+```bash
+node dist/set-role.cjs --email you@example.com --role ADMIN
+```
 
 A `DOCTOR` account sees patients only through its link to a `doctors` row. That
 link is provisioning, not something a request may set, so it lives in a CLI:
