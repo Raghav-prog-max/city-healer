@@ -4,6 +4,48 @@
 import { auth } from "../firebase";
 import * as seed from "../../seedData";
 
+const DEMO_SESSION_KEY = "city_healer_demo_session";
+
+/**
+ * Records that this browser is exploring without a server session — the "Demo /
+ * Sandbox Mode" button — storing the role being explored so a reload can restore
+ * it. Such a visitor holds no token, so every guarded route correctly answers 401
+ * or 403; the flag tells apiFetch to serve them from the in-browser sandbox
+ * instead of surfacing an error. It never loosens anything server-side.
+ *
+ * Pass null to clear it, which a real sign-in and a sign-out both do.
+ */
+/**
+ * Routes that already refused this demo session. The dashboard re-polls several
+ * guarded endpoints every 15 seconds, and without this each cycle would repeat a
+ * request whose answer cannot change, logging a fresh console error every time.
+ * The first refusal is remembered and later calls go straight to the sandbox.
+ */
+const demoDeniedRoutes = new Set<string>();
+
+export function setDemoSession(role: string | null): void {
+  try {
+    if (role) localStorage.setItem(DEMO_SESSION_KEY, role);
+    else localStorage.removeItem(DEMO_SESSION_KEY);
+  } catch {
+    /* storage blocked (private mode); demo simply stays off */
+  }
+  // A real sign-in may be allowed everything the sandbox was refused.
+  if (!role) demoDeniedRoutes.clear();
+}
+
+export function getDemoSessionRole(): string | null {
+  try {
+    return localStorage.getItem(DEMO_SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function isDemoSession(): boolean {
+  return getDemoSessionRole() !== null;
+}
+
 // Client-side local recommendation scoring for static environments
 function recommendHospitalsLocal(specialistType: string, urgencyLevel: string, userLat?: number, userLng?: number) {
   const specLower = (specialistType || "").toLowerCase();
@@ -562,7 +604,14 @@ function fallbackClientDb(url: string, options?: RequestInit): any {
 
 export async function apiFetch<T>(url: string, options?: RequestInit, retries = 3, delayMs = 300): Promise<T> {
   let lastError: any = null;
-  
+
+  // Skip the network entirely for a route this demo session is already known to
+  // be refused, rather than re-earning the same 401 on every poll.
+  const routeKey = `${(options?.method || "GET").toUpperCase()} ${url}`;
+  if (demoDeniedRoutes.has(routeKey) && isDemoSession()) {
+    return fallbackClientDb(url, options) as T;
+  }
+
   // Synchronously fetch current Firebase ID Token if signed in
   let token: string | null = null;
   try {
@@ -596,7 +645,9 @@ export async function apiFetch<T>(url: string, options?: RequestInit, retries = 
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
+        const httpError: any = new Error(errorData.error || `HTTP error! Status: ${response.status}`);
+        httpError.status = response.status;
+        throw httpError;
       }
 
       return await response.json();
@@ -612,13 +663,25 @@ export async function apiFetch<T>(url: string, options?: RequestInit, retries = 
           err.message.includes("fetch failed") ||
           err.message.includes("load"));
 
-      if (err.is404 || isNetworkError) {
+      // A demo visitor holds no session, so every guarded route answers 401 or 403.
+      // Serve them from the in-browser sandbox rather than failing the request —
+      // the same path static hosting takes when there is no API behind the page.
+      const isAuthFailure = err?.status === 401 || err?.status === 403;
+
+      if (err.is404 || isNetworkError || (isAuthFailure && isDemoSession())) {
+        if (isAuthFailure) demoDeniedRoutes.add(routeKey);
         // Fall back to client side localStorage database!
         try {
           return fallbackClientDb(url, options) as T;
         } catch (fallbackErr) {
           throw fallbackErr;
         }
+      }
+
+      // 401 and 403 are settled verdicts, not transient faults. Retrying them
+      // three times with backoff only delays an error the caller already has.
+      if (isAuthFailure) {
+        throw err;
       }
 
       if (attempt < retries) {

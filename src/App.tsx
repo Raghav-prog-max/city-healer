@@ -90,7 +90,7 @@ import {
   Line, 
   ReferenceLine 
 } from "recharts";
-import { api } from "./utils/api";
+import { api, setDemoSession, getDemoSessionRole } from "./utils/api";
 import { getTranslation, LanguageCode, translations } from "./utils/i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import { 
@@ -108,11 +108,10 @@ import {
   browserLocalPersistence,
   browserSessionPersistence,
   signInWithRedirect,
-  doc, 
-  getDoc, 
-  setDoc, 
-  serverTimestamp, 
-  getDocFromServer
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp
 } from "./firebase";
 
 enum OperationType {
@@ -1547,17 +1546,13 @@ export default function App() {
 
   // Fetch baseline state on startup and setup long-polling emulator
   useEffect(() => {
-    // Validate connection on startup per mandatory constraint
-    const testConnection = async () => {
-      try {
-        await getDocFromServer(doc(db, "test", "connection"));
-      } catch (error) {
-        if (error instanceof Error && error.message.includes("the client is offline")) {
-          console.error("Please check your Firebase configuration.");
-        }
-      }
-    };
-    testConnection();
+    // A startup reachability probe used to run here as getDocFromServer(doc(db,
+    // "test", "connection")). The mock SDK maps every doc() to /api/users/:id, so
+    // it actually requested /api/users/connection — a guarded route — and logged
+    // two 401s on every load before anyone had signed in. It also proved nothing:
+    // its only error branch matched a Firebase-specific "client is offline"
+    // message this backend never produces. The real reachability signal is the
+    // sign-in request itself, which already falls back when the API is absent.
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -1650,6 +1645,9 @@ export default function App() {
           setIsAuthenticated(true);
           const tokenStr = await firebaseUser.getIdToken();
           setJwtToken(tokenStr);
+          // A real session supersedes any earlier sandbox exploration, so reads
+          // go to the server again rather than to the local sandbox copy.
+          setDemoSession(null);
           loadData();
           
         } catch (err: any) {
@@ -1659,8 +1657,19 @@ export default function App() {
           setJwtToken("");
         }
       } else {
-        setIsAuthenticated(false);
-        setJwtToken("");
+        // The sandbox has no server session for onAuthStateChanged to restore, so
+        // without this a reload or a deep link would bounce a demo visitor back to
+        // the sign-in screen. Rebuild it from the stored role instead.
+        const demoRole = getDemoSessionRole();
+        if (demoRole) {
+          setIsAuthenticated(true);
+          setActiveRole(demoRole as "PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN");
+          setJwtToken("mock-jwt-token-simulated");
+          loadData();
+        } else {
+          setIsAuthenticated(false);
+          setJwtToken("");
+        }
       }
       setAuthLoading(false);
     });
@@ -2606,6 +2615,10 @@ export default function App() {
     setAuthPhone(phoneVal);
     const fakeJwtToken = "mock-jwt-token-simulated";
     setJwtToken(fakeJwtToken);
+    // No server session exists in this mode, so route guarded reads to the
+    // in-browser sandbox instead of letting them fail as 401s, and remember the
+    // role so a reload restores the sandbox rather than bouncing to sign-in.
+    setDemoSession(authRoleSelection);
     loadData();
 
     if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
@@ -2631,6 +2644,7 @@ export default function App() {
     try {
       await signOut(auth);
       safeStorage.removeItem("simulated_auth_profile");
+      setDemoSession(null);
       setIsAuthenticated(false);
       setAuthMode("LOGIN");
       setAuthOtpInput("");
@@ -3909,7 +3923,7 @@ export default function App() {
                     <p className="text-xs text-slate-500">Provide physical details below. Powered server-side with Gemini 3.5 medical analytics schema.</p>
                   </div>
                   <div className="bg-emerald-50 text-emerald-700 px-3 py-1 text-[11px] font-bold rounded-lg flex items-center gap-1">
-                    <Sparkles className="h-3.5 w-3.5" /> HIPAA Compliant Diagnostics
+                    <Sparkles className="h-3.5 w-3.5" /> Private to Your Account
                   </div>
                 </div>
 

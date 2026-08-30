@@ -1,3 +1,6 @@
+// Must stay first: it populates process.env before any import below reads it.
+import "./env";
+
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -102,13 +105,22 @@ async function warnAboutUnlinkedDoctors() {
   }
 }
 
-// Initialize Database on Startup
-initializeDatabase()
+/**
+ * Schema creation and baseline seeding, kept as a promise so the bootstrap can
+ * await it before opening the port. Starting both chains independently let the
+ * server answer /api/health — the signal Railway's healthcheck and the test suite
+ * both wait on — while hospitals, doctors and medicines were still being inserted,
+ * so early callers saw an empty database and got "Doctor not found" on a valid id.
+ */
+const databaseReady = initializeDatabase()
   .then(async () => {
     console.log("[SQLite] Database schema initialized and seeded successfully.");
     await warnAboutUnlinkedDoctors();
   })
-  .catch((err) => console.error("[SQLite Error] Database initialization failed:", err));
+  .catch((err) => {
+    console.error("[SQLite Error] Database initialization failed:", err);
+    throw err;
+  });
 
 // ----------------------------------------------------------------
 // Authentication & Authorization
@@ -2132,6 +2144,11 @@ Generate a clear, friendly, and medically safe response to the user's query. Inc
 // Development/Production Serve Configuration
 // ----------------------------------------------------------------
 async function initServer() {
+  // Nothing may be served until the tables exist and the baseline rows are in:
+  // the port opening is what every readiness probe treats as "this server can
+  // answer questions about hospitals and doctors".
+  await databaseReady;
+
   if (process.env.API_ONLY === "true") {
     // Used by the access-matrix suite: the API is the subject under test, and
     // booting Vite to compile a 600KB client adds minutes for no benefit.
@@ -2156,5 +2173,9 @@ async function initServer() {
 }
 
 initServer().catch((error) => {
+  // Refusing to listen is deliberate. A server that is up but cannot reach its
+  // database looks healthy to the platform and fails every real request, which is
+  // strictly worse than a restart.
   console.error("Failed to bootstrap full stack Express framework:", error);
+  process.exit(1);
 });
