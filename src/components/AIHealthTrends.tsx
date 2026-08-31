@@ -657,10 +657,10 @@ export default function AIHealthTrends({ activityLog, isAppDarkMode = false }: A
         {showPrivacyNotice && (
           <div className={`p-4 rounded-xl border text-[10px] leading-relaxed space-y-2 ${isAppDarkMode ? "bg-slate-950 border-slate-850 text-slate-350" : "bg-blue-50/40 border-blue-150 text-slate-700"}`}>
             <p className="font-extrabold text-blue-900 dark:text-blue-400 uppercase tracking-widest text-[9px] flex items-center gap-1">
-              🔐 CLINICAL SECURITY COMPLIANCE STANDARD
+              🔐 HOW YOUR DATA IS HANDLED
             </p>
-            <p><strong>Local Encryption:</strong> Patients' active prescription tracking, symptom history, and diagnostic events are cached securely within the local context. No data packages are logged or exposed to third-party servers.</p>
-            <p><strong>Regulatory Alignment:</strong> Fully engineered to respect regional clinical compliance constraints, maintaining 100% HIPAA privacy thresholds of the metropolitan medical grid nodes.</p>
+            <p><strong>Local Only:</strong> Prescription tracking, symptom history, and diagnostic events in this view are held in your browser session. They are not logged or shared with third parties.</p>
+            <p><strong>Access Control:</strong> Records are scoped to the account that owns them. A doctor sees only patients they are clinically linked to, and no role can read another patient's history.</p>
           </div>
         )}
       </div>

@@ -531,7 +531,7 @@ export default function DeveloperHub({ isAppDarkMode = false }: { isAppDarkMode?
                       <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl w-fit mb-2">
                         <Sparkles className="h-5 w-5" />
                       </div>
-                      <p className="text-white text-xs font-black">Gemini 2.5 Flash SDK</p>
+                      <p className="text-white text-xs font-black">Gemini Flash SDK</p>
                       <p className="text-[10px] text-slate-400 mt-1">Pathology diagnostics & Indian diet advisor scheduler.</p>
                     </button>
 
@@ -630,7 +630,7 @@ export default function DeveloperHub({ isAppDarkMode = false }: { isAppDarkMode?
                         <div className="flex items-center gap-2 text-emerald-500 font-extrabold text-sm uppercase">
                           <Sparkles className="h-4 w-4" /> AI Layer Specs
                         </div>
-                        <h5 className="text-sm font-black mt-1">Gemini 2.5 Flash SDK Integration</h5>
+                        <h5 className="text-sm font-black mt-1">Gemini Flash SDK Integration</h5>
                         <p className="text-xs text-slate-500 leading-relaxed">
                           Powers smart clinical services. Communicates with Google's GenAI model using precise system guidelines to output structured medical advice and pathological analyses.
                         </p>

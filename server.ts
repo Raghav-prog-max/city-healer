@@ -1,3 +1,6 @@
+// Must stay first: it populates process.env before any import below reads it.
+import "./env";
+
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -8,6 +11,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { dbRun, dbGet, dbAll, initializeDatabase } from "./database";
+import { triageWithoutAI, hasAny } from "./shared/triage";
 
 // Fix node localhost resolution issues
 dns.setDefaultResultOrder("ipv4first");
@@ -102,13 +106,22 @@ async function warnAboutUnlinkedDoctors() {
   }
 }
 
-// Initialize Database on Startup
-initializeDatabase()
+/**
+ * Schema creation and baseline seeding, kept as a promise so the bootstrap can
+ * await it before opening the port. Starting both chains independently let the
+ * server answer /api/health — the signal Railway's healthcheck and the test suite
+ * both wait on — while hospitals, doctors and medicines were still being inserted,
+ * so early callers saw an empty database and got "Doctor not found" on a valid id.
+ */
+const databaseReady = initializeDatabase()
   .then(async () => {
     console.log("[SQLite] Database schema initialized and seeded successfully.");
     await warnAboutUnlinkedDoctors();
   })
-  .catch((err) => console.error("[SQLite Error] Database initialization failed:", err));
+  .catch((err) => {
+    console.error("[SQLite Error] Database initialization failed:", err);
+    throw err;
+  });
 
 // ----------------------------------------------------------------
 // Authentication & Authorization
@@ -279,11 +292,39 @@ if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
   });
 }
 
+/**
+ * Models, overridable without a code change. Google retires and renames models on
+ * its own schedule, and a wrong id here silently degrades every AI route to its
+ * offline heuristic — so the id is configuration, not a literal buried in nine
+ * call sites.
+ */
+export const AI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+export const AI_MODEL_FALLBACK = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
+
+/**
+ * Errors that will fail the same way on every attempt: a bad key, a model that
+ * does not exist, a malformed request, a permission problem. Retrying these three
+ * times with escalating backoff only delays the answer the caller already has, and
+ * failing over to a second model cannot help when the key itself is the problem.
+ */
+function isPermanentAiError(err: any): boolean {
+  const status = err?.status ?? err?.code;
+  if (status === 400 || status === 401 || status === 403 || status === 404) return true;
+  const text = String(err?.message || err).toLowerCase();
+  return (
+    text.includes("api key not valid") ||
+    text.includes("api_key_invalid") ||
+    text.includes("permission denied") ||
+    text.includes("not found") ||
+    text.includes("is not supported")
+  );
+}
+
 // ----------------------------------------------------------------
 // Gemini API Helper with Exponential Backoff Retries & Dual-Model Failover
 // ----------------------------------------------------------------
 async function generateContentWithRetry(options: {
-  model: string;
+  model?: string;
   contents: any;
   config?: any;
 }, retries = 3, delayMs = 600): Promise<any> {
@@ -291,10 +332,8 @@ async function generateContentWithRetry(options: {
     throw new Error("GoogleGenAI client is not initialized.");
   }
 
-  const modelsToTry = [options.model];
-  if (options.model === "gemini-3.5-flash") {
-    modelsToTry.push("gemini-3.1-flash-lite");
-  }
+  const primary = options.model || AI_MODEL;
+  const modelsToTry = primary === AI_MODEL_FALLBACK ? [primary] : [primary, AI_MODEL_FALLBACK];
 
   let lastError: any = null;
 
@@ -309,7 +348,7 @@ async function generateContentWithRetry(options: {
           model: currentModel
         };
         const response = await ai.models.generateContent(queryOptions);
-        if (currentModel !== options.model) {
+        if (currentModel !== primary) {
           console.log(`[Gemini API Success] Successfully recovered generation using fallback model: ${currentModel}`);
         }
         return response;
@@ -318,6 +357,11 @@ async function generateContentWithRetry(options: {
         const errStr = String(err.message || err);
         console.warn(`[Gemini API Warning] Model ${currentModel} - Attempt ${i + 1} failed: ${errStr}`);
 
+        if (isPermanentAiError(err)) {
+          console.warn(`[Gemini API Warning] ${currentModel} failed permanently; not retrying.`);
+          break;
+        }
+
         if (i < retries - 1) {
           console.warn(`Retrying ${currentModel} in ${currentDelay}ms...`);
           await new Promise(resolve => setTimeout(resolve, currentDelay));
@@ -325,6 +369,9 @@ async function generateContentWithRetry(options: {
         }
       }
     }
+
+    // A bad key or a malformed request fails identically on the second model.
+    if (isPermanentAiError(lastError)) break;
 
     if (modelsToTry.indexOf(currentModel) < modelsToTry.length - 1) {
       console.warn(`[Gemini API Warn] Model ${currentModel} is currently saturated or unavailable. Gracefully switching to secondary failover model...`);
@@ -631,7 +678,15 @@ app.put("/api/users/:uid", async (req, res) => {
 
 // Health route
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", time: new Date() });
+  // aiEnabled/aiModel are reported so the UI can label results honestly, and so
+  // "is the AI actually configured on this deployment?" is answerable without
+  // reading the environment. No key material is exposed — only whether one loaded.
+  res.json({
+    status: "ok",
+    time: new Date(),
+    aiEnabled: !!ai,
+    aiModel: AI_MODEL
+  });
 });
 
 // GET list of hospitals
@@ -1270,7 +1325,7 @@ Provide fields: id, name, category (e.g. PAINKILLER), price (INR), stock (e.g. 5
 Format strictly as a JSON object: { "matches": [...] }`;
 
     const response = await generateContentWithRetry({
-      model: "gemini-3.5-flash",
+      model: AI_MODEL,
       contents: promptText,
       config: {
         responseMimeType: "application/json"
@@ -1280,8 +1335,11 @@ Format strictly as a JSON object: { "matches": [...] }`;
     const parsed = cleanAndParseJSON(response.text || "{}");
     res.json({ matches: parsed.matches || [], source: "gemini-nationwide-db" });
   } catch (err: any) {
-    console.error("[Search Nationwide Error]", err);
-    res.status(500).json({ error: "Nationwide search failed", message: err.message });
+    // The local catalogue search already ran and found nothing; this was the
+    // nationwide widening. Failing it with a 500 turned "no results" into a broken
+    // screen, so answer the same way the no-key path does.
+    console.warn("[Search Nationwide] AI lookup unavailable, returning no matches:", err?.message || err);
+    res.json({ matches: [], source: "unavailable" });
   }
 });
 
@@ -1531,7 +1589,7 @@ ${formattedHistory}
 Generate a professional, short, reassuring clinical reply. Address the query directly.`;
 
             const aiResponse = await generateContentWithRetry({
-              model: "gemini-3.5-flash",
+              model: AI_MODEL,
               contents: promptText,
               config: {
                 systemInstruction: `You are Dr. ${appt.doctorName}, a healthcare practitioner. Be clinical, concise, and helpful. Keep responses to 2-3 sentences. Do not mention that you are an AI.`
@@ -1573,45 +1631,8 @@ app.post("/api/symptoms/check", aiRateLimit, async (req, res) => {
   }
 
   if (!ai) {
-    console.warn("GEMINI_API_KEY is not defined or is placeholder. Emulating diagnostic response.");
-    const lower = symptoms.toLowerCase();
-    let result: any = {
-      suspectedCondition: "Mild Upper Respiratory Tract Infection",
-      explanation: "A viral congestion typically affecting throat, nasal passage and airway tubes, causing fatigue.",
-      specialistType: "General Physician",
-      urgencyLevel: "LOW",
-      recommendations: ["Ensure adequate thermal fluid intake", "Monitor body temperature daily", "Practice steam inhalation twice daily"],
-      flagUrgentSOS: false
-    };
-
-    if (lower.includes("chest") || lower.includes("heart") || lower.includes("breathe") || lower.includes("gasp") || lower.includes("pain")) {
-      result = {
-        suspectedCondition: "Potential Cardio/Respiratory Distress Warning",
-        explanation: "Signs of respiratory or cardiovascular pressure which could represent cardiac angina or asthma exacerbation.",
-        specialistType: "Cardiologist / Pulmonologist",
-        urgencyLevel: "CRITICAL",
-        recommendations: ["Discontinue physical activity instantly", "Keep medical oxygen accessible if present", "Request immediate clinical supervision"],
-        flagUrgentSOS: true
-      };
-    } else if (lower.includes("stomach") || lower.includes("abdomen") || lower.includes("vomit")) {
-      result = {
-        suspectedCondition: "Acute Gastroenteritis / Dyspepsia",
-        explanation: "An inflammation of the stomach lining and digestive tract caused by bacteria, viral infection, or dietary irritants.",
-        specialistType: "Gastroenterologist",
-        urgencyLevel: "MEDIUM",
-        recommendations: ["Sip oral rehydration salts", "Avoid solid heavy diets temporarily", "Rest in a comfortable incline position"],
-        flagUrgentSOS: false
-      };
-    } else if (lower.includes("head") || lower.includes("migraine") || lower.includes("vision")) {
-      result = {
-        suspectedCondition: "Tension Headache or Migraine Flare-up",
-        explanation: "A neurological syndrome featuring throbbing central headaches, photo-sensitivity, or neuro-muscular fatigue.",
-        specialistType: "Neurologist",
-        urgencyLevel: "LOW",
-        recommendations: ["Rest in a quiet, dark, well-ventilated room", "Apply cold or warm compresses over the temple", "Hydrate immediately"],
-        flagUrgentSOS: false
-      };
-    }
+    console.warn("GEMINI_API_KEY is not defined or is placeholder. Falling back to the offline triage heuristic.");
+    const result: any = triageWithoutAI(symptoms);
 
     result.recommendedHospitals = await recommendHospitals(result.specialistType, result.urgencyLevel, userLat, userLng);
     return res.json(result);
@@ -1622,7 +1643,7 @@ app.post("/api/symptoms/check", aiRateLimit, async (req, res) => {
 Relevant Medical History context: "${history || "None provided"}".`;
 
     const response = await generateContentWithRetry({
-      model: "gemini-3.5-flash",
+      model: AI_MODEL,
       contents: userPromptText,
       config: {
         systemInstruction: `You are an expert AI clinical evaluation assistant at the "City Healer" healthcare hub.
@@ -1675,11 +1696,18 @@ Do not output conversational markdown preamble; return strictly the structured J
 
     const bodyText = response.text || "";
     const parsedData = cleanAndParseJSON(bodyText);
+    parsedData.source = "ai";
     parsedData.recommendedHospitals = await recommendHospitals(parsedData.specialistType || "General Physician", parsedData.urgencyLevel || "LOW", userLat, userLng);
     res.json(parsedData);
   } catch (err: any) {
-    console.warn("[City Healer API Warning] Gemini API computation failed:", err);
-    res.status(500).json({ error: "Symptom evaluator encountered a service failure: " + err.message });
+    // A 500 here left the patient with nothing at the moment they asked for help.
+    // The offline heuristic is a poorer answer than the model, but it still routes
+    // red-flag wording to SOS, so it is the right thing to serve on failure.
+    console.warn("[City Healer API Warning] Gemini API computation failed, serving offline triage:", err?.message || err);
+    const fallback: any = triageWithoutAI(symptoms);
+    fallback.aiUnavailable = true;
+    fallback.recommendedHospitals = await recommendHospitals(fallback.specialistType, fallback.urgencyLevel, userLat, userLng);
+    res.json(fallback);
   }
 });
 
@@ -1768,7 +1796,7 @@ Generate a highly detailed clinical interpretation, specify any critical doctor 
 Structure the response STRICTLY as JSON. No markdown commentary.`;
 
     const response = await generateContentWithRetry({
-      model: "gemini-3.5-flash",
+      model: AI_MODEL,
       contents: userPromptText,
       config: {
         systemInstruction: `You are a clinical chief pathologist and AI medical interpreter at City Healer India.
@@ -1856,7 +1884,7 @@ Generate safety-first guide containing:
 Output strictly as a JSON record conforming to the requested schema. No markdown preamble or conversational introductions.`;
 
     const response = await generateContentWithRetry({
-      model: "gemini-3.5-flash",
+      model: AI_MODEL,
       contents: promptText,
       config: {
         systemInstruction: `You are clinical pharmacist of City Healer Delhi and expert in Indian pharmacological guidelines.
@@ -1939,7 +1967,7 @@ Generate a premium day diet plan specifying:
 Output strictly as a JSON record. No markdown preamble.`;
 
     const response = await generateContentWithRetry({
-      model: "gemini-3.5-flash",
+      model: AI_MODEL,
       contents: userPromptText,
       config: {
         systemInstruction: `You are clinical chief dietician, Ayurvedic physician, and Indian food expert at City Healer Delhi.
@@ -1966,6 +1994,53 @@ Output strictly JSON matching this schema:
 });
 
 // AI Agentic Pipeline - Developer Sandbox Route
+/**
+ * Keyword intent matching for the developer console when the model is unavailable.
+ * Reported as `source: "offline-heuristic"` with a modest confidence — the version
+ * this replaces claimed 1.0, which is a substring match presenting itself as
+ * certainty.
+ */
+function pipelineWithoutAI(prompt: string, reason: string) {
+  const text = String(prompt).toLowerCase();
+  const logs: string[] = [
+    `[Initiating Pipeline] Received query: "${prompt}"`,
+    `⚠️ Live model unavailable (${reason}). Using local keyword rules.`
+  ];
+
+  let intent = "GENERAL_INFO";
+  if (hasAny(text, ["diet", "eat", "nutrition"])) intent = "DIET_RECO";
+  else if (hasAny(text, ["doctor", "appointment", "counsel"])) intent = "OPD_SCHEDULING";
+  else if (hasAny(text, ["medicine", "pharmacy", "drug"])) intent = "MEDICINE_LOOKUP";
+  else if (hasAny(text, ["sos", "emergency", "ambulance"])) intent = "SOS_EMERGENCY";
+
+  const matched = intent !== "GENERAL_INFO";
+  const plan = [
+    `[Fallback Step 1] Detect intent: ${intent}`,
+    `[Fallback Step 2] Run query match on local tables`,
+    `[Fallback Step 3] Generate simulated response`
+  ];
+
+  logs.push(`[Intent recognized] Class: ${intent} (keyword match)`);
+  logs.push(`[Execution] Scanning local databases for match...`);
+
+  const results: Record<string, string> = {
+    DIET_RECO: "Diet Recommendation Fallback: For type-2 diabetes, prefer a low-glycemic Ragi (Finger millet) Idli and fresh buttermilk. Store Amla & ginger infusions.",
+    OPD_SCHEDULING: "OPD Appointment Fallback: Found Dr. Rajesh Sharma (General Medicine) and Dr. Naresh Trehan (Cardiology) online at Max/Medanta Delhi NCR.",
+    MEDICINE_LOOKUP: "Medicine Lookup Fallback: Medicine 'Crocin Advance 650mg' and 'Combiflam' are available in stock at Apollo Pharmacy.",
+    SOS_EMERGENCY: "SOS Emergency Fallback: Emergency Trauma centers are active. Medanta has 14 ICU beds, Fortis has 18 available.",
+    GENERAL_INFO: "General Info Fallback: Welcome to City Healer Delhi console. Set GEMINI_API_KEY to enable live generative responses."
+  };
+
+  return {
+    intent,
+    confidence: matched ? 0.5 : 0.2,
+    plan,
+    executionLogs: logs,
+    result: results[intent],
+    source: "offline-heuristic"
+  };
+}
+
 app.post("/api/developer/ai-pipeline", aiRateLimit, async (req, res) => {
   const { prompt, preference } = req.body;
 
@@ -1976,47 +2051,7 @@ app.post("/api/developer/ai-pipeline", aiRateLimit, async (req, res) => {
   const logs: string[] = [`[Initiating Pipeline] Received query: "${prompt}"`];
 
   if (!ai) {
-    logs.push("⚠️ GoogleGenAI is not initialized. Using local fallback rules.");
-    let intent = "GENERAL_INFO";
-    if (prompt.toLowerCase().includes("diet") || prompt.toLowerCase().includes("eat") || prompt.toLowerCase().includes("nutrition")) {
-      intent = "DIET_RECO";
-    } else if (prompt.toLowerCase().includes("doctor") || prompt.toLowerCase().includes("appointment") || prompt.toLowerCase().includes("counsel")) {
-      intent = "OPD_SCHEDULING";
-    } else if (prompt.toLowerCase().includes("medicine") || prompt.toLowerCase().includes("pharmacy") || prompt.toLowerCase().includes("drug")) {
-      intent = "MEDICINE_LOOKUP";
-    } else if (prompt.toLowerCase().includes("sos") || prompt.toLowerCase().includes("emergency") || prompt.toLowerCase().includes("ambulance")) {
-      intent = "SOS_EMERGENCY";
-    }
-
-    const plan = [
-      `[Fallback Step 1] Detect intent: ${intent}`,
-      `[Fallback Step 2] Run query match on local tables`,
-      `[Fallback Step 3] Generate simulated response`
-    ];
-
-    logs.push(`[Intent recognized] Class: ${intent} (Confidence: 1.0)`);
-    logs.push(`[Execution] Scanning local databases for match...`);
-    
-    let result = "";
-    if (intent === "DIET_RECO") {
-      result = "Diet Recommendation Fallback: For type-2 diabetes, prefer a low-glycemic Ragi (Finger millet) Idli and fresh buttermilk. Store Amla & ginger infusions.";
-    } else if (intent === "OPD_SCHEDULING") {
-      result = "OPD Appointment Fallback: Found Dr. Rajesh Sharma (General Medicine) and Dr. Naresh Trehan (Cardiology) online at Max/Medanta Delhi NCR.";
-    } else if (intent === "MEDICINE_LOOKUP") {
-      result = "Medicine Lookup Fallback: Medicine 'Crocin Advance 650mg' and 'Combiflam' are available in stock at Apollo Pharmacy.";
-    } else if (intent === "SOS_EMERGENCY") {
-      result = "SOS Emergency Fallback: Emergency Trauma centers are active. Medanta has 14 ICU beds, Fortis has 18 available.";
-    } else {
-      result = "General Info Fallback: Welcome to City Healer Delhi console. Set up your GEMINI_API_KEY environment variable to enable live generative responses.";
-    }
-
-    return res.json({
-      intent,
-      confidence: 1.0,
-      plan,
-      executionLogs: logs,
-      result
-    });
+    return res.json(pipelineWithoutAI(prompt, "GEMINI_API_KEY is not configured"));
   }
 
   try {
@@ -2037,7 +2072,7 @@ Output strictly as a JSON object matching this schema:
 }`;
 
     const intentResponse = await generateContentWithRetry({
-      model: "gemini-3.5-flash",
+      model: AI_MODEL,
       contents: intentPrompt,
       config: {
         responseMimeType: "application/json"
@@ -2058,7 +2093,7 @@ Output strictly as a JSON object matching this schema:
 }`;
 
     const plannerResponse = await generateContentWithRetry({
-      model: "gemini-3.5-flash",
+      model: AI_MODEL,
       contents: plannerPrompt,
       config: {
         responseMimeType: "application/json"
@@ -2108,7 +2143,7 @@ Preference context: "${preference || 'none'}"
 Generate a clear, friendly, and medically safe response to the user's query. Incorporate the database matches and guidelines directly.`;
 
     const synthesisResponse = await generateContentWithRetry({
-      model: "gemini-3.5-flash",
+      model: AI_MODEL,
       contents: synthesisPrompt
     });
 
@@ -2123,8 +2158,10 @@ Generate a clear, friendly, and medically safe response to the user's query. Inc
       result
     });
   } catch (err: any) {
-    console.error("AI Pipeline route error:", err);
-    res.status(500).json({ error: "Failed to run AI pipeline: " + err.message });
+    // The console demonstrates the pipeline. A 500 shows nothing; the keyword
+    // fallback still shows the stages, clearly labelled as not model-generated.
+    console.warn("AI Pipeline unavailable, serving offline pipeline:", err?.message || err);
+    res.json(pipelineWithoutAI(prompt, err?.message || "model request failed"));
   }
 });
 
@@ -2132,6 +2169,11 @@ Generate a clear, friendly, and medically safe response to the user's query. Inc
 // Development/Production Serve Configuration
 // ----------------------------------------------------------------
 async function initServer() {
+  // Nothing may be served until the tables exist and the baseline rows are in:
+  // the port opening is what every readiness probe treats as "this server can
+  // answer questions about hospitals and doctors".
+  await databaseReady;
+
   if (process.env.API_ONLY === "true") {
     // Used by the access-matrix suite: the API is the subject under test, and
     // booting Vite to compile a 600KB client adds minutes for no benefit.
@@ -2156,5 +2198,9 @@ async function initServer() {
 }
 
 initServer().catch((error) => {
+  // Refusing to listen is deliberate. A server that is up but cannot reach its
+  // database looks healthy to the platform and fails every real request, which is
+  // strictly worse than a restart.
   console.error("Failed to bootstrap full stack Express framework:", error);
+  process.exit(1);
 });

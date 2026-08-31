@@ -19,3 +19,6 @@ city_healer.db
 service-account*.json
 serviceAccountKey*.json
 
+
+# Local editor/agent tooling, not project code
+.claude/

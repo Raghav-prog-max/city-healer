@@ -90,7 +90,7 @@ import {
   Line, 
   ReferenceLine 
 } from "recharts";
-import { api } from "./utils/api";
+import { api, setDemoSession, getDemoSessionRole } from "./utils/api";
 import { getTranslation, LanguageCode, translations } from "./utils/i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import { 
@@ -108,11 +108,10 @@ import {
   browserLocalPersistence,
   browserSessionPersistence,
   signInWithRedirect,
-  doc, 
-  getDoc, 
-  setDoc, 
-  serverTimestamp, 
-  getDocFromServer
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp
 } from "./firebase";
 
 enum OperationType {
@@ -755,6 +754,25 @@ export default function App() {
   const [superActiveSubTab, setSuperActiveSubTab] = useState<"copilot" | "health-id" | "emergency" | "recommender">("copilot");
 
   // Module B: AI Health Copilot States
+  // Reported by /api/health so the screens name the model the server actually
+  // calls, instead of a literal that silently goes stale when the model changes.
+  const [aiModelLabel, setAiModelLabel] = useState<string>("the clinical model");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/health")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((info) => {
+        if (!cancelled && info?.aiModel) setAiModelLabel(info.aiModel);
+      })
+      .catch(() => {
+        /* static hosting with no API — the neutral default stands */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [appLanguage, setAppLanguage] = useState<LanguageCode>(() => {
     const saved = safeStorage.getItem("cityhealer_lang");
     return (saved === "hi" ? "hi" : "en") as LanguageCode;
@@ -1259,6 +1277,10 @@ export default function App() {
     recommendations: string[];
     flagUrgentSOS: boolean;
     recommendedHospitals?: RecommendedHospital[];
+    /** "ai" when a model produced this, "offline-heuristic" when the safety net did. */
+    source?: "ai" | "offline-heuristic";
+    /** Set when the heuristic declined to guess rather than inventing a condition. */
+    notAssessed?: boolean;
   } | null>(null);
 
   // Emergency SOS Form Details
@@ -1547,17 +1569,13 @@ export default function App() {
 
   // Fetch baseline state on startup and setup long-polling emulator
   useEffect(() => {
-    // Validate connection on startup per mandatory constraint
-    const testConnection = async () => {
-      try {
-        await getDocFromServer(doc(db, "test", "connection"));
-      } catch (error) {
-        if (error instanceof Error && error.message.includes("the client is offline")) {
-          console.error("Please check your Firebase configuration.");
-        }
-      }
-    };
-    testConnection();
+    // A startup reachability probe used to run here as getDocFromServer(doc(db,
+    // "test", "connection")). The mock SDK maps every doc() to /api/users/:id, so
+    // it actually requested /api/users/connection — a guarded route — and logged
+    // two 401s on every load before anyone had signed in. It also proved nothing:
+    // its only error branch matched a Firebase-specific "client is offline"
+    // message this backend never produces. The real reachability signal is the
+    // sign-in request itself, which already falls back when the API is absent.
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -1650,6 +1668,9 @@ export default function App() {
           setIsAuthenticated(true);
           const tokenStr = await firebaseUser.getIdToken();
           setJwtToken(tokenStr);
+          // A real session supersedes any earlier sandbox exploration, so reads
+          // go to the server again rather than to the local sandbox copy.
+          setDemoSession(null);
           loadData();
           
         } catch (err: any) {
@@ -1659,8 +1680,19 @@ export default function App() {
           setJwtToken("");
         }
       } else {
-        setIsAuthenticated(false);
-        setJwtToken("");
+        // The sandbox has no server session for onAuthStateChanged to restore, so
+        // without this a reload or a deep link would bounce a demo visitor back to
+        // the sign-in screen. Rebuild it from the stored role instead.
+        const demoRole = getDemoSessionRole();
+        if (demoRole) {
+          setIsAuthenticated(true);
+          setActiveRole(demoRole as "PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN");
+          setJwtToken("mock-jwt-token-simulated");
+          loadData();
+        } else {
+          setIsAuthenticated(false);
+          setJwtToken("");
+        }
       }
       setAuthLoading(false);
     });
@@ -2606,6 +2638,10 @@ export default function App() {
     setAuthPhone(phoneVal);
     const fakeJwtToken = "mock-jwt-token-simulated";
     setJwtToken(fakeJwtToken);
+    // No server session exists in this mode, so route guarded reads to the
+    // in-browser sandbox instead of letting them fail as 401s, and remember the
+    // role so a reload restores the sandbox rather than bouncing to sign-in.
+    setDemoSession(authRoleSelection);
     loadData();
 
     if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
@@ -2631,6 +2667,7 @@ export default function App() {
     try {
       await signOut(auth);
       safeStorage.removeItem("simulated_auth_profile");
+      setDemoSession(null);
       setIsAuthenticated(false);
       setAuthMode("LOGIN");
       setAuthOtpInput("");
@@ -3874,7 +3911,7 @@ export default function App() {
                         </p>
                       </div>
                       <div className="text-[10px] text-cyan-200/50 font-mono">
-                        Model: Gemini 3.5 Med-Spec
+                        Model: {aiModelLabel}
                       </div>
                     </div>
                   </div>
@@ -3906,10 +3943,10 @@ export default function App() {
                     <div className="bg-slate-100 rounded-3xl p-6 border border-slate-200 flex flex-col sm:flex-row gap-4 justify-between items-center">
                   <div className="space-y-1">
                     <h2 className="text-xl font-black text-slate-900">Virtual Triage Symptom Checker</h2>
-                    <p className="text-xs text-slate-500">Provide physical details below. Powered server-side with Gemini 3.5 medical analytics schema.</p>
+                    <p className="text-xs text-slate-500">Provide physical details below. Powered server-side by {aiModelLabel} with a structured clinical schema.</p>
                   </div>
                   <div className="bg-emerald-50 text-emerald-700 px-3 py-1 text-[11px] font-bold rounded-lg flex items-center gap-1">
-                    <Sparkles className="h-3.5 w-3.5" /> HIPAA Compliant Diagnostics
+                    <Sparkles className="h-3.5 w-3.5" /> Private to Your Account
                   </div>
                 </div>
 
@@ -4061,11 +4098,25 @@ export default function App() {
                     animate={{ opacity: 1, y: 0 }}
                     className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6"
                   >
+                    {aiReport.source === "offline-heuristic" && (
+                      <div className="flex items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 p-3.5 text-amber-900">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <p className="text-[11px] leading-relaxed font-semibold">
+                          The AI assessment service is unavailable, so this came from a
+                          keyword safety net, not a clinical model. It escalates obvious
+                          emergencies but it cannot assess you — treat it as a prompt to
+                          speak to a clinician, not as a result.
+                        </p>
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-4 gap-4">
                       <div>
-                        <span className="font-mono text-[9px] tracking-wider uppercase font-semibold text-slate-400">Clinical Evaluation Result</span>
+                        <span className="font-mono text-[9px] tracking-wider uppercase font-semibold text-slate-400">
+                          {aiReport.source === "offline-heuristic" ? "Offline Safety Check" : "Clinical Evaluation Result"}
+                        </span>
                         <h3 className="text-xl font-extrabold text-slate-900 mt-1">
-                          Suspected: {aiReport.suspectedCondition}
+                          {aiReport.notAssessed ? aiReport.suspectedCondition : `Suspected: ${aiReport.suspectedCondition}`}
                         </h3>
                       </div>
                       <div className="flex items-center gap-3 flex-wrap">
@@ -6997,7 +7048,7 @@ export default function App() {
                     <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center gap-4">
                       <div>
                         <h3 className="text-sm font-black text-slate-950 uppercase tracking-widest flex items-center gap-2">🧪 AI Clinical Report interpreter & OCR scan</h3>
-                        <p className="text-xs text-slate-500 mt-1">Feed simulated clinical lab assays to extract diagnostics indicators using Gemini 3.5-flash pathology parser.</p>
+                        <p className="text-xs text-slate-500 mt-1">Feed simulated clinical lab assays to extract diagnostics indicators using the {aiModelLabel} pathology parser.</p>
                       </div>
                       <span className="bg-emerald-50 text-emerald-700 px-3 py-1 text-[10px] font-bold rounded-lg shrink-0 flex items-center gap-1">
                         <Sparkles className="h-3.5 w-3.5" /> High Precision AI

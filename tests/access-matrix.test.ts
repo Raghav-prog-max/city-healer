@@ -13,7 +13,7 @@
  */
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 
@@ -129,8 +129,27 @@ before(async () => {
   });
 });
 
+/**
+ * Stop the spawned server.
+ *
+ * On Windows the server is spawned through a shell (npx is a .cmd), so the child
+ * this process holds is cmd.exe and `kill()` reaps only that shell — node keeps
+ * running, keeps the port bound, and keeps the test runner's event loop alive, so
+ * `npm test` never exits and the next run collides on the port. taskkill /T walks
+ * the process tree and terminates the real server too.
+ */
+function stopServer() {
+  if (!server?.pid) return;
+  if (process.platform === "win32") {
+    try {
+      spawnSync("taskkill", ["/pid", String(server.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch { /* already gone */ }
+  }
+  server.kill();
+}
+
 after(() => {
-  server?.kill();
+  stopServer();
   if (existsSync(TEST_DB_PATH)) {
     try { rmSync(TEST_DB_PATH, { force: true }); } catch { /* windows file lock */ }
   }

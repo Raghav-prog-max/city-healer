@@ -110,7 +110,7 @@ const FEATURES = [
     title: "Health Records",
     desc: "Highly encrypted digital health repository housing medical credentials, reports, and timeline views in secure storage.",
     icon: FileText,
-    badge: "HIPAA Compliant",
+    badge: "Owner-Only Access",
     color: "bg-cyan-50 text-cyan-700 border-cyan-100",
     gradient: "from-cyan-500 to-blue-600",
     target: "records"
@@ -679,7 +679,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                 <div className={`mt-6 pt-4 border-t flex justify-between items-center text-[10px] ${
                   isAppDarkMode ? "border-slate-800 text-slate-500" : "border-slate-100 text-slate-400"
                 }`}>
-                  <span>HIPAA Compliant Security</span>
+                  <span>Role-Based Access Control</span>
                   <span>v3.2.0 Flagship</span>
                 </div>
               </div>
@@ -989,7 +989,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                       </div>
                       <div>
                         <h4 className="text-xs font-black uppercase text-slate-100 tracking-wider">AI Co-Pilot Advisor</h4>
-                        <p className="text-[9px] text-emerald-400 font-semibold">Trained with HIPAA Guidelines</p>
+                        <p className="text-[9px] text-emerald-400 font-semibold">Triage guidance, not diagnosis</p>
                       </div>
                     </div>
                     <span className="text-[9px] bg-white/10 px-2.5 py-0.5 rounded-full text-slate-300 font-extrabold border border-white/5">
@@ -1059,7 +1059,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                   Experience Triage Pathways.
                 </h2>
                 <p className={`text-sm md:text-base leading-relaxed ${isAppDarkMode ? "text-slate-300" : "text-slate-600"}`}>
-                  Type clinical indicators inside our simulated AI Copilot panel. Experience instant diagnostic routing backed by certified HIPAA parameters.
+                  Type clinical indicators inside our simulated AI Copilot panel. Experience instant diagnostic routing — triage guidance only, never a diagnosis.
                 </p>
 
                 <div className="space-y-4 pt-2">
@@ -1585,7 +1585,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
                 Healing cities through automated clinical networks, real-time bed censuses, and secure pre-clinical triage.
               </p>
               <p className="text-[9px] font-mono uppercase text-teal-400 font-extrabold">
-                HIPAA & SOC2 SECURE
+                ROLE-SCOPED PATIENT DATA
               </p>
             </div>
 
@@ -1617,7 +1617,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
               <ul className="space-y-2.5 text-xs">
                 <li><button onClick={() => showLocalToast("Coming soon — Publications are under construction.", "info")} className="hover:text-white transition text-left cursor-pointer">Publications</button></li>
                 <li><button onClick={() => showLocalToast("Coming soon — Case Studies are under construction.", "info")} className="hover:text-white transition text-left cursor-pointer">Case Studies</button></li>
-                <li><button onClick={() => showLocalToast("Coming soon — HIPAA Policy is under construction.", "info")} className="hover:text-white transition text-left cursor-pointer">HIPAA Policy</button></li>
+                <li><button onClick={() => showLocalToast("Coming soon — the Privacy Policy is under construction.", "info")} className="hover:text-white transition text-left cursor-pointer">Privacy Policy</button></li>
                 <li><button onClick={() => showLocalToast("Coming soon — Clinical FAQ is under construction.", "info")} className="hover:text-white transition text-left cursor-pointer">Clinical FAQ</button></li>
               </ul>
             </div>
@@ -1648,7 +1648,7 @@ export function LandingPage({ onNavigate, hospitals, isAppDarkMode }: LandingPro
           <div className="max-w-7xl mx-auto pt-8 flex flex-col md:flex-row justify-between items-center text-[10px] text-slate-600 gap-4">
             <p>&copy; 2026 City Healer Inc. All rights reserved. Redesigned Flagship Luxury Edition.</p>
             <div className="flex gap-6">
-              <button onClick={() => showLocalToast("Coming soon — HIPAA Certified verification portal is under construction.", "info")} className="hover:text-white transition-colors cursor-pointer text-left">HIPAA Certified</button>
+              <button onClick={() => showLocalToast("Coming soon — the Data Handling page is under construction.", "info")} className="hover:text-white transition-colors cursor-pointer text-left">Data Handling</button>
               <button onClick={() => showLocalToast("Coming soon — Security Directive document is under construction.", "info")} className="hover:text-white transition-colors cursor-pointer text-left">Security Directive</button>
               <button onClick={() => showLocalToast("Coming soon — Terms of Care page is under construction.", "info")} className="hover:text-white transition-colors cursor-pointer text-left">Terms of Care</button>
             </div>
