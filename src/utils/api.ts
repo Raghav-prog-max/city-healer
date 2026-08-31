@@ -3,8 +3,17 @@
  */
 import { auth } from "../firebase";
 import * as seed from "../../seedData";
+import { triageWithoutAI } from "../../shared/triage";
 
 const DEMO_SESSION_KEY = "city_healer_demo_session";
+
+/**
+ * Routes that already refused this demo session. The dashboard re-polls several
+ * guarded endpoints every 15 seconds, and without this each cycle would repeat a
+ * request whose answer cannot change, logging a fresh console error every time.
+ * The first refusal is remembered and later calls go straight to the sandbox.
+ */
+const demoDeniedRoutes = new Set<string>();
 
 /**
  * Records that this browser is exploring without a server session — the "Demo /
@@ -15,14 +24,6 @@ const DEMO_SESSION_KEY = "city_healer_demo_session";
  *
  * Pass null to clear it, which a real sign-in and a sign-out both do.
  */
-/**
- * Routes that already refused this demo session. The dashboard re-polls several
- * guarded endpoints every 15 seconds, and without this each cycle would repeat a
- * request whose answer cannot change, logging a fresh console error every time.
- * The first refusal is remembered and later calls go straight to the sandbox.
- */
-const demoDeniedRoutes = new Set<string>();
-
 export function setDemoSession(role: string | null): void {
   try {
     if (role) localStorage.setItem(DEMO_SESSION_KEY, role);
@@ -430,46 +431,9 @@ function fallbackClientDb(url: string, options?: RequestInit): any {
 
   // AI Symptoms Check Fallback - Return full structure matching React requirements
   if (url === "/api/symptoms/check" && method === "POST") {
-    const symptoms = body.symptoms || "";
-    const lower = symptoms.toLowerCase();
-    
-    let result: any = {
-      suspectedCondition: "Mild Upper Respiratory Tract Infection",
-      explanation: "A viral congestion typically affecting throat, nasal passage and airway tubes, causing fatigue.",
-      specialistType: "General Physician",
-      urgencyLevel: "LOW",
-      recommendations: ["Ensure adequate thermal fluid intake", "Monitor body temperature daily", "Practice steam inhalation twice daily"],
-      flagUrgentSOS: false
-    };
-
-    if (lower.includes("chest") || lower.includes("heart") || lower.includes("breathe") || lower.includes("gasp") || lower.includes("pain")) {
-      result = {
-        suspectedCondition: "Potential Cardio/Respiratory Distress Warning",
-        explanation: "Signs of respiratory or cardiovascular pressure which could represent cardiac angina or asthma exacerbation.",
-        specialistType: "Cardiologist / Pulmonologist",
-        urgencyLevel: "CRITICAL",
-        recommendations: ["Discontinue physical activity instantly", "Keep medical oxygen accessible if present", "Request immediate clinical supervision"],
-        flagUrgentSOS: true
-      };
-    } else if (lower.includes("stomach") || lower.includes("abdomen") || lower.includes("vomit")) {
-      result = {
-        suspectedCondition: "Acute Gastroenteritis / Dyspepsia",
-        explanation: "An inflammation of the stomach lining and digestive tract caused by bacteria, viral infection, or dietary irritants.",
-        specialistType: "Gastroenterologist",
-        urgencyLevel: "MEDIUM",
-        recommendations: ["Sip oral rehydration salts", "Avoid solid heavy diets temporarily", "Rest in a comfortable incline position"],
-        flagUrgentSOS: false
-      };
-    } else if (lower.includes("head") || lower.includes("migraine") || lower.includes("vision")) {
-      result = {
-        suspectedCondition: "Tension Headache or Migraine Flare-up",
-        explanation: "A neurological syndrome featuring throbbing central headaches, photo-sensitivity, or neuro-muscular fatigue.",
-        specialistType: "Neurologist",
-        urgencyLevel: "LOW",
-        recommendations: ["Rest in a quiet, dark, well-ventilated room", "Apply cold or warm compresses over the temple", "Hydrate immediately"],
-        flagUrgentSOS: false
-      };
-    }
+    // Same heuristic the server uses when the model is unavailable — imported
+    // rather than re-implemented, so the red-flag rules cannot drift apart.
+    const result: any = triageWithoutAI(body.symptoms || "");
 
     result.recommendedHospitals = recommendHospitalsLocal(result.specialistType, result.urgencyLevel, body.userLat, body.userLng);
     return result;
