@@ -79,7 +79,8 @@ export async function initializeDatabase() {
         policyNo TEXT,
         createdAt TEXT,
         updatedAt TEXT,
-        doctorId TEXT
+        doctorId TEXT,
+        hospitalId TEXT
       )
     `);
 
@@ -91,6 +92,16 @@ export async function initializeDatabase() {
     if (!userCols.some((c) => c.name === "doctorId")) {
       console.log("[SQLite Migration] Adding users.doctorId for doctor-patient scoping...");
       await dbExec("ALTER TABLE users ADD COLUMN doctorId TEXT");
+    }
+
+    // 1c. hospitalId binds a HOSPITAL-role account to the facility it administers.
+    // Without it the HOSPITAL role only answered "is this caller a hospital?", never
+    // "is this caller *that* hospital", so any hospital login could rewrite any
+    // facility's bed census — the numbers emergency routing depends on.
+    // A HOSPITAL with a NULL hospitalId administers no facility and can write none.
+    if (!userCols.some((c) => c.name === "hospitalId")) {
+      console.log("[SQLite Migration] Adding users.hospitalId for facility scoping...");
+      await dbExec("ALTER TABLE users ADD COLUMN hospitalId TEXT");
     }
 
     // 2. Hospitals

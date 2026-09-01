@@ -2,8 +2,9 @@
  * Set a user account's role.
  *
  *   npm run set-role -- --email <address> --role ADMIN
- *   npm run set-role -- --uid <user-uid> --role HOSPITAL
+ *   npm run set-role -- --email <address> --role HOSPITAL --hospitalId hosp-1
  *   npm run set-role -- --list
+ *   npm run set-role -- --list-hospitals
  *
  * This exists because production deliberately refuses to let anyone self-register
  * as ADMIN or HOSPITAL, and only an ADMIN may promote another account. On a fresh
@@ -38,8 +39,14 @@ function parseArgs(argv: string[]): Record<string, string | boolean> {
   return out;
 }
 
+async function listHospitals() {
+  const rows = await dbAll("SELECT id, name FROM hospitals ORDER BY name LIMIT 60");
+  console.log(`Facilities (${rows.length} shown):`);
+  for (const h of rows) console.log(`  ${h.id.padEnd(24)} ${h.name}`);
+}
+
 async function listAccounts() {
-  const users = await dbAll("SELECT uid, name, email, role FROM users ORDER BY role, name");
+  const users = await dbAll("SELECT uid, name, email, role, hospitalId FROM users ORDER BY role, name");
   if (users.length === 0) {
     console.log("No accounts exist yet. Register one through the app first, then promote it here.");
     return;
@@ -47,7 +54,8 @@ async function listAccounts() {
   const admins = users.filter((u) => u.role === "ADMIN").length;
   console.log(`Accounts (${users.length}):`);
   for (const u of users) {
-    console.log(`  ${u.role.padEnd(8)} ${u.uid}  ${u.name} <${u.email}>`);
+    const bind = u.role === "HOSPITAL" ? (u.hospitalId ? `  -> ${u.hospitalId}` : "  UNBOUND (administers no facility)") : "";
+    console.log(`  ${u.role.padEnd(8)} ${u.uid}  ${u.name} <${u.email}>${bind}`);
   }
   if (admins === 0) {
     console.log("\n[warning] No ADMIN account exists. Nobody can provision roles through the API.");
@@ -62,14 +70,21 @@ async function main() {
     return;
   }
 
+  if (args["list-hospitals"]) {
+    await listHospitals();
+    return;
+  }
+
   const uid = typeof args.uid === "string" ? args.uid : null;
   const email = typeof args.email === "string" ? args.email.toLowerCase().trim() : null;
   const role = typeof args.role === "string" ? (args.role.toUpperCase() as RoleName) : null;
+  const hospitalId = typeof args.hospitalId === "string" ? args.hospitalId : null;
 
   if ((!uid && !email) || !role) {
     console.error("Usage: npm run set-role -- --email <address> --role ADMIN");
     console.error("       npm run set-role -- --uid <user-uid> --role HOSPITAL");
-    console.error("       npm run set-role -- --list");
+    console.error("       npm run set-role -- --email <address> --role HOSPITAL --hospitalId hosp-1");
+    console.error("       npm run set-role -- --list   |   --list-hospitals");
     console.error(`Roles: ${ROLES.join(", ")}`);
     process.exitCode = 1;
     return;
@@ -108,12 +123,36 @@ async function main() {
     }
   }
 
+  // A HOSPITAL account must name the facility it administers: writes are scoped to
+  // that id, so an unbound account can modify nothing at all.
+  if (hospitalId) {
+    const hosp = await dbGet("SELECT id, name FROM hospitals WHERE id = ?", [hospitalId]);
+    if (!hosp) {
+      console.error(`[error] No facility with id "${hospitalId}". Run --list-hospitals to see them.`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  if (role === "HOSPITAL" && !hospitalId) {
+    const existing = await dbGet("SELECT hospitalId FROM users WHERE uid = ?", [user.uid]);
+    if (!existing?.hospitalId) {
+      console.error("[error] A HOSPITAL account needs --hospitalId, or it administers no facility and every write is refused.");
+      console.error("        Run: npm run set-role -- --list-hospitals");
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   const previous = user.role;
   await dbRun("UPDATE users SET role = ?, updatedAt = ? WHERE uid = ?", [
     role,
     new Date().toISOString(),
     user.uid
   ]);
+  if (hospitalId) {
+    await dbRun("UPDATE users SET hospitalId = ? WHERE uid = ?", [hospitalId, user.uid]);
+    console.log(`Bound to facility ${hospitalId}`);
+  }
 
   console.log(`${user.name} <${user.email}>  ${previous} -> ${role}`);
   if (role === "DOCTOR") {

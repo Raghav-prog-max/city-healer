@@ -70,6 +70,20 @@ async function linkDoctorInTestDb(uid: string, doctorId: string): Promise<void> 
   await new Promise<void>((resolve) => db.close(() => resolve()));
 }
 
+/** Bind a HOSPITAL account to the facility it administers, in the throwaway database. */
+async function linkHospitalInTestDb(uid: string, hospitalId: string): Promise<void> {
+  const sqlite3 = (await import("sqlite3")).default;
+  const db = new sqlite3.Database(TEST_DB_PATH);
+  await new Promise<void>((resolve, reject) => {
+    db.run("UPDATE users SET hospitalId = ? WHERE uid = ?", [hospitalId, uid], function (err) {
+      if (err) return reject(err);
+      if (this.changes !== 1) return reject(new Error(`link-hospital affected ${this.changes} rows`));
+      resolve();
+    });
+  });
+  await new Promise<void>((resolve) => db.close(() => resolve()));
+}
+
 async function register(email: string, name: string, role: string): Promise<Actor> {
   const password = "TestPassw0rd!x";
   await api("POST", "/api/auth/register", undefined, { email, password, name, role });
@@ -114,6 +128,12 @@ before(async () => {
   });
   assert.equal(booked.status, 200);
   linkedDoctorId = "doc-1";
+
+  // Bind the hospital desk to hosp-1 (normally `set-role --hospitalId`). Facility
+  // writes are scoped to the administered facility, so an unbound HOSPITAL account
+  // can write nothing — this suite asserts the allowed case, and
+  // resource-ownership.test.ts asserts that another facility's is refused.
+  await linkHospitalInTestDb(actors.hospital.uid, "hosp-1");
 
   // Provision Dr Linked against doc-1 (normally the link-doctor CLI).
   // Open the TEST database explicitly. Importing ../database here would resolve

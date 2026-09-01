@@ -54,6 +54,11 @@ function resolveJwtSecret(): string {
 }
 const JWT_SECRET = resolveJwtSecret();
 
+// Railway (and any PaaS) terminates TLS at a proxy, so without this every request
+// reports the proxy's address as req.ip and the per-IP auth limiter becomes a single
+// global bucket - one attacker could lock every user out of login. Trusting exactly
+// one hop reads the real client from X-Forwarded-For without letting a client forge it.
+app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(express.json({ limit: "512kb" }));
 
@@ -240,9 +245,16 @@ const aiRateLimit = (req: express.Request, res: express.Response, next: express.
     }
   }
 
-  const entry = aiRateWindow.get(user.uid);
+  // Every anonymous demo caller resolves to the same synthetic uid, so keying the
+  // quota on uid alone gave all demo traffic one shared 30/hour bucket that a single
+  // visitor could exhaust for everyone. Demo callers are metered per IP instead.
+  const quotaKey = user.isDemo
+    ? `demo:${req.ip || req.socket.remoteAddress || "unknown"}`
+    : user.uid;
+
+  const entry = aiRateWindow.get(quotaKey);
   if (!entry || now - entry.windowStart > AI_RATE_WINDOW_MS) {
-    aiRateWindow.set(user.uid, { count: 1, windowStart: now });
+    aiRateWindow.set(quotaKey, { count: 1, windowStart: now });
     return next();
   }
 
@@ -265,6 +277,48 @@ const aiRateLimit = (req: express.Request, res: express.Response, next: express.
 async function resolveDoctorId(uid: string): Promise<string | null> {
   const row = await dbGet("SELECT doctorId FROM users WHERE uid = ?", [uid]);
   return row?.doctorId || null;
+}
+
+/** Resolve the hospitals.id a HOSPITAL account administers. Null when unprovisioned. */
+async function resolveHospitalId(uid: string): Promise<string | null> {
+  const row = await dbGet("SELECT hospitalId FROM users WHERE uid = ?", [uid]);
+  return row?.hospitalId || null;
+}
+
+/**
+ * Gate a write to one specific facility.
+ *
+ * requireRole only ever asked "is this caller a hospital?". It never asked "is this
+ * caller *that* hospital", so any HOSPITAL login could zero out any facility's bed
+ * census — the figures the triage engine routes ambulances on. ADMIN keeps blanket
+ * access; a HOSPITAL account bound to no facility can write to none.
+ */
+async function callerAdministersHospital(req: express.Request, hospitalId: string): Promise<boolean> {
+  const caller = getAuthUser(req)!;
+  if (caller.role === "ADMIN") return true;
+  if (caller.role !== "HOSPITAL") return false;
+  const owned = await resolveHospitalId(caller.uid);
+  return !!owned && owned === hospitalId;
+}
+
+/**
+ * Gate a write to one specific clinician row. A DOCTOR may act only as themselves,
+ * a HOSPITAL only for clinicians on its own roster, ADMIN for anyone.
+ */
+async function callerControlsDoctor(req: express.Request, doctorId: string): Promise<boolean> {
+  const caller = getAuthUser(req)!;
+  if (caller.role === "ADMIN") return true;
+  if (caller.role === "DOCTOR") {
+    return (await resolveDoctorId(caller.uid)) === doctorId;
+  }
+  if (caller.role === "HOSPITAL") {
+    const owned = await resolveHospitalId(caller.uid);
+    if (!owned) return false;
+    const hosp = await dbGet("SELECT name FROM hospitals WHERE id = ?", [owned]);
+    const doc = await dbGet("SELECT hospitalName FROM doctors WHERE id = ?", [doctorId]);
+    return !!hosp && !!doc && hosp.name === doc.hospitalName;
+  }
+  return false;
 }
 
 /** True when this doctor account is clinically linked to the patient by an appointment. */
@@ -714,6 +768,9 @@ app.put("/api/hospitals/:id/beds", requireRole("HOSPITAL", "ADMIN"), async (req,
   const { availableBeds, icuAvailable, emergencyOccupancy } = req.body;
 
   try {
+    if (!(await callerAdministersHospital(req, id))) {
+      return res.status(403).json({ error: "You may only modify the facility your account administers." });
+    }
     const hosp = await dbGet("SELECT * FROM hospitals WHERE id = ?", [id]);
     if (!hosp) {
       return res.status(404).json({ error: "Hospital not found" });
@@ -827,6 +884,9 @@ app.put("/api/hospitals/:id", requireRole("HOSPITAL", "ADMIN"), async (req, res)
   } = req.body;
 
   try {
+    if (!(await callerAdministersHospital(req, id))) {
+      return res.status(403).json({ error: "You may only modify the facility your account administers." });
+    }
     const hosp = await dbGet("SELECT * FROM hospitals WHERE id = ?", [id]);
     if (!hosp) {
       return res.status(404).json({ error: "Hospital not found" });
@@ -912,6 +972,10 @@ app.post("/api/hospitals/:id/doctors", requireRole("HOSPITAL", "ADMIN"), async (
   }
 
   try {
+    if (!(await callerAdministersHospital(req, id))) {
+      return res.status(403).json({ error: "You may only add clinicians to the facility your account administers." });
+    }
+
     const hosp = await dbGet("SELECT * FROM hospitals WHERE id = ?", [id]);
     if (!hosp) {
       return res.status(404).json({ error: "Hospital partner not found" });
@@ -973,6 +1037,12 @@ app.put("/api/doctors/:id/online", requireRole("DOCTOR", "HOSPITAL", "ADMIN"), a
     const doc = await dbGet("SELECT * FROM doctors WHERE id = ?", [id]);
     if (!doc) {
       return res.status(404).json({ error: "Doctor not found" });
+    }
+
+    // Availability drives who patients can reach, so forcing another clinician
+    // offline is sabotage. A doctor may toggle only themselves.
+    if (!(await callerControlsDoctor(req, id))) {
+      return res.status(403).json({ error: "You may only change availability for your own clinician profile." });
     }
 
     const activeStatus = online ? 1 : 0;
@@ -1063,10 +1133,20 @@ app.put("/api/appointments/:id/status", requireRole("DOCTOR", "ADMIN"), async (r
   const { id } = req.params;
   const { status } = req.body;
 
+  const ALLOWED = ["PENDING", "ACCEPTED", "COMPLETED", "CANCELLED"];
+  if (!ALLOWED.includes(status)) {
+    return res.status(400).json({ error: `status must be one of ${ALLOWED.join(", ")}.` });
+  }
+
   try {
-    const appointment = await dbGet("SELECT * FROM appointments WHERE id = ?", [id]);
+    // Being a doctor is not the same as being *this appointment's* doctor. Without
+    // this, any doctor account could drive any patient's booking to any state.
+    const appointment = await getAppointmentIfParty(req, id);
     if (!appointment) {
-      return res.status(404).json({ error: "Appointment booking not found" });
+      const exists = await dbGet("SELECT id FROM appointments WHERE id = ?", [id]);
+      return exists
+        ? res.status(403).json({ error: "You are not the clinician on this appointment." })
+        : res.status(404).json({ error: "Appointment booking not found" });
     }
 
     await dbRun("UPDATE appointments SET status = ? WHERE id = ?", [status, id]);
@@ -1090,10 +1170,19 @@ app.post("/api/appointments/:id/prescription", requireRole("DOCTOR", "ADMIN"), a
   const { id } = req.params;
   const { diagnosis, medicines, instructions } = req.body;
 
+  if (!diagnosis || !Array.isArray(medicines)) {
+    return res.status(400).json({ error: "A diagnosis and a medicines array are required." });
+  }
+
   try {
-    const appt = await dbGet("SELECT * FROM appointments WHERE id = ?", [id]);
+    // The prescription is signed with appt.doctorName, so writing one without being
+    // that clinician is forgery in another doctor's name. Scope it to the party.
+    const appt = await getAppointmentIfParty(req, id);
     if (!appt) {
-      return res.status(404).json({ error: "Appointment booking not found" });
+      const exists = await dbGet("SELECT id FROM appointments WHERE id = ?", [id]);
+      return exists
+        ? res.status(403).json({ error: "Only the clinician on this appointment may prescribe for it." })
+        : res.status(404).json({ error: "Appointment booking not found" });
     }
 
     const prescription = {
@@ -1260,12 +1349,23 @@ app.post("/api/queue/take", async (req, res) => {
 // Update Queue status
 app.put("/api/queue/:id/status", requireRole("DOCTOR", "HOSPITAL", "ADMIN"), async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body; // WAITING, IN_CONSULTATION, COMPLETED, SKIPPED
+  const { status } = req.body;
+
+  const ALLOWED_Q = ["WAITING", "IN_CONSULTATION", "COMPLETED", "SKIPPED"];
+  if (!ALLOWED_Q.includes(status)) {
+    return res.status(400).json({ error: `status must be one of ${ALLOWED_Q.join(", ")}.` });
+  }
 
   try {
     const tok = await dbGet("SELECT * FROM queue_tokens WHERE id = ?", [id]);
     if (!tok) {
       return res.status(404).json({ error: "OPD queue token not found" });
+    }
+
+    // A doctor may only advance their own queue.
+    const caller = getAuthUser(req)!;
+    if (caller.role === "DOCTOR" && !(await callerControlsDoctor(req, tok.doctorId))) {
+      return res.status(403).json({ error: "You may only manage your own queue." });
     }
 
     await dbRun("UPDATE queue_tokens SET status = ? WHERE id = ?", [status, id]);
@@ -1370,18 +1470,59 @@ app.post("/api/medicines/order", async (req, res) => {
     return res.status(400).json({ error: "Items array is required to place an order" });
   }
 
+  if (items.length > 100) {
+    return res.status(400).json({ error: "An order may contain at most 100 line items." });
+  }
+
   try {
     const orderId = "order-" + Date.now() + "-" + Math.floor(Math.random() * 100);
     const caller = getAuthUser(req)!;
     const patientId = caller.uid;
     const pName = patientName || caller.email || "Pharmacy Guest Patient";
 
+    /**
+     * Price and quantity are rebuilt from the catalogue, never taken from the body.
+     * Previously `totalAmount` was stored as sent, so an order worth thousands could
+     * be declared as 1; and a negative quantity ran `stock - (-500)`, minting stock.
+     * The client's figures are now treated as a display hint and discarded.
+     */
+    const priced: Array<{ medicineId: string; name: string; quantity: number; price: number }> = [];
+    let computedTotal = 0;
+    const needsRx: string[] = [];
+
+    for (const raw of items) {
+      const qty = Number(raw?.quantity);
+      if (!Number.isInteger(qty) || qty < 1 || qty > 100) {
+        return res.status(400).json({ error: "Each quantity must be a whole number between 1 and 100." });
+      }
+      const med = await dbGet("SELECT * FROM medicines WHERE id = ?", [raw?.medicineId]);
+      if (!med) {
+        return res.status(404).json({ error: `Unknown medicine: ${raw?.medicineId}` });
+      }
+      if (med.stock < qty) {
+        return res.status(400).json({ error: `${med.name} has only ${med.stock} in stock.` });
+      }
+      if (med.requiresPrescription) needsRx.push(med.name);
+
+      priced.push({ medicineId: med.id, name: med.name, quantity: qty, price: med.price });
+      computedTotal += med.price * qty;
+    }
+
+    // requiresPrescription was returned to the client but never enforced, so
+    // prescription-only medicines could be bought with nothing attached.
+    if (needsRx.length > 0 && !prescriptionAttached) {
+      return res.status(400).json({
+        error: `A prescription is required for: ${needsRx.join(", ")}.`,
+        requiresPrescription: needsRx
+      });
+    }
+
     const newOrder = {
       id: orderId,
       patientId,
       patientName: pName,
-      items,
-      totalAmount: Number(totalAmount) || 0,
+      items: priced,
+      totalAmount: Number(computedTotal.toFixed(2)),
       status: "PENDING",
       prescriptionAttached: !!prescriptionAttached,
       prescriptionName: prescriptionName || "None",
@@ -1398,8 +1539,8 @@ app.post("/api/medicines/order", async (req, res) => {
       newOrder.prescriptionName, newOrder.deliveryAddress, newOrder.createdAt
     ]);
 
-    // Update inventory stocks
-    for (const item of items) {
+    // Decrement from the validated line items, so quantity is always positive here.
+    for (const item of priced) {
       await dbRun("UPDATE medicines SET stock = MAX(0, stock - ?) WHERE id = ?", [item.quantity, item.medicineId]);
     }
 
@@ -1484,6 +1625,11 @@ app.put("/api/emergency/alerts/:id/status", requireRole("HOSPITAL", "ADMIN"), as
   const { id } = req.params;
   const { status } = req.body;
 
+  const ALLOWED_SOS = ["REPORTED", "DISPATCHED", "RESOLVED"];
+  if (!ALLOWED_SOS.includes(status)) {
+    return res.status(400).json({ error: `status must be one of ${ALLOWED_SOS.join(", ")}.` });
+  }
+
   try {
     const alert = await dbGet("SELECT * FROM emergency_alerts WHERE id = ?", [id]);
     if (!alert) {
@@ -1541,16 +1687,24 @@ app.get("/api/chat/:appointmentId", async (req, res) => {
 // Send chat message (Triggers Gemini AI Doctor responder if doctor offline)
 app.post("/api/chat/:appointmentId", aiRateLimit, async (req, res) => {
   const { appointmentId } = req.params;
-  const { sender, text } = req.body;
+  const { text } = req.body;
 
-  if (!text) {
+  if (!text || typeof text !== "string" || !text.trim()) {
     return res.status(400).json({ error: "Message text is required" });
+  }
+  if (text.length > 4000) {
+    return res.status(400).json({ error: "Message is too long (4000 characters maximum)." });
   }
 
   try {
     if (!(await getAppointmentIfParty(req, appointmentId))) {
       return res.status(403).json({ error: "You are not a party to this consultation." });
     }
+
+    // Attribution comes from the verified session, never from the body. It used to be
+    // taken as sent, so a patient could post a message rendered as the doctor's -
+    // clinical advice in someone else's name, inside their own consultation.
+    const sender = getAuthUser(req)!.role === "PATIENT" ? "PATIENT" : "DOCTOR";
 
     const msgId = "msg-" + Date.now() + "-" + Math.floor(Math.random() * 100);
     const now = new Date().toISOString();
