@@ -45,7 +45,7 @@ clinical fallbacks rather than failing, so every screen stays usable.
 | `npm run build` | Builds the client to `dist/` and bundles the server to `dist/server.cjs` |
 | `npm start` | Runs the production build (set `NODE_ENV=production`) |
 | `npm run lint` | `tsc --noEmit` |
-| `npm test` | Access-control matrix — 66 cases against a throwaway database |
+| `npm test` | Access-control + resource-ownership suites — 85 cases against a throwaway database |
 | `npm run link-doctor` | Links a DOCTOR login to its clinician row (see below) |
 | `npm run set-role` | Grants a role — the only way to make the first ADMIN (see below) |
 
@@ -71,6 +71,17 @@ npm run set-role -- --list
 
 Register the account through the app first, then promote it. It refuses to demote
 the last remaining `ADMIN`.
+
+A `HOSPITAL` account must also name the facility it administers, because facility
+writes are scoped to it — an unbound hospital account can modify nothing:
+
+```bash
+npm run set-role -- --email desk@apollo.example --role HOSPITAL --hospitalId hosp-1
+```
+
+```bash
+npm run set-role -- --list-hospitals
+```
 
 On a deployed host the database lives inside the container, on the mounted volume,
 so the command has to run **there** — `railway run` would execute on your machine
