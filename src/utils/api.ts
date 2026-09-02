@@ -433,7 +433,9 @@ function fallbackClientDb(url: string, options?: RequestInit): any {
   if (url === "/api/symptoms/check" && method === "POST") {
     // Same heuristic the server uses when the model is unavailable — imported
     // rather than re-implemented, so the red-flag rules cannot drift apart.
-    const result: any = triageWithoutAI(body.symptoms || "");
+    // The caller's language, so the offline answer reads in the same language the
+    // symptoms were written in — including on static hosting with no backend.
+    const result: any = triageWithoutAI(body.symptoms || "", body.lang);
 
     result.recommendedHospitals = recommendHospitalsLocal(result.specialistType, result.urgencyLevel, body.userLat, body.userLng);
     return result;
@@ -817,10 +819,16 @@ export const api = {
     }),
 
   // AI Symptom Checker
-  checkSymptoms: (symptoms: string, history?: string, userLat?: number, userLng?: number) =>
+  checkSymptoms: (
+    symptoms: string,
+    history?: string,
+    userLat?: number,
+    userLng?: number,
+    lang?: "en" | "hi"
+  ) =>
     apiFetch<any>("/api/symptoms/check", {
       method: "POST",
-      body: JSON.stringify({ symptoms, history, userLat, userLng }),
+      body: JSON.stringify({ symptoms, history, userLat, userLng, lang }),
     }),
 
   // AI Lab Report Analyzer

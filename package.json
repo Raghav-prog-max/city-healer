@@ -9,7 +9,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test tests/access-matrix.test.ts tests/resource-ownership.test.ts",
+    "test": "tsx --test tests/triage-heuristic.test.ts tests/access-matrix.test.ts tests/resource-ownership.test.ts",
     "link-doctor": "tsx scripts/link-doctor.ts",
     "set-role": "tsx scripts/set-role.ts"
   },
