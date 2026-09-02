@@ -1990,7 +1990,8 @@ export default function App() {
         aiSymptoms,
         aiHistory,
         userLocationCoords?.lat,
-        userLocationCoords?.lng
+        userLocationCoords?.lng,
+        appLanguage
       );
       setAiReport(report);
 

@@ -11,7 +11,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { dbRun, dbGet, dbAll, initializeDatabase } from "./database";
-import { triageWithoutAI, hasAny } from "./shared/triage";
+import { triageWithoutAI, hasAny, detectLang } from "./shared/triage";
 
 // Fix node localhost resolution issues
 dns.setDefaultResultOrder("ipv4first");
@@ -1778,7 +1778,8 @@ Generate a professional, short, reassuring clinical reply. Address the query dir
 
 // Symptom checker
 app.post("/api/symptoms/check", aiRateLimit, async (req, res) => {
-  const { symptoms, history, userLat, userLng } = req.body;
+  const { symptoms, history, userLat, userLng, lang } = req.body;
+  const language = lang === "hi" || lang === "en" ? lang : detectLang(String(symptoms || ""));
 
   if (!symptoms) {
     return res.status(400).json({ error: "Please enter your symptoms for clinical analysis." });
@@ -1786,7 +1787,7 @@ app.post("/api/symptoms/check", aiRateLimit, async (req, res) => {
 
   if (!ai) {
     console.warn("GEMINI_API_KEY is not defined or is placeholder. Falling back to the offline triage heuristic.");
-    const result: any = triageWithoutAI(symptoms);
+    const result: any = triageWithoutAI(symptoms, language);
 
     result.recommendedHospitals = await recommendHospitals(result.specialistType, result.urgencyLevel, userLat, userLng);
     return res.json(result);
@@ -1805,7 +1806,10 @@ Analyze the user's reported symptoms medically, safely, and objectively.
 Return a structured JSON report specifying physical diagnosis, educational reasoning, required medical specialist, urgency rating, immediate safety measures, and a trigger to launch an ambulance SOS.
 CRITICAL MANDATE: If the symptoms are representative of life-endangering status (severe acute chest pain, major neurological weakness, severe traumatic hemorrhage, choking/gasping), set urgencyLevel to "CRITICAL", flagUrgentSOS to true, and place strict alerts in recommendations.
 Otherwise, specify "flagUrgentSOS" as false, and list recommendations clearly as an array of helpful home care procedures.
-Do not output conversational markdown preamble; return strictly the structured JSON block.`,
+Do not output conversational markdown preamble; return strictly the structured JSON block.
+${language === "hi"
+  ? "LANGUAGE: Write suspectedCondition, explanation and every recommendation in Hindi, in Devanagari script. Keep specialistType in Hindi too. Use plain language a non-medical reader understands. Do not mix English sentences into the Hindi text."
+  : "LANGUAGE: Respond in English."}`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -1851,6 +1855,7 @@ Do not output conversational markdown preamble; return strictly the structured J
     const bodyText = response.text || "";
     const parsedData = cleanAndParseJSON(bodyText);
     parsedData.source = "ai";
+    parsedData.lang = language;
     parsedData.recommendedHospitals = await recommendHospitals(parsedData.specialistType || "General Physician", parsedData.urgencyLevel || "LOW", userLat, userLng);
     res.json(parsedData);
   } catch (err: any) {
@@ -1858,7 +1863,7 @@ Do not output conversational markdown preamble; return strictly the structured J
     // The offline heuristic is a poorer answer than the model, but it still routes
     // red-flag wording to SOS, so it is the right thing to serve on failure.
     console.warn("[City Healer API Warning] Gemini API computation failed, serving offline triage:", err?.message || err);
-    const fallback: any = triageWithoutAI(symptoms);
+    const fallback: any = triageWithoutAI(symptoms, language);
     fallback.aiUnavailable = true;
     fallback.recommendedHospitals = await recommendHospitals(fallback.specialistType, fallback.urgencyLevel, userLat, userLng);
     res.json(fallback);
