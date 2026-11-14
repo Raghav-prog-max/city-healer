@@ -5,8 +5,9 @@ hospital bed and ICU census, doctor consultation with digital prescriptions,
 e-pharmacy, health records, and ambulance SOS dispatch — across four enforced
 roles (patient, doctor, hospital, admin).
 
-React 19 + Vite + Tailwind v4 on the front, Express + SQLite on the back, Google
-Gemini for the AI paths. One process serves both the API and the frontend.
+React 19 + Vite + Tailwind v4 on the front, Express + SQLite on the back, and a
+triage model trained in this repository (see [ml/README.md](ml/README.md)). One
+process serves both the API and the frontend; no external AI service is called.
 
 ## Run it locally
 
@@ -34,8 +35,9 @@ The app is on http://localhost:3000. First boot creates the SQLite schema and
 seeds 52 hospitals, 80 doctors and 31 medicines; the port does not open until
 that finishes.
 
-`GEMINI_API_KEY` is optional. Without it the AI routes return their canned
-clinical fallbacks rather than failing, so every screen stays usable.
+Symptom triage runs a trained classifier behind red-flag safety rules. Report
+analysis, the medicine guide, diet plans and the consultation auto-reply serve
+pre-written clinical content, not generated text.
 
 ## Commands
 
@@ -45,7 +47,8 @@ clinical fallbacks rather than failing, so every screen stays usable.
 | `npm run build` | Builds the client to `dist/` and bundles the server to `dist/server.cjs` |
 | `npm start` | Runs the production build (set `NODE_ENV=production`) |
 | `npm run lint` | `tsc --noEmit` |
-| `npm test` | Access-control + resource-ownership suites — 85 cases against a throwaway database |
+| `npm test` | Triage rules, trained-model parity, access-control and resource-ownership suites |
+| `python ml/train.py` | Retrains the triage model and rewrites `shared/triage-model.json` |
 | `npm run link-doctor` | Links a DOCTOR login to its clinician row (see below) |
 | `npm run set-role` | Grants a role — the only way to make the first ADMIN (see below) |
 
@@ -134,5 +137,5 @@ the database. Set `JWT_SECRET` and leave `DEMO_MODE` unset.
 
 Hospital, doctor, AQI and outbreak data is seeded, not live. Ambulance dispatch,
 ABHA/NDHM registry sync and insurance claims are simulated pending institutional
-access. The stack, the role and ownership enforcement, the test suite and the AI
-triage are real and running.
+access. The stack, the role and ownership enforcement, the test suite and the trained
+triage model are real and running.

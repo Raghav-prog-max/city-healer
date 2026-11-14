@@ -4,14 +4,14 @@ import "./env";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import dns from "dns";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { dbRun, dbGet, dbAll, initializeDatabase } from "./database";
-import { triageWithoutAI, hasAny, detectLang } from "./shared/triage";
+import { hasAny, detectLang } from "./shared/triage";
+import { triage, TRIAGE_MODEL_LABEL } from "./shared/triageModel";
 
 // Fix node localhost resolution issues
 dns.setDefaultResultOrder("ipv4first");
@@ -222,7 +222,7 @@ const requireRole = (...roles: Role[]) =>
   };
 
 /**
- * Per-user quota for routes that spend money on a Gemini call. Keyed by the verified
+ * Per-user quota for the triage and knowledge-base routes. Keyed by the verified
  * uid rather than IP, so one account cannot burn the budget from many addresses, and
  * so the shared DEMO_MODE identity has a single collective bucket.
  */
@@ -330,140 +330,6 @@ async function doctorTreatsPatient(doctorUid: string, patientId: string): Promis
     [doctorId, patientId]
   );
   return !!link;
-}
-
-// Initialize Gemini Client
-const apiKey = process.env.GEMINI_API_KEY;
-let ai: GoogleGenAI | null = null;
-if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
-  ai = new GoogleGenAI({
-    apiKey: apiKey,
-    httpOptions: {
-      headers: {
-        "User-Agent": "aistudio-build",
-      },
-    },
-  });
-}
-
-/**
- * Models, overridable without a code change. Google retires and renames models on
- * its own schedule, and a wrong id here silently degrades every AI route to its
- * offline heuristic — so the id is configuration, not a literal buried in nine
- * call sites.
- */
-export const AI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-export const AI_MODEL_FALLBACK = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
-
-/**
- * Errors that will fail the same way on every attempt: a bad key, a model that
- * does not exist, a malformed request, a permission problem. Retrying these three
- * times with escalating backoff only delays the answer the caller already has, and
- * failing over to a second model cannot help when the key itself is the problem.
- */
-function isPermanentAiError(err: any): boolean {
-  const status = err?.status ?? err?.code;
-  if (status === 400 || status === 401 || status === 403 || status === 404) return true;
-  const text = String(err?.message || err).toLowerCase();
-  return (
-    text.includes("api key not valid") ||
-    text.includes("api_key_invalid") ||
-    text.includes("permission denied") ||
-    text.includes("not found") ||
-    text.includes("is not supported")
-  );
-}
-
-// ----------------------------------------------------------------
-// Gemini API Helper with Exponential Backoff Retries & Dual-Model Failover
-// ----------------------------------------------------------------
-async function generateContentWithRetry(options: {
-  model?: string;
-  contents: any;
-  config?: any;
-}, retries = 3, delayMs = 600): Promise<any> {
-  if (!ai) {
-    throw new Error("GoogleGenAI client is not initialized.");
-  }
-
-  const primary = options.model || AI_MODEL;
-  const modelsToTry = primary === AI_MODEL_FALLBACK ? [primary] : [primary, AI_MODEL_FALLBACK];
-
-  let lastError: any = null;
-
-  for (const currentModel of modelsToTry) {
-    let currentDelay = delayMs;
-    console.log(`[Gemini API Info] Contacting AI Model: ${currentModel}...`);
-
-    for (let i = 0; i < retries; i++) {
-      try {
-        const queryOptions = {
-          ...options,
-          model: currentModel
-        };
-        const response = await ai.models.generateContent(queryOptions);
-        if (currentModel !== primary) {
-          console.log(`[Gemini API Success] Successfully recovered generation using fallback model: ${currentModel}`);
-        }
-        return response;
-      } catch (err: any) {
-        lastError = err;
-        const errStr = String(err.message || err);
-        console.warn(`[Gemini API Warning] Model ${currentModel} - Attempt ${i + 1} failed: ${errStr}`);
-
-        if (isPermanentAiError(err)) {
-          console.warn(`[Gemini API Warning] ${currentModel} failed permanently; not retrying.`);
-          break;
-        }
-
-        if (i < retries - 1) {
-          console.warn(`Retrying ${currentModel} in ${currentDelay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, currentDelay));
-          currentDelay *= 3.0;
-        }
-      }
-    }
-
-    // A bad key or a malformed request fails identically on the second model.
-    if (isPermanentAiError(lastError)) break;
-
-    if (modelsToTry.indexOf(currentModel) < modelsToTry.length - 1) {
-      console.warn(`[Gemini API Warn] Model ${currentModel} is currently saturated or unavailable. Gracefully switching to secondary failover model...`);
-    }
-  }
-
-  throw lastError;
-}
-
-// Helper to safely clean and parse JSON blocks returned by Gemini
-function cleanAndParseJSON(text: string): any {
-  if (!text) throw new Error("Empty JSON text received");
-  let clean = text.trim();
-  if (clean.startsWith("```")) {
-    clean = clean.replace(/^```(json)?/i, "").replace(/```$/, "").trim();
-  }
-  try {
-    return JSON.parse(clean);
-  } catch (err: any) {
-    console.warn("[City Healer API Warning] Direct JSON.parse failed, attempting custom block slicing extraction...", err);
-    const firstBrace = clean.indexOf("{");
-    const firstBracket = clean.indexOf("[");
-    const firstIndex = (firstBrace !== -1 && firstBracket !== -1) ? Math.min(firstBrace, firstBracket) : (firstBrace !== -1 ? firstBrace : firstBracket);
-    
-    const lastBrace = clean.lastIndexOf("}");
-    const lastBracket = clean.lastIndexOf("]");
-    const lastIndex = (lastBrace !== -1 && lastBracket !== -1) ? Math.max(lastBrace, lastBracket) : (lastBrace !== -1 ? lastBrace : lastBracket);
-    
-    if (firstIndex !== -1 && lastIndex !== -1 && lastIndex > firstIndex) {
-      try {
-        const sliced = clean.substring(firstIndex, lastIndex + 1);
-        return JSON.parse(sliced);
-      } catch (innerErr) {
-        console.error("[City Healer API Warning] Custom block slicing extraction also failed:", innerErr);
-      }
-    }
-    throw err;
-  }
 }
 
 // Shared metric scoring matcher helper
@@ -732,14 +598,12 @@ app.put("/api/users/:uid", async (req, res) => {
 
 // Health route
 app.get("/api/health", (req, res) => {
-  // aiEnabled/aiModel are reported so the UI can label results honestly, and so
-  // "is the AI actually configured on this deployment?" is answerable without
-  // reading the environment. No key material is exposed — only whether one loaded.
+  // aiModel is reported so the UI can label triage results with what produced them.
   res.json({
     status: "ok",
     time: new Date(),
-    aiEnabled: !!ai,
-    aiModel: AI_MODEL
+    aiEnabled: true,
+    aiModel: TRIAGE_MODEL_LABEL
   });
 });
 
@@ -1414,32 +1278,11 @@ app.post("/api/medicines/search-nationwide", aiRateLimit, async (req, res) => {
       return res.json({ matches: matched, source: "local-sqlite-db" });
     }
 
-    if (!ai) {
-      return res.json({ matches: [], source: "mock-fallback" });
-    }
-
-    // AI Synthesis for unknown drugs
-    const promptText = `Search nationwide pharmaceuticals register for: "${query}".
-Find 2 matches of actual medicines in India.
-Provide fields: id, name, category (e.g. PAINKILLER), price (INR), stock (e.g. 50), description, dosageForm, requiresPrescription (boolean).
-Format strictly as a JSON object: { "matches": [...] }`;
-
-    const response = await generateContentWithRetry({
-      model: AI_MODEL,
-      contents: promptText,
-      config: {
-        responseMimeType: "application/json"
-      }
-    });
-
-    const parsed = cleanAndParseJSON(response.text || "{}");
-    res.json({ matches: parsed.matches || [], source: "gemini-nationwide-db" });
+    // Nothing in the catalogue, and there is no external register to widen the search to.
+    res.json({ matches: [], source: "local-sqlite-db" });
   } catch (err: any) {
-    // The local catalogue search already ran and found nothing; this was the
-    // nationwide widening. Failing it with a 500 turned "no results" into a broken
-    // screen, so answer the same way the no-key path does.
-    console.warn("[Search Nationwide] AI lookup unavailable, returning no matches:", err?.message || err);
-    res.json({ matches: [], source: "unavailable" });
+    console.error("[Search Medicines Error]", err);
+    res.status(500).json({ error: "Medicine search failed", message: err.message });
   }
 });
 
@@ -1684,7 +1527,7 @@ app.get("/api/chat/:appointmentId", async (req, res) => {
   }
 });
 
-// Send chat message (Triggers Gemini AI Doctor responder if doctor offline)
+// Send chat message (sends an automated standby reply if the doctor is offline)
 app.post("/api/chat/:appointmentId", aiRateLimit, async (req, res) => {
   const { appointmentId } = req.params;
   const { text } = req.body;
@@ -1725,37 +1568,9 @@ app.post("/api/chat/:appointmentId", aiRateLimit, async (req, res) => {
       if (docInfo && (!docInfo.online || docInfo.id.startsWith("doc-"))) {
         const autoMsgId = "msg-ai-" + Date.now();
         
-        let replyText = `Hello ${appt.patientName || 'there'}, this is an automated standby message. Please keep rest while I analyze your details.`;
+        const replyText = `Hello, I am ${appt.doctorName}. I have reviewed your symptom note ("${appt.symptoms || ''}"). Please continue taking warm water. Let's discuss in our next virtual session.`;
 
-        if (!ai) {
-          replyText = `Hello, I am ${appt.doctorName}. I have reviewed your symptom note ("${appt.symptoms || ''}"). Please continue taking warm water. Let's discuss in our next virtual session.`;
-        } else {
-          try {
-            const chatHistory = await dbAll("SELECT * FROM chat_messages WHERE appointmentId = ? ORDER BY timestamp ASC LIMIT 8", [appointmentId]);
-            const formattedHistory = chatHistory.map((m: any) => `${m.sender}: ${m.text}`).join("\n");
-            
-            const promptText = `You are ${appt.doctorName}, specialized in ${appt.specialty} at City Healer Delhi.
-The patient is asking: "${text}".
-Consultation details: Patient reported symptoms: "${appt.symptoms || 'none'}", Diagnosis: "${appt.diagnosis || 'General evaluation'}"
-Recent Chat History:
-${formattedHistory}
-
-Generate a professional, short, reassuring clinical reply. Address the query directly.`;
-
-            const aiResponse = await generateContentWithRetry({
-              model: AI_MODEL,
-              contents: promptText,
-              config: {
-                systemInstruction: `You are Dr. ${appt.doctorName}, a healthcare practitioner. Be clinical, concise, and helpful. Keep responses to 2-3 sentences. Do not mention that you are an AI.`
-              }
-            });
-            replyText = aiResponse.text || replyText;
-          } catch (aiErr) {
-            console.warn("AI Chat response failed:", aiErr);
-          }
-        }
-
-        // Insert AI message after a short delay
+        // Insert the automated reply after a short delay
         await new Promise(resolve => setTimeout(resolve, 800));
         await dbRun(`
           INSERT INTO chat_messages (id, appointmentId, sender, text, timestamp)
@@ -1773,101 +1588,22 @@ Generate a professional, short, reassuring clinical reply. Address the query dir
 });
 
 // ----------------------------------------------------------------
-// AI Clinical Endpoints (Gemini Integrations)
+// Clinical Endpoints (trained triage model and local knowledge base)
 // ----------------------------------------------------------------
 
 // Symptom checker
 app.post("/api/symptoms/check", aiRateLimit, async (req, res) => {
-  const { symptoms, history, userLat, userLng, lang } = req.body;
+  const { symptoms, userLat, userLng, lang } = req.body;
   const language = lang === "hi" || lang === "en" ? lang : detectLang(String(symptoms || ""));
 
   if (!symptoms) {
     return res.status(400).json({ error: "Please enter your symptoms for clinical analysis." });
   }
 
-  if (!ai) {
-    console.warn("GEMINI_API_KEY is not defined or is placeholder. Falling back to the offline triage heuristic.");
-    const result: any = triageWithoutAI(symptoms, language);
-
-    result.recommendedHospitals = await recommendHospitals(result.specialistType, result.urgencyLevel, userLat, userLng);
-    return res.json(result);
-  }
-
-  try {
-    const userPromptText = `User symptoms description: "${symptoms}".
-Relevant Medical History context: "${history || "None provided"}".`;
-
-    const response = await generateContentWithRetry({
-      model: AI_MODEL,
-      contents: userPromptText,
-      config: {
-        systemInstruction: `You are an expert AI clinical evaluation assistant at the "City Healer" healthcare hub.
-Analyze the user's reported symptoms medically, safely, and objectively.
-Return a structured JSON report specifying physical diagnosis, educational reasoning, required medical specialist, urgency rating, immediate safety measures, and a trigger to launch an ambulance SOS.
-CRITICAL MANDATE: If the symptoms are representative of life-endangering status (severe acute chest pain, major neurological weakness, severe traumatic hemorrhage, choking/gasping), set urgencyLevel to "CRITICAL", flagUrgentSOS to true, and place strict alerts in recommendations.
-Otherwise, specify "flagUrgentSOS" as false, and list recommendations clearly as an array of helpful home care procedures.
-Do not output conversational markdown preamble; return strictly the structured JSON block.
-${language === "hi"
-  ? "LANGUAGE: Write suspectedCondition, explanation and every recommendation in Hindi, in Devanagari script. Keep specialistType in Hindi too. Use plain language a non-medical reader understands. Do not mix English sentences into the Hindi text."
-  : "LANGUAGE: Respond in English."}`,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            suspectedCondition: {
-              type: Type.STRING,
-              description: "Clinical suspected condition description (e.g., Acute Viral Rhinopharyngitis, Gastroesophageal Reflux)"
-            },
-            explanation: {
-              type: Type.STRING,
-              description: "Deep, empathetic medical explanation of the biological causes and physiological aspects."
-            },
-            specialistType: {
-              type: Type.STRING,
-              description: "Clinical specialist category to register (e.g., Pulmonologist, Cardiologist, Pediatrician, Primary Care / Family Physician)"
-            },
-            urgencyLevel: {
-              type: Type.STRING,
-              description: "Clinical priority status: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'"
-            },
-            recommendations: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Intermediate actions, safety tips, hydration steps, or warning symptoms to watch out for."
-            },
-            flagUrgentSOS: {
-              type: Type.BOOLEAN,
-              description: "Set to TRUE if clinical indicators suggest acute hazard, requiring immediate Emergency Ambulance SOS dispatch."
-            }
-          },
-          required: [
-            "suspectedCondition",
-            "explanation",
-            "specialistType",
-            "urgencyLevel",
-            "recommendations",
-            "flagUrgentSOS"
-          ]
-        }
-      }
-    });
-
-    const bodyText = response.text || "";
-    const parsedData = cleanAndParseJSON(bodyText);
-    parsedData.source = "ai";
-    parsedData.lang = language;
-    parsedData.recommendedHospitals = await recommendHospitals(parsedData.specialistType || "General Physician", parsedData.urgencyLevel || "LOW", userLat, userLng);
-    res.json(parsedData);
-  } catch (err: any) {
-    // A 500 here left the patient with nothing at the moment they asked for help.
-    // The offline heuristic is a poorer answer than the model, but it still routes
-    // red-flag wording to SOS, so it is the right thing to serve on failure.
-    console.warn("[City Healer API Warning] Gemini API computation failed, serving offline triage:", err?.message || err);
-    const fallback: any = triageWithoutAI(symptoms, language);
-    fallback.aiUnavailable = true;
-    fallback.recommendedHospitals = await recommendHospitals(fallback.specialistType, fallback.urgencyLevel, userLat, userLng);
-    res.json(fallback);
-  }
+  // Safety rules first, then the trained model, then the rules again: see shared/triageModel.ts.
+  const result: any = triage(String(symptoms), language);
+  result.recommendedHospitals = await recommendHospitals(result.specialistType, result.urgencyLevel, userLat, userLng);
+  res.json(result);
 });
 
 // Lab reports OCR analyzer
@@ -1937,51 +1673,7 @@ app.post("/api/records/analyze", aiRateLimit, async (req, res) => {
     }
   };
 
-  if (!ai) {
-    console.warn("Using fallback diagnostic calculator for OCR interpretation.");
-    const selectedResult = fallbackReports[templateId] || fallbackReports.blood_cbc;
-    return res.json(selectedResult);
-  }
-
-  try {
-    const templateInfo = fallbackReports[templateId] || fallbackReports.blood_cbc;
-    const userPromptText = `Perform clinical OCR Lab Report Analysis.
-Review the following scanned biomarkers and patient summary:
-- Report Type: "${templateInfo.reportType}"
-- Patient context: "${templateInfo.patientProfile}"
-- Biomarkers list: ${JSON.stringify(templateInfo.biomarkers)}
-
-Generate a highly detailed clinical interpretation, specify any critical doctor alerts, determine an urgency rating ('LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'), suggest the exact ideal specialist to register, and list 3 key recommended Indian diet/lifestyle actions.
-Structure the response STRICTLY as JSON. No markdown commentary.`;
-
-    const response = await generateContentWithRetry({
-      model: AI_MODEL,
-      contents: userPromptText,
-      config: {
-        systemInstruction: `You are a clinical chief pathologist and AI medical interpreter at City Healer India.
-Analyze the report biomarkers carefully to output medical wisdom. Ensure the response format maps exactly to these fields:
-{
-  "reportType": string,
-  "patientProfile": string,
-  "biomarkers": array of { name: string, value: string, status: "LOW"|"HIGH"|"NORMAL", referenceRange: string },
-  "aiInterpretation": string (deep clinical summary),
-  "doctorAlerts": string,
-  "urgencyRating": "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
-  "recommendedSpecialist": string,
-  "actions": array of string (recommend accessible therapeutic lifestyle steps)
-}`,
-        responseMimeType: "application/json"
-      }
-    });
-
-    const bodyText = response.text || "";
-    const parsedData = cleanAndParseJSON(bodyText);
-    res.json(parsedData);
-  } catch (err: any) {
-    console.warn("[City Healer API Warning] Gemini OCR analysis failed:", err);
-    const selectedResult = fallbackReports[templateId] || fallbackReports.blood_cbc;
-    res.json(selectedResult);
-  }
+  res.json(fallbackReports[templateId] || fallbackReports.blood_cbc);
 });
 
 // Medicine guide route
@@ -2022,58 +1714,7 @@ app.post("/api/medicines/guide", aiRateLimit, async (req, res) => {
     ]
   };
 
-  if (!ai) {
-    console.warn("Using localized clinical medication guide fallback.");
-    return res.json(matchedFallback);
-  }
-
-  try {
-    const promptText = `Requesting AI clinical medication guide.
-- Medicine Name: "${name}"
-- Specific query: Provide clear, structured advice on how to administer this medicine safely. Include standard dosage, instructions, potential interactions with Indian local food/beverage items, and critical safety precautions.
-
-Generate safety-first guide containing:
-1. "name": The clear official name of the medicine.
-2. "purpose": 1 clear sentence describing what the medicine is used for.
-3. "dosage": An object with "standard" and "maximum" instructions.
-4. "instructions": String array of step-by-step administration guides.
-5. "localFoodInteractions": Array of objects containing "item" (specific Indian local foods/beverages, e.g. local Toddy, Mosambi/Citrus juices, Chai/Kaapi, spicy pickles, heavy Ghee/curd etc.), "risk" ("High" | "Moderate" | "Low"), and "explanation" (medical reason). Provide at least 2 relevant combinations.
-6. "safetyPrecautions": String array of warnings (overdosing, timing, storage, etc.).
-
-Output strictly as a JSON record conforming to the requested schema. No markdown preamble or conversational introductions.`;
-
-    const response = await generateContentWithRetry({
-      model: AI_MODEL,
-      contents: promptText,
-      config: {
-        systemInstruction: `You are clinical pharmacist of City Healer Delhi and expert in Indian pharmacological guidelines.
-Provide accurate, easy-to-read instructions for patients regarding drug administrations.
-Focus your local food interactions on common Indian culinary elements (e.g. sweet lime juice/Mosambi, strong Chai/Kaapi, heavy dairy like Lassi/Ghee, fermented Achar, or local alcoholic and herbal concoctions) so patients receive highly relevant advice.
-Output strictly JSON matching this schema:
-{
-  "name": string,
-  "purpose": string,
-  "dosage": {
-    "standard": string,
-    "maximum": string
-  },
-  "instructions": string[],
-  "localFoodInteractions": [
-    { "item": string, "risk": "High" | "Moderate" | "Low", "explanation": string }
-  ],
-  "safetyPrecautions": string[]
-}`,
-        responseMimeType: "application/json"
-      }
-    });
-
-    const bodyText = response.text || "";
-    const parsedData = cleanAndParseJSON(bodyText);
-    res.json(parsedData);
-  } catch (err: any) {
-    console.warn("[City Healer API Warning] Gemini Medicine Guide generation failed:", err);
-    res.json(matchedFallback);
-  }
+  res.json(matchedFallback);
 });
 
 // Diet recommendations planner
@@ -2104,223 +1745,80 @@ app.post("/api/diet/recommend", aiRateLimit, async (req, res) => {
 
   const matchedPlan = fallbackDietPlans[`${condition}-${preference}`] || fallbackDietPlans["Diabetes-Veg"];
 
-  if (!ai) {
-    console.warn("Using fallback nutritionist planner for Indian diet chart.");
-    return res.json(matchedPlan);
-  }
-
-  try {
-    const userPromptText = `Requesting AI clinical nutritionist meal scheduler.
-- Target Medical Condition: "${condition}"
-- Dietary Habit Choice: "${preference}"
-- Primary Regional Context: Indian Traditional Home Culinary Foods (with therapeutic spices and Ayurveda remedies)
-
-Generate a premium day diet plan specifying:
-1. "condition": The clinical condition description.
-2. "dietOption": The diet category selection name.
-3. "energyProfile": Calorie target and profile.
-4. "ayurvedicElement": Core Ayurvedic medicinal herbs/ingredients.
-5. "schedule": Array of meal blocks containing "meal", "items", "benefit".
-6. "medicinalTip": 1 core advice about Indian home wellness remedies (Turmeric, Amla, Arjuna bark, Pippali, Tulsi, Methi seeds etc.).
-
-Output strictly as a JSON record. No markdown preamble.`;
-
-    const response = await generateContentWithRetry({
-      model: AI_MODEL,
-      contents: userPromptText,
-      config: {
-        systemInstruction: `You are clinical chief dietician, Ayurvedic physician, and Indian food expert at City Healer Delhi.
-Generate beautiful nutrition charts utilizing accessible, warm, comforting Indian recipe ingredients mapped with therapeutic advantages.
-Output strictly JSON matching this schema:
-{
-  "condition": string,
-  "dietOption": string,
-  "energyProfile": string,
-  "ayurvedicElement": string,
-  "schedule": array of { "meal": string, "items": string, "benefit": string },
-  "medicinalTip": string
-}`,
-        responseMimeType: "application/json"
-      }
-    });
-
-    const parsedData = cleanAndParseJSON(response.text || "{}");
-    res.json(parsedData);
-  } catch (err: any) {
-    console.warn("[City Healer API Warning] Gemini Diet generation failed:", err);
-    res.json(matchedPlan);
-  }
+  res.json(matchedPlan);
 });
 
-// AI Agentic Pipeline - Developer Sandbox Route
+// Developer Sandbox Route - local pipeline
 /**
- * Keyword intent matching for the developer console when the model is unavailable.
- * Reported as `source: "offline-heuristic"` with a modest confidence — the version
- * this replaces claimed 1.0, which is a substring match presenting itself as
- * certainty.
+ * Intent -> plan -> retrieve -> answer, run entirely on this server. Intent comes
+ * from keyword rules, so its confidence is reported as modest rather than certain,
+ * and the answer is built from rows actually found in the database.
  */
-function pipelineWithoutAI(prompt: string, reason: string) {
+async function runLocalPipeline(prompt: string) {
   const text = String(prompt).toLowerCase();
-  const logs: string[] = [
-    `[Initiating Pipeline] Received query: "${prompt}"`,
-    `⚠️ Live model unavailable (${reason}). Using local keyword rules.`
-  ];
+  const logs: string[] = [`[Initiating Pipeline] Received query: "${prompt}"`];
 
   let intent = "GENERAL_INFO";
-  if (hasAny(text, ["diet", "eat", "nutrition"])) intent = "DIET_RECO";
-  else if (hasAny(text, ["doctor", "appointment", "counsel"])) intent = "OPD_SCHEDULING";
-  else if (hasAny(text, ["medicine", "pharmacy", "drug"])) intent = "MEDICINE_LOOKUP";
-  else if (hasAny(text, ["sos", "emergency", "ambulance"])) intent = "SOS_EMERGENCY";
-
+  if (hasAny(text, ["sos", "emergency", "ambulance", "icu"])) intent = "SOS_EMERGENCY";
+  else if (hasAny(text, ["diet", "eat", "nutrition", "food"])) intent = "DIET_RECO";
+  else if (hasAny(text, ["doctor", "appointment", "counsel", "opd"])) intent = "OPD_SCHEDULING";
+  else if (hasAny(text, ["medicine", "pharmacy", "drug", "tablet"])) intent = "MEDICINE_LOOKUP";
   const matched = intent !== "GENERAL_INFO";
+  logs.push(`Step 1: Intent recognised by keyword rules: ${intent}`);
+
   const plan = [
-    `[Fallback Step 1] Detect intent: ${intent}`,
-    `[Fallback Step 2] Run query match on local tables`,
-    `[Fallback Step 3] Generate simulated response`
+    `Detect intent: ${intent}`,
+    "Retrieve matching rows from the local database",
+    "Compose the answer from those rows"
   ];
+  logs.push(`Step 2: Plan: ${JSON.stringify(plan)}`);
 
-  logs.push(`[Intent recognized] Class: ${intent} (keyword match)`);
-  logs.push(`[Execution] Scanning local databases for match...`);
+  const words = text.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 3);
+  const mentions = (...fields: (string | null | undefined)[]) =>
+    words.some((w) => fields.some((f) => String(f || "").toLowerCase().includes(w)));
 
-  const results: Record<string, string> = {
-    DIET_RECO: "Diet Recommendation Fallback: For type-2 diabetes, prefer a low-glycemic Ragi (Finger millet) Idli and fresh buttermilk. Store Amla & ginger infusions.",
-    OPD_SCHEDULING: "OPD Appointment Fallback: Found Dr. Rajesh Sharma (General Medicine) and Dr. Naresh Trehan (Cardiology) online at Max/Medanta Delhi NCR.",
-    MEDICINE_LOOKUP: "Medicine Lookup Fallback: Medicine 'Crocin Advance 650mg' and 'Combiflam' are available in stock at Apollo Pharmacy.",
-    SOS_EMERGENCY: "SOS Emergency Fallback: Emergency Trauma centers are active. Medanta has 14 ICU beds, Fortis has 18 available.",
-    GENERAL_INFO: "General Info Fallback: Welcome to City Healer Delhi console. Set GEMINI_API_KEY to enable live generative responses."
-  };
+  let result: string;
+  if (intent === "MEDICINE_LOOKUP") {
+    const medicines = await dbAll("SELECT * FROM medicines");
+    const hits = medicines.filter((m) => mentions(m.name, m.category)).slice(0, 3);
+    logs.push(`Step 3: [DB] medicines matched: ${hits.length}`);
+    result = hits.length
+      ? `In the catalogue: ${hits.map((m) => `${m.name} (₹${m.price}, stock ${m.stock})`).join("; ")}.`
+      : "No medicine in the catalogue matches that query. Try the medicine's name or category.";
+  } else if (intent === "OPD_SCHEDULING") {
+    const doctors = await dbAll("SELECT * FROM doctors");
+    const hits = doctors.filter((d) => mentions(d.name, d.specialty)).slice(0, 3);
+    const shown = hits.length ? hits : doctors.filter((d) => d.online).slice(0, 3);
+    logs.push(`Step 3: [DB] doctors matched: ${hits.length}`);
+    result = `${hits.length ? "Matching doctors" : "Doctors online now"}: ${shown.map((d) => `${d.name} (${d.specialty}, about ${d.waitTimeMin} min wait)`).join("; ")}.`;
+  } else if (intent === "SOS_EMERGENCY") {
+    const hospitals = await dbAll("SELECT * FROM hospitals WHERE icuAvailable > 0 ORDER BY icuAvailable DESC LIMIT 3");
+    logs.push(`Step 3: [DB] hospitals with free ICU beds: ${hospitals.length}`);
+    result = `For an emergency use the SOS button or call 112. Free ICU beds now: ${hospitals.map((h) => `${h.name} (${h.icuAvailable})`).join("; ")}.`;
+  } else if (intent === "DIET_RECO") {
+    logs.push("Step 3: No database lookup needed for diet guidance");
+    result = "Open the Diet Planner and choose your condition and food preference for a full day's Indian meal plan.";
+  } else {
+    logs.push("Step 3: No specific intent; nothing retrieved");
+    result = "Ask about doctors and appointments, medicines, diet plans, or emergency beds and SOS.";
+  }
+  logs.push("Step 4: Answer composed from retrieved rows");
 
-  return {
-    intent,
-    confidence: matched ? 0.5 : 0.2,
-    plan,
-    executionLogs: logs,
-    result: results[intent],
-    source: "offline-heuristic"
-  };
+  return { intent, confidence: matched ? 0.5 : 0.2, plan, executionLogs: logs, result, source: "local-pipeline" };
 }
 
 app.post("/api/developer/ai-pipeline", aiRateLimit, async (req, res) => {
-  const { prompt, preference } = req.body;
+  const { prompt } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: "Prompt query is required." });
   }
 
-  const logs: string[] = [`[Initiating Pipeline] Received query: "${prompt}"`];
-
-  if (!ai) {
-    return res.json(pipelineWithoutAI(prompt, "GEMINI_API_KEY is not configured"));
-  }
-
   try {
-    // 1. Intent Recognition
-    logs.push("🤖 Step 1: Querying Gemini for intent recognition...");
-    const intentPrompt = `Analyze this query: "${prompt}". 
-Classify it into exactly one of these intents:
-- "OPD_SCHEDULING" (asking for doctors, booking, waiting times, or scheduling)
-- "DIET_RECO" (asking for diet plans, nutrition, food, or what to eat for a condition)
-- "MEDICINE_LOOKUP" (asking about medicines, prescriptions, stock, prices, dosage)
-- "SOS_EMERGENCY" (asking to trigger alert, emergency beds, coordinates, or ambulance)
-- "GENERAL_INFO" (other general queries)
-
-Output strictly as a JSON object matching this schema:
-{
-  "intent": string,
-  "confidence": number
-}`;
-
-    const intentResponse = await generateContentWithRetry({
-      model: AI_MODEL,
-      contents: intentPrompt,
-      config: {
-        responseMimeType: "application/json"
-      }
-    });
-
-    const intentData = cleanAndParseJSON(intentResponse.text || "{}");
-    const intent = intentData.intent || "GENERAL_INFO";
-    const confidence = intentData.confidence || 0.8;
-    logs.push(`🎯 Intent Recognized: "${intent}" (Confidence: ${confidence.toFixed(2)})`);
-
-    // 2. Planning Roadmap
-    logs.push("🤖 Step 2: Formulating planner roadmap...");
-    const plannerPrompt = `Given the medical intent "${intent}" and confidence "${confidence}", generate a 3-step planning roadmap to resolve the user query: "${prompt}".
-Output strictly as a JSON object matching this schema:
-{
-  "plan": [string, string, string]
-}`;
-
-    const plannerResponse = await generateContentWithRetry({
-      model: AI_MODEL,
-      contents: plannerPrompt,
-      config: {
-        responseMimeType: "application/json"
-      }
-    });
-
-    const plannerData = cleanAndParseJSON(plannerResponse.text || "{}");
-    const plan = plannerData.plan || ["Detect search query keywords", "Scan database matches", "Generate advice response"];
-    logs.push(`📋 Planner steps: ${JSON.stringify(plan)}`);
-
-    // 3. Execution Simulation
-    logs.push("⚙️ Step 3: Executing plan against regional database systems...");
-    let dbMatches: any[] = [];
-    if (intent === "MEDICINE_LOOKUP") {
-      logs.push("🔗 [DB Query] Scanning medicine catalogue for matching drugs...");
-      const medicines = await dbAll("SELECT * FROM medicines");
-      dbMatches = medicines.filter(m => 
-        m.name.toLowerCase().includes(prompt.toLowerCase()) || 
-        m.description.toLowerCase().includes(prompt.toLowerCase())
-      ).slice(0, 2);
-      logs.push(`🔗 [DB Response] Found ${dbMatches.length} medicine records: ${dbMatches.map(m => m.name).join(", ")}`);
-    } else if (intent === "OPD_SCHEDULING") {
-      logs.push("🔗 [DB Query] Searching available doctors and wait times...");
-      const doctors = await dbAll("SELECT * FROM doctors");
-      dbMatches = doctors.filter(d => 
-        d.name.toLowerCase().includes(prompt.toLowerCase()) || 
-        d.specialty.toLowerCase().includes(prompt.toLowerCase())
-      ).slice(0, 2);
-      logs.push(`🔗 [DB Response] Found ${dbMatches.length} matching specialists: ${dbMatches.map(d => d.name).join(", ")}`);
-    } else if (intent === "SOS_EMERGENCY") {
-      logs.push("🔗 [DB Query] Querying hospital ICU and ambulance telemetry...");
-      const hospitals = await dbAll("SELECT * FROM hospitals");
-      dbMatches = hospitals.slice(0, 2).map(h => ({ name: h.name, beds: h.availableBeds, icu: h.icuAvailable }));
-      logs.push(`🔗 [DB Response] Live hospital stats acquired.`);
-    } else {
-      logs.push("🔗 [DB Query] Querying general clinical information...");
-    }
-
-    // 4. Final Response Synthesis
-    logs.push("🤖 Step 4: Synthesizing final structured response...");
-    const synthesisPrompt = `User Query: "${prompt}"
-Classified Intent: "${intent}"
-Plan Executed: ${JSON.stringify(plan)}
-Database Match context: ${JSON.stringify(dbMatches)}
-Preference context: "${preference || 'none'}"
-
-Generate a clear, friendly, and medically safe response to the user's query. Incorporate the database matches and guidelines directly.`;
-
-    const synthesisResponse = await generateContentWithRetry({
-      model: AI_MODEL,
-      contents: synthesisPrompt
-    });
-
-    const result = synthesisResponse.text || "Unable to formulate response.";
-    logs.push("❇️ Pipeline synthesis completed successfully.");
-
-    res.json({
-      intent,
-      confidence,
-      plan,
-      executionLogs: logs,
-      result
-    });
+    res.json(await runLocalPipeline(prompt));
   } catch (err: any) {
-    // The console demonstrates the pipeline. A 500 shows nothing; the keyword
-    // fallback still shows the stages, clearly labelled as not model-generated.
-    console.warn("AI Pipeline unavailable, serving offline pipeline:", err?.message || err);
-    res.json(pipelineWithoutAI(prompt, err?.message || "model request failed"));
+    console.error("[Developer Pipeline Error]", err);
+    res.status(500).json({ error: "Pipeline failed", message: err.message });
   }
 });
 

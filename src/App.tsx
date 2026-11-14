@@ -1277,8 +1277,10 @@ export default function App() {
     recommendations: string[];
     flagUrgentSOS: boolean;
     recommendedHospitals?: RecommendedHospital[];
-    /** "ai" when a model produced this, "offline-heuristic" when the safety net did. */
-    source?: "ai" | "offline-heuristic";
+    /** What produced this: the trained model, a red-flag safety rule, or the keyword fallback. */
+    source?: "ml-model" | "safety-rules" | "offline-heuristic";
+    /** The model's probability for its top condition, when the model answered. */
+    confidence?: number;
     /** Set when the heuristic declined to guess rather than inventing a condition. */
     notAssessed?: boolean;
   } | null>(null);
@@ -4103,9 +4105,9 @@ export default function App() {
                       <div className="flex items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 p-3.5 text-amber-900">
                         <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                         <p className="text-[11px] leading-relaxed font-semibold">
-                          The AI assessment service is unavailable, so this came from a
-                          keyword safety net, not a clinical model. It escalates obvious
-                          emergencies but it cannot assess you — treat it as a prompt to
+                          The trained model was not confident about this description, so
+                          this came from keyword safety rules instead. They escalate obvious
+                          emergencies but cannot assess you — treat it as a prompt to
                           speak to a clinician, not as a result.
                         </p>
                       </div>
@@ -4114,7 +4116,10 @@ export default function App() {
                     <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-4 gap-4">
                       <div>
                         <span className="font-mono text-[9px] tracking-wider uppercase font-semibold text-slate-400">
-                          {aiReport.source === "offline-heuristic" ? "Offline Safety Check" : "Clinical Evaluation Result"}
+                          {aiReport.source === "offline-heuristic" ? "Keyword Safety Check"
+                            : aiReport.source === "safety-rules" ? "Safety Rule Triggered"
+                            : aiReport.confidence ? `Trained Model Result · ${Math.round(aiReport.confidence * 100)}% confidence`
+                            : "Triage Result"}
                         </span>
                         <h3 className="text-xl font-extrabold text-slate-900 mt-1">
                           {aiReport.notAssessed ? aiReport.suspectedCondition : `Suspected: ${aiReport.suspectedCondition}`}
@@ -5118,13 +5123,7 @@ export default function App() {
                             <span>Default Standard Indian Catalogue</span>
                           )}
                         </div>
-                        {nationwideSearchSource === "gemini-nationwide-db" ? (
-                          <span className="text-emerald-700 font-extrabold bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md flex items-center gap-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Nationwide AI Index Synced
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 font-bold">Standard Store Base</span>
-                        )}
+                        <span className="text-slate-400 font-bold">Standard Store Base</span>
                       </div>
                     </div>
 

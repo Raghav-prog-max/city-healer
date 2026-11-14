@@ -1719,7 +1719,7 @@ export default function CityHealthNetwork() {
                         </p>
                       </div>
                       <span className="bg-emerald-50 text-emerald-700 px-3 py-1 text-[10px] font-bold rounded-lg flex items-center gap-1 shrink-0">
-                        <Sparkles className="h-3 w-3 animate-pulse" /> Gemini AI Powered
+                        <Sparkles className="h-3 w-3 animate-pulse" /> Trained ML Model
                       </span>
                     </div>
 

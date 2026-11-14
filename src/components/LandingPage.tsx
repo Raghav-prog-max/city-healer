@@ -60,7 +60,7 @@ const FEATURES = [
     title: "AI Health Copilot",
     desc: "Voice + multilingual virtual triage with real-time clinical assessment, disease understanding, and certified medical matching.",
     icon: Brain,
-    badge: "Gemini Pro Powered",
+    badge: "Trained ML Model",
     color: "bg-teal-50 text-teal-700 border-teal-100",
     gradient: "from-teal-600 to-emerald-600",
     target: "symptoms"
