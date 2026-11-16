@@ -315,7 +315,7 @@ function fromBooking(b) {
 function fromPrescription(p, t) {
   const medicines = (p.medicines || []).map((m) => [m.name, m.dosage, m.frequency, m.duration].filter(Boolean).join(", ")).join("; ");
   return {
-    id: `rx-${p.id}`, title: `${t.prescription}: ${p.diagnosis}`, date: String(p.issuedAt || "").slice(0, 10), at: p.issuedAt, doctorName: p.doctorName,
+    id: `rx-${p.id}`, title: `${t.prescription}: ${p.diagnosis}`, date: p.issuedAt ? new Date(p.issuedAt).toLocaleDateString("en-CA") : "" /* the patient's own calendar day, not UTC */, at: p.issuedAt, doctorName: p.doctorName,
     diagnoseSummary: [medicines, p.instructions ? `${t.rxInstructions}: ${p.instructions}` : ""].filter(Boolean).join(". "),
     rx: p, // the prescription itself, for "Download PDF"
   };

@@ -36,7 +36,12 @@ export default function SignInPage() {
   // Once signed in: staff to their workspace, unfinished profiles to onboarding, others onward.
   useEffect(() => {
     if (!session.ready || !session.user || !session.role) return;
-    if (session.role !== "PATIENT") navigate(staffHome(session.role, href), { replace: true });
+    // Staff go back to the page they asked for when it is one of theirs, else to their home.
+    if (session.role !== "PATIENT") {
+      const home = staffHome(session.role, href);
+      const area = session.role === "ADMIN" ? href("/admin") : home;
+      navigate(params.get("next")?.startsWith(area) ? params.get("next")! : home, { replace: true });
+    }
     else if (session.needsOnboarding) navigate(href("/get-started"), { replace: true });
     else navigate(next, { replace: true });
   }, [session.ready, session.user, session.role, session.needsOnboarding]); // eslint-disable-line react-hooks/exhaustive-deps
