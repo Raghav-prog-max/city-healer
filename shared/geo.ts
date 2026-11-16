@@ -47,3 +47,18 @@ export function sortByDistance<T extends { distanceKm?: number | null }>(items: 
     })
     .map((x) => x.item);
 }
+
+/**
+ * Nearest neighbour by linear scan (Milestone 4: A6), used by POST /api/emergency/sos.
+ * O(n) time, O(1) extra space; ties keep the first item. Null for an empty list.
+ * A k-d tree or geohash index would only pay off at thousands of facilities.
+ */
+export function nearest<T extends LatLng>(origin: LatLng, items: T[]): { item: T; distanceKm: number } | null {
+  let best: T | null = null;
+  let bestKm = Infinity;
+  for (const item of items) {
+    const d = haversineKm(origin, item);
+    if (d < bestKm) { bestKm = d; best = item; }
+  }
+  return best ? { item: best, distanceKm: bestKm } : null;
+}
