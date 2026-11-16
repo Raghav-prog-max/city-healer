@@ -147,10 +147,10 @@ Firebase Authentication and the Admin SDK, Firestore security rules, Express mid
 ![Figure 11: Emergency SOS page (112 first, no dispatch claim)](../screenshots/fig-11-emergency-sos-page.jpg)
 ![Figure 12: Hospital desk – own facility and its SOS alerts only](../screenshots/fig-12-hospital-desk.jpg)
 ![Figure 14: Admin provider review (role-restricted)](../screenshots/fig-14-admin-provider-review.jpg)
-![Figure 22: Onboarding consent step](../screenshots/fig-22-onboarding-consent.png)
-![Figure 27: 401/403 responses for anonymous and patient callers on a privileged route](../screenshots/fig-27-access-denied.png)
+![Figure 22: Onboarding consent step](../screenshots/fig-22-onboarding-consent.jpg)
+![Figure 27: 401/403 responses for anonymous and patient callers on a privileged route](../screenshots/fig-27-access-denied.jpg)
 
-PENDING: Figures 22 and 27.
+Figure 27 shows real responses from the running server (local emulators, `DEMO_MODE` off, 17 Nov 2026).
 
 ## 9.11 Test cases
 

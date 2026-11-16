@@ -171,11 +171,11 @@ estimate = patientsAhead × perPatient + overhead + doctorDelay
 ![Figure 3: AI triage of a Hinglish message](../screenshots/fig-03-ai-triage-hinglish.jpg)
 ![Figure 4: Triage with hospital recommendations](../screenshots/fig-04-triage-hospital-recommendations.jpg)
 ![Figure 6: Emergency safety notice in appointment messages](../screenshots/fig-06-messages-emergency-safety-notice.jpg)
-![Figure 23: AI models page with model cards](../screenshots/fig-23-models-page.png)
-![Figure 24: Copilot reply to a self-harm message (Tele-MANAS 14416 and 112)](../screenshots/fig-24-copilot-crisis-reply.png)
-![Figure 25: Lab values read from a report, highlighted for confirmation](../screenshots/fig-25-lab-prefill.png)
+![Figure 23: AI models page with model cards](../screenshots/fig-23-models-page.jpg)
+![Figure 24: Copilot reply to a self-harm message (Tele-MANAS 14416 and 112)](../screenshots/fig-24-copilot-crisis-reply.jpg)
+![Figure 25: Lab values read from a report, highlighted for confirmation](../screenshots/fig-25-lab-prefill.jpg)
 
-PENDING: Figures 23, 24 and 25.
+Figures 23–25 were captured from the running app on 17 Nov 2026 with the synthetic demo accounts.
 
 ## 7.11 Test cases
 

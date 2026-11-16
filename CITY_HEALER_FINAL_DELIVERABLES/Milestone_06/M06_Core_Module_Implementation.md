@@ -203,11 +203,11 @@ All screenshots were captured from the running app (local emulators, synthetic d
 ![Figure 15: Admin hospital listings](../screenshots/fig-15-admin-hospital-listings.jpg)
 ![Figure 16: Patient dashboard in Hindi](../screenshots/fig-16-hindi-patient-dashboard.jpg)
 ![Figure 17: Sign-in page in Hindi](../screenshots/fig-17-hindi-sign-in.jpg)
-![Figure 20: Doctor writing a prescription](../screenshots/fig-20-doctor-prescription-form.png)
-![Figure 21: Medicine order confirmation and My orders](../screenshots/fig-21-order-confirmation.png)
-![Figure 22: Onboarding consent step](../screenshots/fig-22-onboarding-consent.png)
+![Figure 20: Doctor writing a prescription](../screenshots/fig-20-doctor-prescription-form.jpg)
+![Figure 21: Medicine order confirmation and My orders](../screenshots/fig-21-order-confirmation.jpg)
+![Figure 22: Onboarding consent step](../screenshots/fig-22-onboarding-consent.jpg)
 
-PENDING: Figures 20, 21 and 22.
+Figures 20–22 were captured from the running app on 17 Nov 2026 with the synthetic demo accounts.
 
 ## 6.11 Test cases
 

@@ -66,26 +66,28 @@ These were taken from the running app on local emulators with synthetic demo acc
 | 17 | `screenshots/fig-17-hindi-sign-in.jpg` | Sign-in page in Hindi |
 | 18 | `screenshots/fig-18-404-page.jpg` | 404 page |
 
-### Still to produce (PENDING)
+### Figures 19–28 (added 17 Nov 2026)
 
-| Fig | File | Must show |
+Figure 19 is drawn (SVG source next to the PNG); 26 and 28 are rendered from HTML sources in `screenshots/`; the rest are captures of the running app with the synthetic demo accounts.
+
+| Fig | File | Shows |
 |---|---|---|
 | 19 | `screenshots/fig-19-architecture-diagram.png` | Drawn diagram: browser → Firebase Auth → Express check chain → modules → Firestore, SQLite and JSON models (from M05 §5.6.1) |
-| 20 | `screenshots/fig-20-doctor-prescription-form.png` | Doctor writing a prescription in the Provider workspace |
-| 21 | `screenshots/fig-21-order-confirmation.png` | Demo pharmacy order placed, shown in My orders |
-| 22 | `screenshots/fig-22-onboarding-consent.png` | Onboarding consent step |
-| 23 | `screenshots/fig-23-models-page.png` | `/en/models` model cards |
-| 24 | `screenshots/fig-24-copilot-crisis-reply.png` | Copilot reply to a self-harm message (Tele-MANAS 14416, 112) |
-| 25 | `screenshots/fig-25-lab-prefill.png` | Lab values read from a `.txt` report and highlighted for confirmation |
-| 26 | `screenshots/fig-26-npm-test-output.png` | Terminal summary of the final `npm test` (optional; the log already exists) |
-| 27 | `screenshots/fig-27-access-denied.png` | 401/403 responses on a privileged route |
+| 20 | `screenshots/fig-20-doctor-prescription-form.jpg` | Doctor writing a prescription in the Provider workspace |
+| 21 | `screenshots/fig-21-order-confirmation.jpg` | Demo pharmacy order placed, shown in My orders |
+| 22 | `screenshots/fig-22-onboarding-consent.jpg` | Onboarding consent step |
+| 23 | `screenshots/fig-23-models-page.jpg` | `/en/models` model cards |
+| 24 | `screenshots/fig-24-copilot-crisis-reply.jpg` | Copilot reply to a self-harm message (Tele-MANAS 14416, 112) |
+| 25 | `screenshots/fig-25-lab-prefill.jpg` | Lab values read from a `.txt` report and highlighted for confirmation |
+| 26 | `screenshots/fig-26-npm-test-output.png` | Summary lines of the final `npm test` (from `final-npm-test.log`) |
+| 27 | `screenshots/fig-27-access-denied.jpg` | 401/403 responses on a privileged route |
 | 28 | `screenshots/fig-28-presentation-title.png` | Title slide |
 
 ## Remaining PENDING items
 
 ### Evidence and verification
 
-1. Figures 19–28 (list above).
+1. Done: Figures 19–28 (list above).
 2. Done: `backend_audit.ts` now checks CSP and HSTS on a production-mode server and expects the retired routes to answer 404; the re-run (23:26Z) passes 25 of 25 security checks.
 3. An actual `docker build`.
 4. A staging deployment on a real Firebase project: deploy the rules and the check-in index, and check phone sign-in under the production CSP in a browser.
