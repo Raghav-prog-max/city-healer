@@ -15,6 +15,7 @@ import { useI18n } from "../i18n";
 import { useSession } from "../lib/session";
 import { request } from "../lib/api";
 import { useLocationConsent } from "../lib/location";
+import { downloadPrescriptionPdf } from "../lib/prescriptionPdf";
 import "./dashboard.css";
 
 const FindCarePage = lazy(() => import("../app/FindCarePage"));
@@ -43,7 +44,7 @@ const copy = {
     privacy: "Your privacy matters", privacySub: "You control what you share and with whom.", manage: "Privacy settings",
     sampleNote: "Doctor, hospital and bed information in this build is sample data.", demoNote: "Demo session — create an account to save your details.", demoLabel: "SAMPLE DATA",
     ncr: "Available service areas", ncrText: "Delhi · Gurugram · Noida · Greater Noida · Ghaziabad · Faridabad",
-    notifications: "Notifications", noNotifications: "You have no notifications.", profileMenu: "Profile & account", signout: "Sign out", today: "Today", close: "Close",
+    notifications: "Notifications", noNotifications: "You have no notifications.", profileMenu: "Profile & account", signout: "Sign out", today: "Today", close: "Close", downloadPdf: "Download PDF", pdfFailed: "The PDF could not be created. Please try again.",
     findSub: "Doctors and hospitals across Delhi NCR, nearest first.", apptSub: "Keep track of your upcoming and past care.", nutritionSub: "Indian meal plans for your condition.", medicinesSub: "Look up a medicine, its uses and substitutes.", emergencySub: "What to do now, and the nearest hospitals with emergency care.", settingsSub: "Manage account preferences and privacy.", modelsSub: "The models behind City Healer AI and how they were tested.",
     status: { PENDING: "Requested", CONFIRMED: "Confirmed", ACCEPTED: "Confirmed", COMPLETED: "Completed", CANCELLED: "Cancelled", REJECTED: "Declined" },
     familySoon: "Linking family members is not available yet. It will need the person's permission or appropriate legal authority.", noFamily: "No linked family members",
@@ -62,7 +63,7 @@ const copy = {
     privacy: "आपकी प्राइवेसी महत्वपूर्ण है", privacySub: "आप तय करते हैं कि क्या और किसके साथ साझा करना है।", manage: "प्राइवेसी सेटिंग्स",
     sampleNote: "इस संस्करण में डॉक्टर, अस्पताल और बेड की जानकारी नमूना डेटा है।", demoNote: "डेमो सत्र — अपनी जानकारी सहेजने के लिए अकाउंट बनाएँ।", demoLabel: "नमूना डेटा",
     ncr: "सेवा क्षेत्र", ncrText: "दिल्ली · गुरुग्राम · नोएडा · ग्रेटर नोएडा · गाज़ियाबाद · फ़रीदाबाद",
-    notifications: "सूचनाएँ", noNotifications: "आपके लिए कोई सूचना नहीं है।", profileMenu: "प्रोफ़ाइल और अकाउंट", signout: "साइन आउट", today: "आज", close: "बंद करें",
+    notifications: "सूचनाएँ", noNotifications: "आपके लिए कोई सूचना नहीं है।", profileMenu: "प्रोफ़ाइल और अकाउंट", signout: "साइन आउट", today: "आज", close: "बंद करें", /* Hindi below: needs fluent review */ downloadPdf: "PDF डाउनलोड करें", pdfFailed: "PDF नहीं बन सका। कृपया फिर कोशिश करें।",
     findSub: "दिल्ली NCR में डॉक्टर और अस्पताल, सबसे नज़दीकी पहले।", apptSub: "अपनी आगामी और पिछली देखभाल देखें।", nutritionSub: "आपकी स्थिति के लिए भारतीय भोजन योजना।", medicinesSub: "दवा, उसके उपयोग और विकल्प खोजें।", emergencySub: "अभी क्या करें, और आपातकालीन सेवा वाले नज़दीकी अस्पताल।", settingsSub: "अकाउंट और प्राइवेसी सेटिंग्स।", modelsSub: "City Healer AI के मॉडल और उनकी जाँच।",
     status: { PENDING: "अनुरोध भेजा", CONFIRMED: "पुष्टि हुई", ACCEPTED: "पुष्टि हुई", COMPLETED: "पूरा हुआ", CANCELLED: "रद्द", REJECTED: "अस्वीकार" },
     familySoon: "परिवार के सदस्यों को जोड़ने की सुविधा अभी उपलब्ध नहीं है। इसके लिए उस व्यक्ति की अनुमति या उचित कानूनी अधिकार चाहिए होगा।", noFamily: "कोई जुड़ा सदस्य नहीं",
@@ -235,7 +236,7 @@ export default function PatientDashboard() {
       {modal === "profile" ? <><h3>{t.profileMenu}</h3><p><b>{t.name}:</b> {name}<br />{session.profile?.phone ? <><b>{t.phone}:</b> {session.profile.phone}<br /></> : null}<b>{t.email}:</b> {session.profile?.email || "—"}<br /><b>{t.city}:</b> {session.profile?.city || "—"}{session.profile?.locality ? `, ${session.profile.locality}` : ""}</p></>
         : modal === "notifications" ? <><h3>{t.notifications}</h3><p>{t.noNotifications}</p></>
         : modal === "family" ? <><h3>{t.addMember}</h3><p>{t.familySoon}</p></>
-        : modal.record ? <><h3>{modal.record.title}</h3><p>{modal.record.date} · {modal.record.doctorName}<br /><br />{modal.record.diagnoseSummary}</p></>
+        : modal.record ? <><h3>{modal.record.title}</h3><p>{modal.record.date} · {modal.record.doctorName}<br /><br />{modal.record.diagnoseSummary}</p>{modal.record.rx && <RxPdfButton rx={modal.record.rx} t={t} />}</>
         : null}
       <button className="primary-btn" onClick={() => Modal("")}>{t.close}</button></div></div>}
   </div></div>;
@@ -281,7 +282,18 @@ function fromPrescription(p, t) {
   return {
     id: `rx-${p.id}`, title: `${t.prescription}: ${p.diagnosis}`, date: String(p.issuedAt || "").slice(0, 10), at: p.issuedAt, doctorName: p.doctorName,
     diagnoseSummary: [medicines, p.instructions ? `${t.rxInstructions}: ${p.instructions}` : ""].filter(Boolean).join(". "),
+    rx: p, // the prescription itself, for "Download PDF"
   };
+}
+
+/** "Download PDF" for a prescription in the health wallet (jspdf loads on click). */
+function RxPdfButton({ rx, t }) {
+  const [busy, setBusy] = useState(false), [failed, setFailed] = useState(false);
+  const go = async () => {
+    setBusy(true); setFailed(false);
+    try { await downloadPrescriptionPdf(rx); } catch { setFailed(true); } finally { setBusy(false); }
+  };
+  return <div style={{ marginTop: 12 }}><button className="primary-btn" onClick={go} disabled={busy}><FileText size={15} />{busy ? "…" : t.downloadPdf}</button>{failed && <p role="alert" style={{ marginTop: 6 }}>{t.pdfFailed}</p>}</div>;
 }
 
 function AppointmentCard({ a, t, lang, onView }) {

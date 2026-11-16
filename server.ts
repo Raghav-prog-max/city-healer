@@ -13,6 +13,7 @@ import { triage, TRIAGE_MODEL_LABEL } from "./shared/triageModel";
 import { llmTriage } from "./server/ai/llm";
 import { answerWithRetrieval } from "./server/ai/rag";
 import { createFixedWindowLimiter } from "./server/rateLimit";
+import { securityHeaders, bodyParserErrors, finalErrorHandler, writeRateLimit } from "./server/httpHardening";
 import { scoreHospital, topK, scorePercent } from "./shared/hospitalRanking";
 import { haversineKm, parseLatLng, sortByDistance, nearest, DELHI_CENTRE } from "./shared/geo";
 import { matchDepartmentWithSource, doctorCategoryFor } from "./shared/specialties";
@@ -69,18 +70,11 @@ console.log(usingEmulators
 // one hop reads the real client from X-Forwarded-For without letting a client forge it.
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
+// Security headers on every response, parser errors included (server/httpHardening.ts).
+app.use(securityHeaders({ production: process.env.NODE_ENV === "production" }));
 app.use(express.json({ limit: "512kb" }));
-
-// Baseline security headers for all responses
-app.use((req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  // Voice input needs the microphone and the pill checker needs the camera. Both are
-  // allowed for this origin only; embedded third-party frames get neither.
-  res.setHeader("Permissions-Policy", "camera=(self), microphone=(self), geolocation=(self)");
-  next();
-});
+// Malformed JSON is a JSON 400 {"error":"INVALID_JSON"}, not Express's HTML page.
+app.use(bodyParserErrors);
 
 /**
  * Schema creation and baseline seeding, kept as a promise so the bootstrap can
@@ -176,6 +170,18 @@ app.use(authenticateUser);
 app.use(requireConsent());
 
 const getAuthUser = (req: express.Request): AuthUser | null => (req as any).user || null;
+
+// General write limits (BUG-015), per uid (per IP when anonymous or demo). Generous so normal
+// use and the test suites never meet them; each is configurable by env (<PREFIX>_RATE_LIMIT,
+// <PREFIX>_RATE_WINDOW_MS). Reads are not counted.
+const TEN_MINUTES = 10 * 60 * 1000;
+const writeLimit = (name: string, envPrefix: string, limit: number) =>
+  writeRateLimit({ name, envPrefix, limit, windowMs: TEN_MINUTES, getUser: getAuthUser });
+app.use("/api/v1/appointments", writeLimit("bookings", "BOOKING", 120));
+app.all("/api/emergency/sos", writeLimit("sos", "SOS", 10));
+app.all("/api/hospitals/:id/report", writeLimit("reports", "REPORT", 120));
+app.all("/api/records", writeLimit("records", "RECORDS", 120));
+app.all("/api/medicines/order", writeLimit("orders", "ORDER", 120));
 
 /** Restrict a route to the listed roles. Assumes authenticateUser has already run. */
 const requireRole = (...roles: Role[]) =>
@@ -1468,6 +1474,9 @@ async function initServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  // Last: an unhandled error is a JSON 500 without a stack trace.
+  app.use(finalErrorHandler);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[City Healer Service Online] Listening securely on port ${PORT}`);

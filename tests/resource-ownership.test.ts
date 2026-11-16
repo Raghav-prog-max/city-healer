@@ -187,6 +187,25 @@ describe("order integrity", () => {
     if (res.status === 400) assert.match(String(res.body.error), /stock/i);
   });
 
+  test("the Medicines screen's order (id + quantity, prescription attached) is placed and listed in My orders", async () => {
+    const meds = await api("GET", "/api/medicines");
+    const rx = meds.body.find((m: any) => m.requiresPrescription && m.stock > 1);
+    const otc = meds.body.find((m: any) => !m.requiresPrescription && m.stock > 1);
+    const res = await api("POST", "/api/medicines/order", actors.bob.token, {
+      items: [{ medicineId: rx.id, quantity: 1 }, { medicineId: otc.id, quantity: 2 }],
+      deliveryAddress: "12 Test Lane, Saket, Delhi 110017",
+      prescriptionAttached: true, prescriptionName: "City Healer prescription rx-test: Viral fever",
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.order.totalAmount, Number((rx.price + otc.price * 2).toFixed(2)));
+    const mine = await api("GET", "/api/medicines/orders", actors.bob.token);
+    const listed = mine.body.find((o: any) => o.id === res.body.order.id);
+    assert.ok(listed, "the order should be in My orders");
+    assert.equal(listed.status, "PENDING");
+    assert.equal(listed.prescriptionAttached, true);
+    assert.equal(listed.items.length, 2);
+  });
+
   test("an unknown medicine id is refused -> 404", async () => {
     const res = await api("POST", "/api/medicines/order", actors.bob.token, {
       items: [{ medicineId: "med-does-not-exist", name: "x", quantity: 1, price: 1 }],

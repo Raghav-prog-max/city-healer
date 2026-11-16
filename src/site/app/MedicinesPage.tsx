@@ -4,6 +4,7 @@ import { useI18n } from "../i18n";
 import { request } from "../lib/api";
 import { Badge, Button, Card, ErrorNote } from "../components/ui";
 import { MedicineView, SafetyNote } from "../components/health";
+import PharmacyOrder from "./PharmacyOrder";
 
 /** embedded: shown inside the patient dashboard, which supplies its own page title. */
 export default function MedicinesPage({ embedded = false }: { embedded?: boolean } = {}) {
@@ -72,6 +73,7 @@ export default function MedicinesPage({ embedded = false }: { embedded?: boolean
         </Card>
       )}
       <SafetyNote tone="warn">{t.medicines.body}</SafetyNote>
+      <PharmacyOrder />
     </div>
   );
 }
