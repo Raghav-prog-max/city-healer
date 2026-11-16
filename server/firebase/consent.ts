@@ -6,8 +6,8 @@
  * Default-deny: every /api route needs consent for a patient unless it is listed in
  * CONSENT_EXEMPT below. Fails closed: if consent cannot be checked, the request is refused (503).
  * Staff accounts (doctor, hospital, admin) work under their organisation's terms and are not
- * gated here; the DEMO_MODE sandbox identity holds no real data and is not gated either
- * (DEMO_MODE is refused in production, see server/config/validateEnv.ts).
+ * gated here; the DEMO_MODE sandbox identity holds no real data and is not gated either.
+ * DEMO_MODE must never be set on a real deployment: nothing in the server refuses it yet.
  *
  * Consent records (patientConsents) are append-only events: an acceptance or a withdrawal, each
  * with versions, a server timestamp and an audit-log entry. Nothing here ever creates one on a

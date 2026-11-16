@@ -8,6 +8,7 @@
  * for a real Firebase ID token. Nothing here can reach a real Firebase project.
  */
 import assert from "node:assert/strict";
+import { TERMS_VERSION, PRIVACY_VERSION } from "../../shared/consent";
 
 export interface Actor { uid: string; email: string; password: string; token: string; headers: Record<string, string> }
 
@@ -38,10 +39,42 @@ export async function signIn(email: string, password: string): Promise<string> {
 }
 
 /**
- * A signed-in test account. role: PATIENT | DOCTOR | HOSPITAL | ADMIN. extraClaims carry the
- * doctorId / hospitalId links. Patients get a Firestore profile, as onboarding would create.
+ * Write a consent event straight into Firestore for a test patient, in the shape
+ * POST /api/v1/me/consents (grant) and /consents/withdraw store. Versions default to the
+ * current ones; pass older ones to model a patient who accepted earlier terms.
+ *
+ * The server caches a patient's consent status for a short time, so write events before the
+ * patient's first API call (or go through the API, which clears the cache).
  */
-export async function createActor(email: string, name: string, role: string, extraClaims: Record<string, string> = {}): Promise<Actor> {
+export async function writeConsentEvent(
+  uid: string,
+  event: { action?: "grant" | "withdraw"; termsVersion?: string; privacyVersion?: string; termsAccepted?: unknown; recordedAt?: Date } = {},
+): Promise<void> {
+  const { firestore } = await admin();
+  const { FieldValue, Timestamp } = await import("firebase-admin/firestore");
+  const action = event.action ?? "grant";
+  await firestore.collection("patientConsents").doc().create({
+    uid,
+    action,
+    ...(action === "grant" ? {
+      termsAccepted: "termsAccepted" in event ? event.termsAccepted : true,
+      termsVersion: event.termsVersion ?? TERMS_VERSION,
+      privacyVersion: event.privacyVersion ?? PRIVACY_VERSION,
+      marketingOptIn: false,
+    } : {}),
+    recordedAt: event.recordedAt ? Timestamp.fromDate(event.recordedAt) : FieldValue.serverTimestamp(),
+    source: "test_helper",
+  });
+}
+
+/**
+ * A signed-in test account. role: PATIENT | DOCTOR | HOSPITAL | ADMIN. extraClaims carry the
+ * doctorId / hospitalId links. Patients get a Firestore profile and a current consent, as
+ * onboarding would create; `consent: false` leaves the consent out (the consent suite).
+ */
+export async function createActor(
+  email: string, name: string, role: string, extraClaims: Record<string, string> = {}, opts: { consent?: boolean } = {},
+): Promise<Actor> {
   const { adminAuth, firestore } = await admin();
   const password = "TestPassw0rd!x";
   try { await adminAuth.deleteUser((await adminAuth.getUserByEmail(email)).uid); } catch { /* not there */ }
@@ -49,6 +82,7 @@ export async function createActor(email: string, name: string, role: string, ext
   await adminAuth.setCustomUserClaims(user.uid, { role: role.toLowerCase(), ...extraClaims });
   if (role === "PATIENT") {
     await firestore.collection("patientProfiles").doc(user.uid).set({ uid: user.uid, fullName: name, city: "Delhi", preferredLanguage: "en" });
+    if (opts.consent !== false) await writeConsentEvent(user.uid);
   }
   const token = await signIn(email, password);
   return { uid: user.uid, email, password, token, headers: { Authorization: `Bearer ${token}` } };

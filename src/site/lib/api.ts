@@ -33,8 +33,17 @@ export async function request<T>(url: string, options: { method?: string; body?:
     throw new ApiError("network", 0);
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(data.error || `HTTP ${res.status}`, res.status);
+  if (!res.ok) {
+    // The server refuses patient routes without a valid, current consent (also after a
+    // withdrawal, or when the terms change mid-session). Tell the session, which re-reads the
+    // account and sends the person to review the terms.
+    if (res.status === 403 && data.error === "CONSENT_REQUIRED") window.dispatchEvent(new Event(CONSENT_REQUIRED_EVENT));
+    throw new ApiError(data.error || `HTTP ${res.status}`, res.status);
+  }
   return data as T;
 }
+
+/** Fired on window when the server answers 403 CONSENT_REQUIRED. */
+export const CONSENT_REQUIRED_EVENT = "ch:consent-required";
 
 export const isDemo = () => !!getDemoSessionRole();

@@ -18,6 +18,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import { verifyDoctorsInTestDb, createActor, craftEmulatorToken, firebaseAdmin, requireEmulators, signIn, type Actor } from "./helpers/firebaseAccounts";
+import { TERMS_VERSION, PRIVACY_VERSION } from "../shared/consent";
 
 const PORT = Number(process.env.TEST_PORT) || 3799;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -397,9 +398,10 @@ describe("accounts (Firebase) and patient profiles (Firestore)", () => {
   });
 
   test("consent must accept the terms, and is recorded with its versions and an audit event", async () => {
-    const refused = await api("POST", "/api/v1/me/consents", actors.alice.token, { termsAccepted: false, termsVersion: "v1", privacyVersion: "v1" });
+    // Only the current versions can be accepted (tests/consent.test.ts covers the rest).
+    const refused = await api("POST", "/api/v1/me/consents", actors.alice.token, { termsAccepted: false, termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION });
     assert.equal(refused.status, 400);
-    const ok = await api("POST", "/api/v1/me/consents", actors.alice.token, { termsAccepted: true, termsVersion: "v1", privacyVersion: "v1", marketingOptIn: false });
+    const ok = await api("POST", "/api/v1/me/consents", actors.alice.token, { termsAccepted: true, termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION, marketingOptIn: false });
     assert.equal(ok.status, 201);
     const { firestore } = await firebaseAdmin();
     const consents = await firestore.collection("patientConsents").where("uid", "==", actors.alice.uid).get();

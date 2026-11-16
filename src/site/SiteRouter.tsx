@@ -4,6 +4,7 @@ import { LocaleProvider, storedLocale, useI18n } from "./i18n";
 import { SessionProvider, useSession } from "./lib/session";
 import { LOCALES } from "./i18n/messages";
 import LandingPage from "./landing/ZipLanding";
+import { ErrorNote } from "./components/ui";
 
 const SignInPage = lazy(() => import("./auth/SignInPage"));
 const Onboarding = lazy(() => import("./onboarding/Onboarding"));
@@ -19,8 +20,8 @@ function Loading() {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { ready, user, demo, role, needsOnboarding } = useSession();
-  const { href } = useI18n();
+  const { ready, user, demo, role, needsOnboarding, checkFailed, refresh } = useSession();
+  const { href, t } = useI18n();
   const location = useLocation();
   if (!ready) return <Loading />;
   if (!user && !demo) {
@@ -28,7 +29,17 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   }
   // Staff accounts have their own workspaces.
   if (role && role !== "PATIENT") return <Navigate to="/dashboard" replace />;
-  // Signed in (e.g. a phone code just verified) but the profile is not finished yet.
+  // The account could not be read, so the profile and consent are unknown: stay closed and
+  // offer a retry rather than opening the dashboard (the server refuses its data anyway).
+  if (checkFailed) {
+    return (
+      <div className="ch grid min-h-screen place-items-center px-4">
+        <div className="max-w-[440px]"><ErrorNote message={t.app.accountCheckFailed} onRetry={refresh} /></div>
+      </div>
+    );
+  }
+  // Signed in (e.g. a phone code just verified) but the profile is not finished, or there is
+  // no valid, current consent (never given, withdrawn, or the terms changed).
   if (needsOnboarding) return <Navigate to={href("/get-started")} replace />;
   return <>{children}</>;
 }

@@ -6,7 +6,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { auth, onAuthStateChanged, signOut as fbSignOut, type MockUser } from "../../firebase";
 import { setDemoSession, getDemoSessionRole } from "../../utils/api";
-import { request } from "./api";
+import { request, CONSENT_REQUIRED_EVENT } from "./api";
 
 export type Role = "PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN";
 
@@ -17,8 +17,18 @@ interface Session {
   name: string;
   /** The signed-in user's profile (Firestore) with email and phone from the account, or null. */
   profile: any | null;
-  /** Signed in, but the patient profile is not complete yet: onboarding must finish it. */
+  /**
+   * Signed in as a patient, but the profile is not complete or there is no valid, current consent
+   * (never given, withdrawn, or the terms changed): onboarding must finish before the dashboard.
+   */
   needsOnboarding: boolean;
+  /** The profile is complete and only the consent is needed: onboarding shows just that step. */
+  needsConsentOnly: boolean;
+  /**
+   * The account could not be read (server or network failure), so it is not known whether the
+   * profile and consent are in place. Patient screens stay closed until a retry succeeds.
+   */
+  checkFailed: boolean;
   demo: boolean;
   refresh: () => void;
   signOut: () => Promise<void>;
@@ -34,10 +44,23 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<any | null>(null);
   const [tick, setTick] = useState(0);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [needsConsentOnly, setNeedsConsentOnly] = useState(false);
+  const [checkFailed, setCheckFailed] = useState(false);
   const [demo, setDemo] = useState(!!getDemoSessionRole());
-  const [ready, setReady] = useState(false);
+  // Which sign-in the state above was worked out for. Until it matches the current one the
+  // session is not ready, so no screen acts on the previous person's (or nobody's) answers.
+  const sessionKey = user ? `user:${user.uid}` : demo ? "demo" : "none";
+  const [resolvedKey, setResolvedKey] = useState<string | null>(null);
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u)), []);
+
+  // A patient route answered 403 CONSENT_REQUIRED: read the account again, which routes the
+  // person to the consent step.
+  useEffect(() => {
+    const onConsentRequired = () => setTick((n) => n + 1);
+    window.addEventListener(CONSENT_REQUIRED_EVENT, onConsentRequired);
+    return () => window.removeEventListener(CONSENT_REQUIRED_EVENT, onConsentRequired);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,37 +75,50 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           const claimRole = String(claims.role || "patient");
           const staff = ({ doctor: "DOCTOR", hospital: "HOSPITAL", admin: "ADMIN" } as Record<string, Role>)[claimRole];
           if (staff) {
-            if (!cancelled) { setRole(staff); setName(user.displayName || user.email || ""); setProfile({ email: user.email, phone: user.phoneNumber }); setNeedsOnboarding(false); }
+            if (!cancelled) { setRole(staff); setName(user.displayName || user.email || ""); setProfile({ email: user.email, phone: user.phoneNumber }); setNeedsOnboarding(false); setNeedsConsentOnly(false); setCheckFailed(false); }
           } else {
             const me = await request<any>("/api/v1/me");
             if (!cancelled) {
               setRole("PATIENT");
               setName(me.profile?.fullName || user.displayName || "");
               setProfile(me.profile ? { ...me.profile, email: me.email, phone: me.phoneNumber } : { email: me.email, phone: me.phoneNumber });
-              setNeedsOnboarding(!me.profile?.fullName || !me.profile?.city);
+              // The server enforces consent on every patient route; this only decides which
+              // screen to show. Anything but "valid" (including a missing answer) asks again.
+              const profileDone = !!me.profile?.fullName && !!me.profile?.city;
+              const consentValid = me.consent?.status === "valid";
+              setNeedsOnboarding(!profileDone || !consentValid);
+              setNeedsConsentOnly(profileDone && !consentValid);
+              setCheckFailed(false);
             }
           }
         } catch {
-          if (!cancelled) { setRole("PATIENT"); setName(user.displayName || ""); setNeedsOnboarding(false); }
+          // Fail closed: not knowing is not the same as "nothing to set up". The patient
+          // screens show a retry instead of opening without a profile or consent.
+          if (!cancelled) { setRole("PATIENT"); setName(user.displayName || ""); setNeedsOnboarding(false); setNeedsConsentOnly(false); setCheckFailed(true); }
         }
       } else if (getDemoSessionRole()) {
         setNeedsOnboarding(false);
+        setNeedsConsentOnly(false);
+        setCheckFailed(false);
         setProfile(null);
         setRole("PATIENT");
         setName("");
       } else {
         setNeedsOnboarding(false);
+        setNeedsConsentOnly(false);
+        setCheckFailed(false);
         setProfile(null);
         setRole(null);
         setName("");
       }
-      if (!cancelled) setReady(true);
+      if (!cancelled) setResolvedKey(sessionKey);
     })();
     return () => { cancelled = true; };
   }, [user, demo, tick]);
 
   const value: Session = {
-    ready, user, role, name, profile, demo, needsOnboarding,
+    ready: resolvedKey === sessionKey,
+    user, role, name, profile, demo, needsOnboarding, needsConsentOnly, checkFailed,
     refresh: () => setTick((n) => n + 1),
     signOut: async () => {
       setDemoSession(null);

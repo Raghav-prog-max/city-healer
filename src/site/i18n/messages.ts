@@ -206,6 +206,7 @@ const en = {
     error: "Something went wrong.",
     retry: "Try again",
     serverDown: "The City Healer server is not reachable. Nothing shown here is live.",
+    accountCheckFailed: "We could not load your account just now, so your health information stays closed. Please try again.",
   },
   home: {
     intro: "What do you need today?",
@@ -656,6 +657,7 @@ const hi: Messages = {
     error: "कुछ गड़बड़ हुई।",
     retry: "फिर कोशिश करें",
     serverDown: "सिटी हीलर सर्वर से संपर्क नहीं हो पा रहा। यहाँ दिखी कोई जानकारी लाइव नहीं है।",
+    accountCheckFailed: "अभी आपका अकाउंट लोड नहीं हो सका, इसलिए आपकी स्वास्थ्य जानकारी बंद रखी गई है। कृपया फिर कोशिश करें।",
   },
   home: {
     intro: "आज आपको क्या चाहिए?",
