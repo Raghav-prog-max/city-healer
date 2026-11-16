@@ -4,7 +4,9 @@
  * Encodes the authorization guarantees established in the security pass so a future
  * change cannot silently reopen them. For every guarded route it asserts:
  *   anonymous -> 401, wrong role -> 403, correct role -> 200
- * plus cross-patient isolation and doctor-relationship scoping.
+ * plus cross-patient isolation, doctor scoping, and that the retired SQLite appointment,
+ * queue and chat routes are gone (bookings live in Firestore: tests/booking.test.ts and
+ * tests/consultations.test.ts cover their access rules).
  *
  * Runs against a server this file starts itself, on its own port, backed by a
  * throwaway SQLite file and the Firebase emulators (accounts are Firebase users with
@@ -90,14 +92,8 @@ before(async () => {
   actors.drLinked = await createActor("dr.linked@test.invalid", "Dr Linked", "DOCTOR", { doctorId: linkedDoctorId });
   actors.drUnlinked = await createActor("dr.unlinked@test.invalid", "Dr Unlinked", "DOCTOR");
 
-  // Seeded doctors are look-only until verified; verify the ones this suite books.
+  // Seeded doctors are look-only until verified; verify one so the directory shows both states.
   await verifyDoctorsInTestDb(TEST_DB_PATH, ["doc-1"]);
-
-  // Bob books with doc-1, creating the clinical relationship the scoping depends on.
-  const booked = await api("POST", "/api/appointments", actors.bob.token, {
-    doctorId: "doc-1", patientName: "Bob Patient", symptoms: "test symptom"
-  });
-  assert.equal(booked.status, 200);
 
   // Each patient uploads a private record.
   await api("POST", "/api/records", actors.bob.token, {
@@ -140,26 +136,16 @@ describe("anonymous callers are rejected on every guarded route", () => {
   const guarded: Array<[string, string, unknown?]> = [
     ["GET", "/api/records"],
     ["POST", "/api/records", { title: "x", diagnoseSummary: "x" }],
-    ["GET", "/api/appointments"],
-    ["POST", "/api/appointments", { doctorId: "doc-1" }],
-    ["GET", "/api/queue"],
-    ["POST", "/api/queue/take", { doctorId: "doc-1" }],
     ["GET", "/api/medicines/orders"],
     ["POST", "/api/medicines/order", { items: [], totalAmount: 0 }],
     ["GET", "/api/emergency/alerts"],
     ["POST", "/api/emergency/sos", { type: "OTHER", patientPhone: "0" }],
-    ["GET", "/api/users/someone"],
-    ["PUT", "/api/users/someone", { name: "x" }],
-    ["GET", "/api/chat/app-101"],
-    ["POST", "/api/chat/app-101", { sender: "PATIENT", text: "hi" }],
+    ["GET", "/api/v1/hospital/facility"],
     ["PUT", "/api/hospitals/hosp-1/beds", { availableBeds: 1, icuAvailable: 1, emergencyOccupancy: 1 }],
     ["POST", "/api/hospitals", { name: "x", address: "x", phone: "0" }],
     ["PUT", "/api/hospitals/hosp-1", { name: "x" }],
     ["POST", "/api/hospitals/hosp-1/doctors", { name: "x", specialty: "x" }],
     ["PUT", "/api/doctors/doc-1/online", { online: true }],
-    ["PUT", "/api/appointments/app-101/status", { status: "ACCEPTED" }],
-    ["POST", "/api/appointments/app-101/prescription", { diagnosis: "x", medicines: [] }],
-    ["PUT", "/api/queue/tok-1/status", { status: "COMPLETED" }],
     ["PUT", "/api/emergency/alerts/sos-1/status", { status: "RESOLVED" }],
     ["POST", "/api/symptoms/check", { symptoms: "x" }],
     ["POST", "/api/records/analyze", { templateId: "blood_cbc" }],
@@ -223,14 +209,12 @@ describe("forged and malformed tokens are rejected", () => {
 describe("PATIENT is refused privileged operations", () => {
   const forbidden: Array<[string, string, unknown?]> = [
     ["GET", "/api/emergency/alerts"],
+    ["GET", "/api/v1/hospital/facility"],
     ["PUT", "/api/hospitals/hosp-1/beds", { availableBeds: 1, icuAvailable: 1, emergencyOccupancy: 1 }],
     ["POST", "/api/hospitals", { name: "x", address: "x", phone: "0" }],
     ["PUT", "/api/hospitals/hosp-1", { name: "x" }],
     ["POST", "/api/hospitals/hosp-1/doctors", { name: "x", specialty: "x" }],
     ["PUT", "/api/doctors/doc-1/online", { online: true }],
-    ["PUT", "/api/appointments/app-101/status", { status: "ACCEPTED" }],
-    ["POST", "/api/appointments/app-101/prescription", { diagnosis: "x", medicines: [] }],
-    ["PUT", "/api/queue/tok-1/status", { status: "COMPLETED" }],
     ["PUT", "/api/emergency/alerts/sos-1/status", { status: "RESOLVED" }]
   ];
 
@@ -241,30 +225,18 @@ describe("PATIENT is refused privileged operations", () => {
     });
   }
 
-  test("cannot read another user's profile -> 403", async () => {
-    assert.equal((await api("GET", `/api/users/${actors.bob.uid}`, actors.alice.token)).status, 403);
-  });
-
-  test("cannot write another user's profile -> 403", async () => {
-    const res = await api("PUT", `/api/users/${actors.bob.uid}`, actors.alice.token, { name: "hacked" });
-    assert.equal(res.status, 403);
-  });
-
   test("cannot escalate own role -> 403 and role is unchanged", async () => {
-    const res = await api("PUT", `/api/users/${actors.alice.uid}`, actors.alice.token, { role: "ADMIN" });
+    // The only route that sets a role (tests/provider-admin.test.ts covers it in full).
+    const res = await api("POST", "/api/v1/admin/providers/accounts", actors.alice.token, { email: actors.alice.email });
     assert.equal(res.status, 403);
-    const check = await api("GET", `/api/users/${actors.alice.uid}`, actors.admin.token);
-    assert.equal(check.body.role, "PATIENT");
+    const { adminAuth } = await firebaseAdmin();
+    assert.equal((await adminAuth.getUser(actors.alice.uid)).customClaims?.role ?? "patient", "patient");
   });
 });
 
 describe("PATIENT is allowed their own operations", () => {
   test("reads own profile -> 200", async () => {
-    assert.equal((await api("GET", `/api/users/${actors.alice.uid}`, actors.alice.token)).status, 200);
-  });
-  test("updates own non-role fields -> 200", async () => {
-    const res = await api("PUT", `/api/users/${actors.alice.uid}`, actors.alice.token, { name: "Alice Renamed" });
-    assert.equal(res.status, 200);
+    assert.equal((await api("GET", "/api/v1/me", actors.alice.token)).status, 200);
   });
   test("reads own records -> 200", async () => {
     assert.equal((await api("GET", "/api/records", actors.alice.token)).status, 200);
@@ -285,41 +257,67 @@ describe("cross-patient isolation", () => {
     assert.ok(titles.some((t) => t.includes("BOB PRIVATE")));
     assert.ok(!titles.some((t) => t.includes("ALICE PRIVATE")));
   });
-
-  test("Alice sees only her own appointments", async () => {
-    const res = await api("GET", "/api/appointments", actors.alice.token);
-    assert.ok((res.body as any[]).every((a) => a.patientId === actors.alice.uid));
-  });
-
-  test("Alice cannot read a consultation she is not party to -> 403", async () => {
-    const bobAppts = await api("GET", "/api/appointments", actors.bob.token);
-    const id = (bobAppts.body as any[])[0].id;
-    assert.equal((await api("GET", `/api/chat/${id}`, actors.alice.token)).status, 403);
-  });
 });
 
-describe("doctor scoping follows the clinical relationship", () => {
+describe("doctors get no patient records from the record list", () => {
+  // A doctor reads a patient's records only through a booking, inside its time window and with
+  // the patient's consent: GET /api/v1/appointments/:id/records (tests/consultations.test.ts).
   test("unlinked doctor sees zero records", async () => {
     const res = await api("GET", "/api/records", actors.drUnlinked.token);
     assert.equal(res.status, 200);
     assert.equal((res.body as any[]).length, 0);
   });
 
-  test("unlinked doctor sees zero appointments", async () => {
-    const res = await api("GET", "/api/appointments", actors.drUnlinked.token);
+  test("a doctor linked to a clinician row sees zero records too", async () => {
+    const res = await api("GET", "/api/records", actors.drLinked.token);
+    assert.equal(res.status, 200);
     assert.equal((res.body as any[]).length, 0);
   });
+});
 
-  test("linked doctor sees his patient's record but not an unrelated patient's", async () => {
-    const res = await api("GET", "/api/records", actors.drLinked.token);
-    const titles = (res.body as any[]).map((r) => r.title);
-    assert.ok(titles.some((t) => t.includes("BOB PRIVATE")), "should see linked patient");
-    assert.ok(!titles.some((t) => t.includes("ALICE PRIVATE")), "must not see unrelated patient");
+describe("the retired SQLite appointment, queue and chat routes are gone", () => {
+  const removed: Array<[string, string, unknown?]> = [
+    ["GET", "/api/appointments"],
+    ["POST", "/api/appointments", { doctorId: "doc-1", date: "2099-02-10", time: "11:30 AM" }],
+    ["PUT", "/api/appointments/app-101/status", { status: "ACCEPTED" }],
+    ["POST", "/api/appointments/app-101/prescription", { diagnosis: "x", medicines: [] }],
+    ["GET", "/api/doctors/doc-1/booked?date=2099-02-10"],
+    ["GET", "/api/queue"],
+    ["POST", "/api/queue/take", { doctorId: "doc-1" }],
+    ["PUT", "/api/queue/tok-1/status", { status: "COMPLETED" }],
+    ["GET", "/api/chat/app-101"],
+    ["POST", "/api/chat/app-101", { text: "hi" }],
+    ["GET", "/api/users/someone"],
+    ["PUT", "/api/users/someone", { name: "x" }],
+  ];
+  for (const [method, route, body] of removed) {
+    test(`${method} ${route} -> 404 for patient, doctor and admin`, async () => {
+      for (const who of ["alice", "drLinked", "admin"]) {
+        const res = await api(method, route, actors[who].token, body);
+        assert.equal(res.status, 404, `${who}: expected 404, got ${res.status}`);
+        assert.equal(res.body?.error, "NOT_FOUND", "a JSON 404, not the frontend page");
+      }
+    });
+  }
+});
+
+describe("the hospital desk sees its own facility", () => {
+  test("a linked desk gets its own facility", async () => {
+    const r = await api("GET", "/api/v1/hospital/facility", actors.hospital.token);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.id, "hosp-1");
+    assert.equal(typeof r.body.name, "string");
   });
-
-  test("linked doctor only sees his own appointments", async () => {
-    const res = await api("GET", "/api/appointments", actors.drLinked.token);
-    assert.ok((res.body as any[]).every((a) => a.doctorId === linkedDoctorId));
+  test("a desk bound to no facility is told so, and can write to none", async () => {
+    const unbound = await createActor("desk.unbound@test.invalid", "Unbound Desk", "HOSPITAL");
+    const r = await api("GET", "/api/v1/hospital/facility", unbound.token);
+    assert.equal(r.status, 404);
+    assert.equal(r.body.error, "NOT_LINKED");
+    assert.equal((await api("PUT", "/api/hospitals/hosp-1/beds", unbound.token, { availableBeds: 1 })).status, 403);
+  });
+  test("doctors and admins are not hospital desks -> 403", async () => {
+    assert.equal((await api("GET", "/api/v1/hospital/facility", actors.drLinked.token)).status, 403);
+    assert.equal((await api("GET", "/api/v1/hospital/facility", actors.admin.token)).status, 403);
   });
 });
 
@@ -333,12 +331,37 @@ describe("privileged roles retain access", () => {
   test("HOSPITAL may read the dispatch stream -> 200", async () => {
     assert.equal((await api("GET", "/api/emergency/alerts", actors.hospital.token)).status, 200);
   });
+
+  test("a hospital desk sees and updates only the SOS alerts routed to its own facility", async () => {
+    // Two alerts written straight into this suite's throwaway database: one routed to the desk's
+    // own facility (hosp-1), one to another hospital.
+    const sqlite3 = (await import("sqlite3")).default;
+    const db = new sqlite3.Database(TEST_DB_PATH);
+    const run = (sql: string, args: unknown[]) => new Promise<void>((ok, bad) => db.run(sql, args, (e) => (e ? bad(e) : ok())));
+    const get = (sql: string, args: unknown[]) => new Promise<any>((ok, bad) => db.get(sql, args, (e, row) => (e ? bad(e) : ok(row))));
+    const own = (await get("SELECT name FROM hospitals WHERE id = ?", ["hosp-1"])).name;
+    const other = (await get("SELECT name FROM hospitals WHERE id != ? LIMIT 1", ["hosp-1"])).name;
+    const insert = "INSERT INTO emergency_alerts (id, patientId, patientName, patientPhone, lat, lng, address, type, status, timestamp, assignedAmbulanceRef, hospitalName) VALUES (?, ?, ?, ?, 28.6, 77.2, 'Test address', 'OTHER', 'REPORTED', ?, 'AMB-T', ?)";
+    await run(insert, ["sos-own", actors.bob.uid, "Bob Own", "9000000001", new Date().toISOString(), own]);
+    await run(insert, ["sos-other", actors.alice.uid, "Alice Other", "9000000002", new Date().toISOString(), other]);
+    await new Promise<void>((ok) => db.close(() => ok()));
+
+    const desk = (await api("GET", "/api/emergency/alerts", actors.hospital.token)).body.map((x: any) => x.id);
+    assert.ok(desk.includes("sos-own"), "the desk sees its own facility's alert");
+    assert.ok(!desk.includes("sos-other"), "the desk never sees another facility's alert, or the caller's details");
+    const adminIds = (await api("GET", "/api/emergency/alerts", actors.admin.token)).body.map((x: any) => x.id);
+    assert.ok(adminIds.includes("sos-own") && adminIds.includes("sos-other"), "an admin sees all alerts");
+
+    assert.equal((await api("PUT", "/api/emergency/alerts/sos-other/status", actors.hospital.token, { status: "DISPATCHED" })).status, 404, "another facility's alert cannot be updated");
+    assert.equal((await api("PUT", "/api/emergency/alerts/sos-own/status", actors.hospital.token, { status: "DISPATCHED" })).status, 200);
+  });
   test("ADMIN may read all records -> 200", async () => {
     assert.equal((await api("GET", "/api/records", actors.admin.token)).status, 200);
   });
-  test("ADMIN may change another user's role -> 200", async () => {
-    const res = await api("PUT", `/api/users/${actors.bob.uid}`, actors.admin.token, { role: "PATIENT" });
-    assert.equal(res.status, 200);
+  test("ADMIN may change another user's role -> 201", async () => {
+    const carl = await createActor("carl@test.invalid", "Carl Patient", "PATIENT");
+    const res = await api("POST", "/api/v1/admin/providers/accounts", actors.admin.token, { email: carl.email });
+    assert.equal(res.status, 201);
   });
 });
 
@@ -417,7 +440,7 @@ describe("accounts (Firebase) and patient profiles (Firestore)", () => {
   });
 
   test("nobody can give themselves a role", async () => {
-    const r = await api("PUT", `/api/users/${actors.alice.uid}`, actors.alice.token, { role: "ADMIN" });
+    const r = await api("POST", "/api/v1/admin/providers/accounts", actors.alice.token, { email: actors.alice.email });
     assert.equal(r.status, 403);
   });
 
@@ -426,8 +449,8 @@ describe("accounts (Firebase) and patient profiles (Firestore)", () => {
     // Revocation is compared in whole seconds: a token issued in the same second as the
     // revocation still counts as valid, so let a second pass after sign-in first.
     await new Promise((res) => setTimeout(res, 1100));
-    const r = await api("PUT", `/api/users/${gina.uid}`, actors.admin.token, { role: "DOCTOR" });
-    assert.equal(r.status, 200);
+    const r = await api("POST", "/api/v1/admin/providers/accounts", actors.admin.token, { email: gina.email });
+    assert.equal(r.status, 201);
     assert.equal((await api("GET", "/api/records", gina.token)).status, 401);
     const fresh = await signIn(gina.email, gina.password);
     assert.equal((await api("GET", "/api/v1/me", fresh)).status, 403, "now a doctor, so not a patient route");
@@ -490,29 +513,6 @@ describe("the doctor directory is look-only until a doctor is verified", () => {
     assert.equal(unverified.verified, false);
     assert.ok(unverified.city, "city comes from the hospital address");
     assert.equal(r.body.find((d: any) => d.id === "doc-1").verified, true);
-  });
-
-  test("booking an unverified doctor is refused", async () => {
-    const r = await api("POST", "/api/appointments", actors.alice.token, { doctorId: "doc-3", date: "2099-01-05", time: "10:00 AM" });
-    assert.equal(r.status, 409);
-    assert.equal(r.body.code, "DOCTOR_NOT_VERIFIED");
-  });
-
-  test("an OPD token with an unverified doctor is refused", async () => {
-    const r = await api("POST", "/api/queue/take", actors.alice.token, { doctorId: "doc-3" });
-    assert.equal(r.status, 409);
-  });
-
-  test("a verified doctor cannot be booked in the past or twice for the same slot", async () => {
-    const past = await api("POST", "/api/appointments", actors.alice.token, { doctorId: "doc-1", date: "2020-01-01", time: "10:00 AM" });
-    assert.equal(past.status, 400);
-    const first = await api("POST", "/api/appointments", actors.alice.token, { doctorId: "doc-1", date: "2099-02-10", time: "11:30 AM" });
-    assert.equal(first.status, 200);
-    const second = await api("POST", "/api/appointments", actors.bob.token, { doctorId: "doc-1", date: "2099-02-10", time: "11:30 AM" });
-    assert.equal(second.status, 409);
-    assert.equal(second.body.code, "SLOT_TAKEN");
-    const booked = await api("GET", "/api/doctors/doc-1/booked?date=2099-02-10", actors.bob.token);
-    assert.deepEqual(booked.body.booked, ["11:30 AM"]);
   });
 });
 

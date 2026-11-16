@@ -13,7 +13,6 @@ import { triage, TRIAGE_MODEL_LABEL } from "./shared/triageModel";
 import { llmTriage } from "./server/ai/llm";
 import { answerWithRetrieval } from "./server/ai/rag";
 import { createFixedWindowLimiter } from "./server/rateLimit";
-import { estimateOpdWait } from "./shared/waitTime";
 import { scoreHospital, topK, scorePercent } from "./shared/hospitalRanking";
 import { haversineKm, parseLatLng, sortByDistance, nearest, DELHI_CENTRE } from "./shared/geo";
 import { matchDepartmentWithSource, doctorCategoryFor } from "./shared/specialties";
@@ -29,13 +28,13 @@ import { monitor } from "./server/ai/monitor";
 import { lookupMedicine, searchMedicines, substitutesFor, MEDICINE_SOURCE, MEDICINE_COUNT } from "./server/medicineIndex";
 import { recommendDiet, DIET_CONDITIONS, FOOD_SOURCE } from "./server/dietRecommender";
 import { adminAuth, usingEmulators, firebaseConfigProblem, firebaseProjectId } from "./server/firebase/admin";
-import { verifyFirebaseToken, ROLE_TO_CLAIM, type AuthUser, type Role } from "./server/firebase/identity";
+import { verifyFirebaseToken, type AuthUser, type Role } from "./server/firebase/identity";
 import { providerDoctorsRouter, appointmentsRouter, verifiedProviders } from "./server/firebase/booking";
 import { providerSelfRouter, adminProvidersRouter } from "./server/firebase/providers";
 import { consultationsRouter, prescriptionsRouter } from "./server/firebase/consultations";
 import { requireConsent } from "./server/firebase/consent";
 import { BUILD_INFO_FILE, frontendBuildProblem } from "./shared/buildEnv";
-import { patientRouter, getPatientProfile, savePatientProfile, legacyUserShape, patientProfileUpdateSchema, writeAuditEvent } from "./server/firebase/patients";
+import { patientRouter } from "./server/firebase/patients";
 
 // Fix node localhost resolution issues
 dns.setDefaultResultOrder("ipv4first");
@@ -289,17 +288,6 @@ async function callerControlsDoctor(req: express.Request, doctorId: string): Pro
   return false;
 }
 
-/** True when this doctor account is clinically linked to the patient by an appointment. */
-async function doctorTreatsPatient(doctorUid: string, patientId: string): Promise<boolean> {
-  const doctorId = await resolveDoctorId(doctorUid);
-  if (!doctorId) return false;
-  const link = await dbGet(
-    "SELECT 1 AS ok FROM appointments WHERE doctorId = ? AND patientId = ? LIMIT 1",
-    [doctorId, patientId]
-  );
-  return !!link;
-}
-
 
 /**
  * Up to three doctors of the given category for the copilot and symptom triage.
@@ -407,72 +395,6 @@ app.use("/api/v1/appointments", appointmentsRouter());
 // Doctor and admin screens for provider onboarding (server/firebase/providers.ts).
 app.use("/api/v1/provider", providerSelfRouter());
 app.use("/api/v1/admin/providers", adminProvidersRouter());
-
-// The older screens read and write profiles here; it serves the Firestore profile.
-app.get("/api/users/:uid", async (req, res) => {
-  const { uid } = req.params;
-  const caller = getAuthUser(req)!;
-  if (caller.uid !== uid && caller.role !== "ADMIN") {
-    return res.status(403).json({ error: "You may only access your own profile." });
-  }
-  try {
-    if (caller.isDemo) {
-      return res.json(legacyUserShape(caller, null));
-    }
-    const subject = caller.uid === uid ? caller : await adminAuth.getUser(uid).then((u) => ({
-      uid: u.uid, email: u.email || "", phone: u.phoneNumber || "",
-      role: ({ doctor: "DOCTOR", hospital: "HOSPITAL", admin: "ADMIN" } as Record<string, Role>)[String(u.customClaims?.role)] || "PATIENT",
-    }));
-    res.json(legacyUserShape(subject as any, await getPatientProfile(uid)));
-  } catch (err: any) {
-    if (err?.code === "auth/user-not-found") return res.status(404).json({ error: "User not found" });
-    res.status(500).json({ error: "Failed to fetch user profile" });
-  }
-});
-
-app.put("/api/users/:uid", async (req, res) => {
-  const { uid } = req.params;
-  const caller = getAuthUser(req)!;
-  const { name, gender, city, locality, role } = req.body || {};
-  if (caller.uid !== uid && caller.role !== "ADMIN") {
-    return res.status(403).json({ error: "You may only modify your own profile." });
-  }
-  // Privilege escalation guard: roles are Firebase custom claims, set by ADMIN only.
-  if (role !== undefined && caller.role !== "ADMIN") {
-    return res.status(403).json({ error: "Role changes require an administrator." });
-  }
-  if (caller.isDemo) {
-    return res.status(403).json({ error: "The demo sandbox has no profile to save." });
-  }
-  try {
-    if (role !== undefined) {
-      if (!(role in ROLE_TO_CLAIM)) return res.status(400).json({ error: "Invalid role." });
-      const current = (await adminAuth.getUser(uid)).customClaims || {};
-      const claim = ROLE_TO_CLAIM[role as Role];
-      // Only an actual change revokes the account's sessions (so the new role applies at once);
-      // re-saving the same role must not sign the person out.
-      if ((current.role || "patient") !== claim) {
-        await adminAuth.setCustomUserClaims(uid, { ...current, role: claim });
-        await adminAuth.revokeRefreshTokens(uid);
-        await writeAuditEvent({ actorUid: caller.uid, action: "user.role.set", resourceType: "user", resourceId: uid });
-      }
-    }
-    const update: Record<string, unknown> = {};
-    if (name !== undefined) update.fullName = name;
-    if (gender !== undefined) update.gender = gender;
-    if (city !== undefined) update.city = city;
-    if (locality !== undefined) update.locality = locality;
-    if (Object.keys(update).length) {
-      const parsed = patientProfileUpdateSchema.safeParse(update);
-      if (!parsed.success) return res.status(400).json({ error: "Some profile details are not valid." });
-      await savePatientProfile(uid, parsed.data, caller.uid);
-    }
-    res.json({ success: true, user: legacyUserShape({ uid, email: "", role: (role as Role) || caller.role }, await getPatientProfile(uid)) });
-  } catch (err: any) {
-    console.error("[Update Profile Error]", err?.message);
-    res.status(500).json({ error: "Failed to update profile" });
-  }
-});
 
 // ----------------------------------------------------------------
 // General API Routes (Querying SQLite Database)
@@ -620,6 +542,28 @@ app.put("/api/hospitals/:id/beds", requireRole("HOSPITAL", "ADMIN"), async (req,
   } catch (err: any) {
     console.error("[Bed Update Error]", err);
     res.status(500).json({ error: "Bed update failed", message: err.message });
+  }
+});
+
+// The facility a HOSPITAL desk account administers (its hospitalId claim, as resolveHospitalId
+// reads it), for the hospital workspace (src/site/staff/HospitalWorkspace.tsx). Includes a listing
+// an administrator has hidden, so the desk can still see and update it.
+app.get("/api/v1/hospital/facility", requireRole("HOSPITAL"), async (req, res) => {
+  try {
+    const hospitalId = await resolveHospitalId(getAuthUser(req)!.uid);
+    if (!hospitalId) return res.status(404).json({ error: "NOT_LINKED", message: "This account is not linked to a facility yet." });
+    const h = await dbGet("SELECT * FROM hospitals WHERE id = ?", [hospitalId]);
+    if (!h) return res.status(404).json({ error: "NOT_FOUND", message: "The linked facility no longer exists." });
+    res.json({
+      id: h.id, name: h.name, address: h.address, phone: h.phone ?? null,
+      totalBeds: h.totalBeds ?? null, availableBeds: h.availableBeds ?? null,
+      icuBeds: h.icuBeds ?? null, icuAvailable: h.icuAvailable ?? null,
+      emergencyOccupancy: h.emergencyOccupancy ?? null, bedsReportedAt: h.bedsReportedAt ?? null,
+      listingStatus: h.listingStatus || "active",
+    });
+  } catch (err: any) {
+    console.error("[Hospital facility Error]", err?.message);
+    res.status(500).json({ error: "Could not read the facility." });
   }
 });
 
@@ -891,203 +835,6 @@ app.put("/api/doctors/:id/online", requireRole("DOCTOR", "HOSPITAL", "ADMIN"), a
   }
 });
 
-// GET Appointments
-app.get("/api/appointments", async (req, res) => {
-  const caller = getAuthUser(req)!;
-  try {
-    let list: any[];
-
-    if (caller.role === "ADMIN" || caller.role === "HOSPITAL") {
-      list = await dbAll("SELECT * FROM appointments");
-    } else if (caller.role === "DOCTOR") {
-      const doctorId = await resolveDoctorId(caller.uid);
-      if (!doctorId) {
-        return res.json([]);
-      }
-      list = await dbAll("SELECT * FROM appointments WHERE doctorId = ?", [doctorId]);
-    } else {
-      list = await dbAll("SELECT * FROM appointments WHERE patientId = ?", [caller.uid]);
-    }
-
-    const result = list.map(a => ({
-      ...a,
-      prescriptionJson: a.prescriptionJson ? JSON.parse(a.prescriptionJson) : null
-    }));
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch appointments", message: err.message });
-  }
-});
-
-// Create Appointment booking
-app.post("/api/appointments", async (req, res) => {
-  const { doctorId, patientId, patientName, date, time, symptoms, type } = req.body;
-
-  try {
-    const docInfo = await dbGet("SELECT * FROM doctors WHERE id = ?", [doctorId]);
-    if (!docInfo) {
-      return res.status(404).json({ error: "Doctor not found" });
-    }
-    // Look-only until verified: the directory names real practitioners whose details City
-    // Healer has not verified, so no screen may book them.
-    if (!docInfo.verified) {
-      return res.status(409).json({ error: "This doctor is not verified on City Healer yet, so booking is unavailable.", code: "DOCTOR_NOT_VERIFIED" });
-    }
-    const today = new Date().toISOString().split("T")[0];
-    if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || String(date) < today)) {
-      return res.status(400).json({ error: "Choose today or a future date." });
-    }
-    if (date && time) {
-      const taken = await dbGet(
-        "SELECT id FROM appointments WHERE doctorId = ? AND date = ? AND time = ? AND status NOT IN ('CANCELLED', 'REJECTED')",
-        [doctorId, date, time]);
-      if (taken) {
-        return res.status(409).json({ error: "That time has just been taken. Choose another.", code: "SLOT_TAKEN" });
-      }
-    }
-
-    // Ownership always comes from the verified token, never from the request body.
-    const caller = getAuthUser(req)!;
-    const userUid = caller.uid;
-    const userName = patientName || caller.email || "Unregistered Patient";
-    const apptId = "appt-" + Date.now();
-
-    const newApp = {
-      id: apptId,
-      patientId: userUid,
-      patientName: userName,
-      doctorId: docInfo.id,
-      doctorName: docInfo.name,
-      specialty: docInfo.specialty,
-      date: date || new Date().toISOString().split("T")[0],
-      time: time || "10:30 AM",
-      status: "PENDING",
-      symptoms: symptoms || "General consultation",
-      type: type || "VIRTUAL",
-      prescriptionJson: null
-    };
-
-    await dbRun(`
-      INSERT INTO appointments (id, patientId, patientName, doctorId, doctorName, specialty, date, time, status, symptoms, type)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      newApp.id, newApp.patientId, newApp.patientName, newApp.doctorId, newApp.doctorName,
-      newApp.specialty, newApp.date, newApp.time, newApp.status, newApp.symptoms, newApp.type
-    ]);
-
-    res.json({ success: true, appointment: newApp });
-  } catch (err: any) {
-    console.error("[Appointment Create Error]", err);
-    res.status(500).json({ error: "Failed to create appointment", message: err.message });
-  }
-});
-
-// Times already booked with a doctor on a date (no patient details), for the booking screen.
-app.get("/api/doctors/:id/booked", async (req, res) => {
-  const date = String(req.query.date || "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date=YYYY-MM-DD is required." });
-  const rows = await dbAll(
-    "SELECT time FROM appointments WHERE doctorId = ? AND date = ? AND status NOT IN ('CANCELLED', 'REJECTED')",
-    [req.params.id, date]);
-  res.json({ date, booked: rows.map((r) => r.time) });
-});
-
-// Update Appointment Status
-app.put("/api/appointments/:id/status", requireRole("DOCTOR", "ADMIN"), async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  const ALLOWED = ["PENDING", "ACCEPTED", "COMPLETED", "CANCELLED"];
-  if (!ALLOWED.includes(status)) {
-    return res.status(400).json({ error: `status must be one of ${ALLOWED.join(", ")}.` });
-  }
-
-  try {
-    // Being a doctor is not the same as being *this appointment's* doctor. Without
-    // this, any doctor account could drive any patient's booking to any state.
-    const appointment = await getAppointmentIfParty(req, id);
-    if (!appointment) {
-      const exists = await dbGet("SELECT id FROM appointments WHERE id = ?", [id]);
-      return exists
-        ? res.status(403).json({ error: "You are not the clinician on this appointment." })
-        : res.status(404).json({ error: "Appointment booking not found" });
-    }
-
-    await dbRun("UPDATE appointments SET status = ? WHERE id = ?", [status, id]);
-
-    // If completed or accepted, update queue/consultation states
-    if (status === "ACCEPTED") {
-      await dbRun("UPDATE doctors SET queueCount = queueCount + 1, waitTimeMin = waitTimeMin + 15 WHERE id = ?", [appointment.doctorId]);
-    } else if (status === "COMPLETED" && appointment.status === "ACCEPTED") {
-      await dbRun("UPDATE doctors SET queueCount = MAX(0, queueCount - 1), waitTimeMin = MAX(0, waitTimeMin - 15) WHERE id = ?", [appointment.doctorId]);
-    }
-
-    res.json({ success: true, status });
-  } catch (err: any) {
-    console.error("[Appointment Update Error]", err);
-    res.status(500).json({ error: "Failed to update status", message: err.message });
-  }
-});
-
-// Doctor writes prescription
-app.post("/api/appointments/:id/prescription", requireRole("DOCTOR", "ADMIN"), async (req, res) => {
-  const { id } = req.params;
-  const { diagnosis, medicines, instructions } = req.body;
-
-  if (!diagnosis || !Array.isArray(medicines)) {
-    return res.status(400).json({ error: "A diagnosis and a medicines array are required." });
-  }
-
-  try {
-    // The prescription is signed with appt.doctorName, so writing one without being
-    // that clinician is forgery in another doctor's name. Scope it to the party.
-    const appt = await getAppointmentIfParty(req, id);
-    if (!appt) {
-      const exists = await dbGet("SELECT id FROM appointments WHERE id = ?", [id]);
-      return exists
-        ? res.status(403).json({ error: "Only the clinician on this appointment may prescribe for it." })
-        : res.status(404).json({ error: "Appointment booking not found" });
-    }
-
-    const prescription = {
-      id: "rx-" + Date.now(),
-      appointmentId: id,
-      patientId: appt.patientId,
-      patientName: appt.patientName,
-      doctorId: appt.doctorId,
-      doctorName: appt.doctorName,
-      date: new Date().toISOString().split("T")[0],
-      diagnosis,
-      medicines: medicines || [],
-      instructions: instructions || "Take rest."
-    };
-
-    // Update appointment with prescription JSON
-    await dbRun("UPDATE appointments SET status = 'COMPLETED', prescriptionJson = ? WHERE id = ?", [
-      JSON.stringify(prescription), id
-    ]);
-
-    // Release queue
-    await dbRun("UPDATE doctors SET queueCount = MAX(0, queueCount - 1), waitTimeMin = MAX(0, waitTimeMin - 15) WHERE id = ?", [appt.doctorId]);
-
-    // Create medical record automatic log
-    const recId = "rec-rx-" + Date.now();
-    const medSummary = (medicines || []).map((m: any) => `${m.name} (${m.dosage})`).join(", ");
-    await dbRun(`
-      INSERT INTO medical_records (id, patientId, date, title, doctorName, diagnoseSummary, attachmentName)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [
-      recId, appt.patientId, prescription.date, `Prescription for ${diagnosis}`,
-      appt.doctorName, `Diagnosed with ${diagnosis}. Medications: ${medSummary}. Instructions: ${instructions}`, "Rx_Sheet.pdf"
-    ]);
-
-    res.json({ success: true, prescription });
-  } catch (err: any) {
-    console.error("[Create Prescription Error]", err);
-    res.status(500).json({ error: "Failed to create prescription", message: err.message });
-  }
-});
-
 // GET Medical Records
 app.get("/api/records", async (req, res) => {
   const caller = getAuthUser(req)!;
@@ -1097,17 +844,10 @@ app.get("/api/records", async (req, res) => {
     if (caller.role === "ADMIN") {
       list = await dbAll("SELECT * FROM medical_records");
     } else if (caller.role === "DOCTOR") {
-      // Scoped to patients this doctor is clinically linked to by an appointment.
-      // An unlinked doctor account resolves to no doctorId and therefore no rows.
-      const doctorId = await resolveDoctorId(caller.uid);
-      if (!doctorId) {
-        return res.json([]);
-      }
-      list = await dbAll(
-        `SELECT * FROM medical_records
-         WHERE patientId IN (SELECT DISTINCT patientId FROM appointments WHERE doctorId = ?)`,
-        [doctorId]
-      );
+      // Doctors read a patient's records only through a booking, with the time window and the
+      // patient's consent: GET /api/v1/appointments/:id/records (server/firebase/consultations.ts).
+      // This list is the caller's own records, and a doctor has none here.
+      return res.json([]);
     } else {
       // PATIENT and HOSPITAL: own records only, scoped from the verified token uid.
       list = await dbAll("SELECT * FROM medical_records WHERE patientId = ?", [caller.uid]);
@@ -1142,110 +882,6 @@ app.post("/api/records", async (req, res) => {
     res.json({ success: true, record: newRec });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to upload health record", message: err.message });
-  }
-});
-
-// GET Queue tokens
-app.get("/api/queue", async (req, res) => {
-  const caller = getAuthUser(req)!;
-  try {
-    let list: any[];
-    if (caller.role === "ADMIN" || caller.role === "HOSPITAL") {
-      list = await dbAll("SELECT * FROM queue_tokens");
-    } else if (caller.role === "DOCTOR") {
-      const doctorId = await resolveDoctorId(caller.uid);
-      list = doctorId ? await dbAll("SELECT * FROM queue_tokens WHERE doctorId = ?", [doctorId]) : [];
-    } else {
-      list = await dbAll("SELECT * FROM queue_tokens WHERE patientId = ?", [caller.uid]);
-    }
-    res.json(list);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch queue tokens", message: err.message });
-  }
-});
-
-// Take Queue token
-app.post("/api/queue/take", async (req, res) => {
-  const { doctorId, patientName } = req.body;
-  try {
-    const docInfo = await dbGet("SELECT * FROM doctors WHERE id = ?", [doctorId]);
-    if (!docInfo) {
-      return res.status(404).json({ error: "Doctor not found" });
-    }
-    if (!docInfo.verified) {
-      return res.status(409).json({ error: "This doctor is not verified on City Healer yet, so OPD tokens are unavailable.", code: "DOCTOR_NOT_VERIFIED" });
-    }
-
-    const caller = getAuthUser(req)!;
-    const patientId = caller.uid;
-    const pName = patientName || caller.email || "OPD Patient Walkin";
-
-    const tokenId = "tok-" + Date.now();
-    const tokenNo = docInfo.specialty.substring(0, 3).toUpperCase() + "-" + (docInfo.queueCount + 101);
-
-    const newToken = {
-      id: tokenId,
-      tokenNumber: tokenNo,
-      patientId,
-      patientName: pName,
-      doctorId: docInfo.id,
-      doctorName: docInfo.name,
-      // shared/waitTime.ts (A7); with no timing data this is 12 x queue + 10, as before.
-      estimatedWaitTimeMin: estimateOpdWait({ patientsAhead: docInfo.queueCount }).minutes,
-      status: "WAITING",
-      checkpointTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    await dbRun(`
-      INSERT INTO queue_tokens (id, tokenNumber, patientId, patientName, doctorId, doctorName, estimatedWaitTimeMin, status, checkpointTime)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      newToken.id, newToken.tokenNumber, newToken.patientId, newToken.patientName,
-      newToken.doctorId, newToken.doctorName, newToken.estimatedWaitTimeMin, newToken.status, newToken.checkpointTime
-    ]);
-
-    // Update Doctor queue status
-    await dbRun("UPDATE doctors SET queueCount = queueCount + 1, waitTimeMin = waitTimeMin + 12 WHERE id = ?", [doctorId]);
-
-    res.json({ success: true, token: newToken });
-  } catch (err: any) {
-    console.error("[Take Queue Token Error]", err);
-    res.status(500).json({ error: "Failed to acquire token", message: err.message });
-  }
-});
-
-// Update Queue status
-app.put("/api/queue/:id/status", requireRole("DOCTOR", "HOSPITAL", "ADMIN"), async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  const ALLOWED_Q = ["WAITING", "IN_CONSULTATION", "COMPLETED", "SKIPPED"];
-  if (!ALLOWED_Q.includes(status)) {
-    return res.status(400).json({ error: `status must be one of ${ALLOWED_Q.join(", ")}.` });
-  }
-
-  try {
-    const tok = await dbGet("SELECT * FROM queue_tokens WHERE id = ?", [id]);
-    if (!tok) {
-      return res.status(404).json({ error: "OPD queue token not found" });
-    }
-
-    // A doctor may only advance their own queue.
-    const caller = getAuthUser(req)!;
-    if (caller.role === "DOCTOR" && !(await callerControlsDoctor(req, tok.doctorId))) {
-      return res.status(403).json({ error: "You may only manage your own queue." });
-    }
-
-    await dbRun("UPDATE queue_tokens SET status = ? WHERE id = ?", [status, id]);
-
-    if (status === "COMPLETED" || status === "SKIPPED") {
-      await dbRun("UPDATE doctors SET queueCount = MAX(0, queueCount - 1), waitTimeMin = MAX(0, waitTimeMin - 12) WHERE id = ?", [tok.doctorId]);
-    }
-
-    res.json({ success: true, token: { ...tok, status } });
-  } catch (err: any) {
-    console.error("[Queue Update Error]", err);
-    res.status(500).json({ error: "Queue status update failed", message: err.message });
   }
 });
 
@@ -1449,9 +1085,28 @@ app.post("/api/emergency/sos", async (req, res) => {
 
 // GET Emergency Alerts
 // Dispatch stream carries caller name, phone and GPS — responders only.
+/**
+ * The facility a hospital desk account administers (hospitalId claim), as its name, which is how
+ * alerts record the hospital they were routed to. null for an unlinked desk.
+ */
+async function ownFacilityName(req: express.Request): Promise<string | null> {
+  const hospitalId = await resolveHospitalId(getAuthUser(req)!.uid);
+  if (!hospitalId) return null;
+  const h = await dbGet("SELECT name FROM hospitals WHERE id = ?", [hospitalId]);
+  return h?.name || null;
+}
+
+// Alerts hold the caller's name, phone and location: a hospital desk sees only the alerts routed
+// to its own facility (an unlinked desk sees none); an administrator sees all.
 app.get("/api/emergency/alerts", requireRole("HOSPITAL", "ADMIN"), async (req, res) => {
   try {
-    const list = await dbAll("SELECT * FROM emergency_alerts");
+    let list: any[];
+    if (getAuthUser(req)!.role === "ADMIN") {
+      list = await dbAll("SELECT * FROM emergency_alerts");
+    } else {
+      const facility = await ownFacilityName(req);
+      list = facility ? await dbAll("SELECT * FROM emergency_alerts WHERE hospitalName = ?", [facility]) : [];
+    }
     res.json(list);
   } catch (err: any) {
     res.status(500).json({ error: "Failed to fetch emergency alerts", message: err.message });
@@ -1470,6 +1125,10 @@ app.put("/api/emergency/alerts/:id/status", requireRole("HOSPITAL", "ADMIN"), as
 
   try {
     const alert = await dbGet("SELECT * FROM emergency_alerts WHERE id = ?", [id]);
+    // A desk may act only on alerts routed to its own facility; any other answers like a missing one.
+    if (alert && getAuthUser(req)!.role === "HOSPITAL" && alert.hospitalName !== (await ownFacilityName(req))) {
+      return res.status(404).json({ error: "Distress alert registry not found" });
+    }
     if (!alert) {
       return res.status(404).json({ error: "Distress alert registry not found" });
     }
@@ -1484,107 +1143,6 @@ app.put("/api/emergency/alerts/:id/status", requireRole("HOSPITAL", "ADMIN"), as
     res.json({ success: true, alert: { ...alert, status } });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to update alert status", message: err.message });
-  }
-});
-
-// ----------------------------------------------------------------
-// Chat Routes
-// ----------------------------------------------------------------
-
-// GET chat messages
-/**
- * Confirm the caller is a party to this consultation. Returns the appointment when
- * allowed, or null. The check runs against the verified token uid, never request input.
- */
-async function getAppointmentIfParty(req: express.Request, appointmentId: string): Promise<any | null> {
-  const caller = getAuthUser(req)!;
-  const appt = await dbGet("SELECT * FROM appointments WHERE id = ?", [appointmentId]);
-  if (!appt) return null;
-  if (caller.role === "ADMIN") return appt;
-  if (caller.role === "DOCTOR") {
-    const doctorId = await resolveDoctorId(caller.uid);
-    return doctorId && appt.doctorId === doctorId ? appt : null;
-  }
-  return appt.patientId === caller.uid ? appt : null;
-}
-
-app.get("/api/chat/:appointmentId", async (req, res) => {
-  const { appointmentId } = req.params;
-  try {
-    const appt = await getAppointmentIfParty(req, appointmentId);
-    if (!appt) {
-      return res.status(403).json({ error: "You are not a party to this consultation." });
-    }
-    const list = await dbAll("SELECT * FROM chat_messages WHERE appointmentId = ? ORDER BY timestamp ASC", [appointmentId]);
-    res.json(list);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch chat logs", message: err.message });
-  }
-});
-
-// Send chat message (sends an automated standby reply if the doctor is offline)
-app.post("/api/chat/:appointmentId", aiRateLimit, async (req, res) => {
-  const { appointmentId } = req.params;
-  const { text } = req.body;
-
-  if (!text || typeof text !== "string" || !text.trim()) {
-    return res.status(400).json({ error: "Message text is required" });
-  }
-  if (text.length > 4000) {
-    return res.status(400).json({ error: "Message is too long (4000 characters maximum)." });
-  }
-
-  try {
-    if (!(await getAppointmentIfParty(req, appointmentId))) {
-      return res.status(403).json({ error: "You are not a party to this consultation." });
-    }
-
-    // Attribution comes from the verified session, never from the body. It used to be
-    // taken as sent, so a patient could post a message rendered as the doctor's -
-    // clinical advice in someone else's name, inside their own consultation.
-    const sender = getAuthUser(req)!.role === "PATIENT" ? "PATIENT" : "DOCTOR";
-
-    const msgId = "msg-" + Date.now() + "-" + Math.floor(Math.random() * 100);
-    const now = new Date().toISOString();
-
-    await dbRun(`
-      INSERT INTO chat_messages (id, appointmentId, sender, text, timestamp)
-      VALUES (?, ?, ?, ?, ?)
-    `, [msgId, appointmentId, sender, text, now]);
-
-    // Fetch the appointment to find details
-    const appt = await dbGet("SELECT * FROM appointments WHERE id = ?", [appointmentId]);
-    
-    // Auto simulated AI Doctor reply if patient sends message
-    if (sender === "PATIENT" && appt) {
-      const docInfo = await dbGet("SELECT * FROM doctors WHERE id = ?", [appt.doctorId]);
-      
-      // If doctor is offline or simulated, generate response
-      if (docInfo && (!docInfo.online || docInfo.id.startsWith("doc-"))) {
-        const autoMsgId = "msg-ai-" + Date.now();
-        
-        // The doctor is offline, so City Healer's assistant answers - as itself, never in
-        // the doctor's name - using the same orchestrator as the Health Copilot.
-        const ai = await orchestrate(text, {
-          findHospitals: recommendHospitals,
-          findDoctors: recommendDoctors,
-        });
-        const replyText = `[City Healer assistant - ${appt.doctorName} is offline and will read this later] ${ai.reply} ${ai.disclaimer}`;
-
-        // Insert the automated reply after a short delay
-        await new Promise(resolve => setTimeout(resolve, 800));
-        await dbRun(`
-          INSERT INTO chat_messages (id, appointmentId, sender, text, timestamp)
-          VALUES (?, ?, ?, ?, ?)
-        `, [autoMsgId, appointmentId, "DOCTOR", replyText, new Date().toISOString()]);
-      }
-    }
-
-    const updatedList = await dbAll("SELECT * FROM chat_messages WHERE appointmentId = ? ORDER BY timestamp ASC", [appointmentId]);
-    res.json(updatedList);
-  } catch (err: any) {
-    console.error("[Send Chat Message Error]", err);
-    res.status(500).json({ error: "Failed to send chat message", message: err.message });
   }
 });
 
@@ -1798,13 +1356,11 @@ app.get("/api/v1/ml/demand-forecast", requireRole("ADMIN"), async (req, res) => 
   try {
     let dates: string[] = [];
     if (series === "appointments") {
-      dates = (await dbAll("SELECT date FROM appointments")).map((r) => r.date);
-      // Bookings with verified providers live in Firestore; count them by start date.
-      try {
-        const since = new Date(Date.now() - days * 86400000).toISOString();
-        const snap = await firestore.collection("appointments").where("startsAt", ">=", since).get();
-        dates.push(...snap.docs.map((d) => String(d.get("startsAt"))));
-      } catch (e) { console.warn("[forecast] Firestore appointments unavailable:", (e as Error).message); }
+      // Every booking lives in Firestore (server/firebase/booking.ts); count them by start date.
+      // A Firestore failure is a failed forecast (500), not "too little activity".
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+      const snap = await firestore.collection("appointments").where("startsAt", ">=", since).get();
+      dates = snap.docs.map((d) => String(d.get("startsAt")));
     } else if (series === "emergencies") {
       dates = (await dbAll("SELECT timestamp FROM emergency_alerts")).map((r) => r.timestamp);
     } else {
@@ -1883,6 +1439,10 @@ async function initServer() {
   // the port opening is what every readiness probe treats as "this server can
   // answer questions about hospitals and doctors".
   await databaseReady;
+
+  // Any /api route not defined above (including the retired SQLite appointment, queue and chat
+  // routes) is a JSON 404, never the frontend's index.html.
+  app.use("/api", (_req, res) => res.status(404).json({ error: "NOT_FOUND", message: "No such API route." }));
 
   if (process.env.API_ONLY === "true") {
     // Used by the access-matrix suite: the API is the subject under test, and

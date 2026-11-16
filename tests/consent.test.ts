@@ -48,12 +48,8 @@ const GATED: Array<[string, string, unknown?]> = [
   ["POST", "/api/medicines/guide", { name: "paracetamol" }],
   ["GET", "/api/records"],
   ["POST", "/api/records", { title: "Blood test", doctorName: "Dr X", diagnoseSummary: "private" }],
-  ["GET", "/api/appointments"],
-  ["POST", "/api/appointments", { doctorId: "doc-1", patientName: "Nora", symptoms: "cough" }],
   ["GET", "/api/v1/appointments/mine"],
   ["POST", "/api/v1/appointments", { slotId: "any" }],
-  ["GET", "/api/queue"],
-  ["POST", "/api/queue/take", { doctorId: "doc-1" }],
   ["GET", "/api/medicines/orders"],
   ["POST", "/api/medicines/order", { items: [], totalAmount: 0 }],
   ["POST", "/api/hospitals/hosp-1/report", { reason: "wrong phone" }],
@@ -201,10 +197,9 @@ describe("recording consent", () => {
     const records = await api("GET", "/api/records", a.nora.token);
     assert.equal(records.status, 200);
     assert.deepEqual(records.body, [], "the record posted while consent was missing must not exist");
-    const appts = await api("GET", "/api/appointments", a.nora.token);
+    const appts = await api("GET", "/api/v1/appointments/mine", a.nora.token);
     assert.equal(appts.status, 200);
-    assert.deepEqual(appts.body, [], "the appointment posted while consent was missing must not exist");
-    assert.equal((await api("GET", "/api/v1/appointments/mine", a.nora.token)).status, 200);
+    assert.deepEqual(appts.body.appointments, [], "the booking attempted while consent was missing must not exist");
     const triage = await api("POST", "/api/symptoms/check", a.nora.token, { symptoms: "fever and cough for two days" });
     assert.equal(triage.status, 200, JSON.stringify(triage.body).slice(0, 200));
     const chat = await api("POST", "/api/v1/copilot/chat", a.nora.token, { message: "I have a headache" });
@@ -293,7 +288,9 @@ describe("stored consent states", () => {
 
 describe("staff are not gated by patient consent", () => {
   test("a doctor, hospital desk and admin with no consent record use their routes", async () => {
-    assert.equal((await api("GET", "/api/appointments", a.doctor.token)).status, 200);
+    assert.equal((await api("GET", "/api/v1/provider/me", a.doctor.token)).status, 200);
+    assert.equal((await api("GET", "/api/v1/appointments/doctor", a.doctor.token)).status, 200);
+    assert.equal((await api("GET", "/api/v1/hospital/facility", a.hospital.token)).status, 200);
     assert.equal((await api("GET", "/api/emergency/alerts", a.hospital.token)).status, 200);
     assert.equal((await api("GET", "/api/hospital-reports", a.admin.token)).status, 200);
   });

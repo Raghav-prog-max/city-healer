@@ -9,7 +9,10 @@
  * a chat message attributed to their doctor; and order totals, quantities and
  * prescription requirements were taken from the request body unchecked.
  *
- * Each test below is one of those exploits, asserted to fail.
+ * Each test below is one of those exploits, asserted to fail. The appointment, prescription and
+ * chat cases went with the SQLite appointment system they attacked: bookings now live in
+ * Firestore, and tests/consultations.test.ts asserts that only the booked doctor can complete,
+ * cancel or prescribe for one. (Appointment messages are being rebuilt on Firestore.)
  *
  *   npm run test:server   (starts the Firebase emulators the accounts live in)
  */
@@ -28,7 +31,6 @@ const TEST_DB_PATH = path.resolve(process.cwd(), TEST_DB);
 let server: ChildProcessWithoutNullStreams;
 
 const actors: Record<string, Actor> = {};
-let bobAppointment = "";
 
 async function api(method: string, route: string, token?: string, body?: unknown) {
   const res = await fetch(`${BASE}${route}`, {
@@ -80,15 +82,8 @@ before(async () => {
   actors.hospOther = await createActor("hosp.other@own.invalid", "Hosp Two", "HOSPITAL", { hospitalId: "hosp-2" });
   actors.admin = await createActor("admin@own.invalid", "Admin", "ADMIN");
 
-  // Seeded doctors are look-only until verified; verify the ones this suite books.
+  // Seeded doctors are look-only until verified; Dr Owner is doc-1, Dr Other is doc-2.
   await verifyDoctorsInTestDb(TEST_DB_PATH, ["doc-1", "doc-2"]);
-
-  // Bob books doc-1. Dr Owner is that clinician; Dr Other is a different one.
-  const booked = await api("POST", "/api/appointments", actors.bob.token, {
-    doctorId: "doc-1", patientName: "Bob Patient", symptoms: "chest tightness"
-  });
-  assert.equal(booked.status, 200);
-  bobAppointment = booked.body.appointment.id;
 });
 
 function stopServer() {
@@ -107,35 +102,6 @@ after(() => {
 });
 
 // ---------------------------------------------------------------------------
-
-describe("a doctor may act only on their own appointments", () => {
-  test("an unrelated doctor cannot change the status -> 403", async () => {
-    const res = await api("PUT", `/api/appointments/${bobAppointment}/status`, actors.drOther.token, { status: "ACCEPTED" });
-    assert.equal(res.status, 403, JSON.stringify(res.body));
-  });
-
-  test("an unrelated doctor cannot write a prescription -> 403", async () => {
-    const res = await api("POST", `/api/appointments/${bobAppointment}/prescription`, actors.drOther.token, {
-      diagnosis: "Anxiety",
-      medicines: [{ name: "Alprazolam", dosage: "2mg", frequency: "Thrice daily", duration: "90 days" }]
-    });
-    assert.equal(res.status, 403, JSON.stringify(res.body));
-  });
-
-  test("the assigned doctor still can -> 200", async () => {
-    const status = await api("PUT", `/api/appointments/${bobAppointment}/status`, actors.drOwner.token, { status: "ACCEPTED" });
-    assert.equal(status.status, 200, JSON.stringify(status.body));
-    const rx = await api("POST", `/api/appointments/${bobAppointment}/prescription`, actors.drOwner.token, {
-      diagnosis: "Angina", medicines: [{ name: "Aspirin", dosage: "75mg", frequency: "Once daily", duration: "30 days" }]
-    });
-    assert.equal(rx.status, 200, JSON.stringify(rx.body));
-  });
-
-  test("an invalid status value is rejected -> 400", async () => {
-    const res = await api("PUT", `/api/appointments/${bobAppointment}/status`, actors.drOwner.token, { status: "BANANA" });
-    assert.equal(res.status, 400);
-  });
-});
 
 describe("a hospital may act only on its own facility", () => {
   test("cannot rewrite another facility's bed census -> 403", async () => {
@@ -179,19 +145,6 @@ describe("a doctor may not sabotage another clinician", () => {
   test("can toggle their own availability -> 200", async () => {
     const res = await api("PUT", "/api/doctors/doc-2/online", actors.drOther.token, { online: false });
     assert.equal(res.status, 200, JSON.stringify(res.body));
-  });
-});
-
-describe("chat attribution comes from the session", () => {
-  test("a patient cannot post as the doctor", async () => {
-    const send = await api("POST", `/api/chat/${bobAppointment}`, actors.bob.token, {
-      sender: "DOCTOR", text: "Stop taking your insulin."
-    });
-    assert.equal(send.status, 200);
-    const log = await api("GET", `/api/chat/${bobAppointment}`, actors.bob.token);
-    const forged = log.body.find((m: any) => m.text.includes("Stop taking your insulin"));
-    assert.ok(forged, "message should still be stored");
-    assert.equal(forged.sender, "PATIENT", "sender must be derived from the session, not the body");
   });
 });
 
@@ -243,12 +196,7 @@ describe("order integrity", () => {
   });
 });
 
-describe("queue and dispatch state machines", () => {
-  test("an invalid queue status is rejected -> 400", async () => {
-    const res = await api("PUT", "/api/queue/tok-1/status", actors.admin.token, { status: "NONSENSE" });
-    assert.equal(res.status, 400);
-  });
-
+describe("the dispatch state machine", () => {
   test("an invalid alert status is rejected -> 400", async () => {
     const res = await api("PUT", "/api/emergency/alerts/sos-1/status", actors.admin.token, { status: "NONSENSE" });
     assert.equal(res.status, 400);
