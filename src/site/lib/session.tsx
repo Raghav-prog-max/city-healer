@@ -133,6 +133,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
+/**
+ * Where a staff account lands: doctors in the provider workspace, admins in provider review
+ * (both in this site), hospital desks in the earlier workspace (src/App.tsx), which doctors and
+ * admins can still open from a link on their page.
+ */
+export function staffHome(role: string, href: (path: string) => string) {
+  return role === "DOCTOR" ? href("/provider") : role === "ADMIN" ? href("/admin/providers") : "/dashboard";
+}
+
 export function useSession(): Session {
   const v = useContext(Ctx);
   if (!v) throw new Error("useSession outside SessionProvider");

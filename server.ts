@@ -26,6 +26,7 @@ import { recommendDiet, DIET_CONDITIONS, FOOD_SOURCE } from "./server/dietRecomm
 import { adminAuth, usingEmulators, firebaseConfigProblem, firebaseProjectId } from "./server/firebase/admin";
 import { verifyFirebaseToken, ROLE_TO_CLAIM, type AuthUser, type Role } from "./server/firebase/identity";
 import { providerDoctorsRouter, appointmentsRouter, verifiedProviders } from "./server/firebase/booking";
+import { providerSelfRouter, adminProvidersRouter } from "./server/firebase/providers";
 import { requireConsent } from "./server/firebase/consent";
 import { BUILD_INFO_FILE, frontendBuildProblem } from "./shared/buildEnv";
 import { patientRouter, getPatientProfile, savePatientProfile, legacyUserShape, patientProfileUpdateSchema, writeAuditEvent } from "./server/firebase/patients";
@@ -458,6 +459,9 @@ app.use("/api/v1/me", patientRouter());
 // Verified providers, slots and Firestore-transaction booking (City_Healer_Integrated_Doctor_Booking).
 app.use("/api/v1/doctors", providerDoctorsRouter());
 app.use("/api/v1/appointments", appointmentsRouter());
+// Doctor and admin screens for provider onboarding (server/firebase/providers.ts).
+app.use("/api/v1/provider", providerSelfRouter());
+app.use("/api/v1/admin/providers", adminProvidersRouter());
 
 // The older screens read and write profiles here; it serves the Firestore profile.
 app.get("/api/users/:uid", async (req, res) => {
