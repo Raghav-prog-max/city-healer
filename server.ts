@@ -25,6 +25,7 @@ import { recommendDiet, DIET_CONDITIONS, FOOD_SOURCE } from "./server/dietRecomm
 import { adminAuth, usingEmulators, firebaseConfigProblem, firebaseProjectId } from "./server/firebase/admin";
 import { verifyFirebaseToken, ROLE_TO_CLAIM, type AuthUser, type Role } from "./server/firebase/identity";
 import { providerDoctorsRouter, appointmentsRouter } from "./server/firebase/booking";
+import { requireConsent } from "./server/firebase/consent";
 import { patientRouter, getPatientProfile, savePatientProfile, legacyUserShape, patientProfileUpdateSchema, writeAuditEvent } from "./server/firebase/patients";
 
 // Fix node localhost resolution issues
@@ -162,6 +163,9 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
 };
 
 app.use(authenticateUser);
+// Patients need a valid, current consent for every API call not explicitly exempted
+// (server/firebase/consent.ts). Fails closed.
+app.use(requireConsent());
 
 const getAuthUser = (req: express.Request): AuthUser | null => (req as any).user || null;
 

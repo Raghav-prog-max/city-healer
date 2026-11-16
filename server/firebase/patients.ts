@@ -6,6 +6,8 @@
  *   GET  /api/v1/me            identity from the verified token + own profile
  *   PUT  /api/v1/me/profile    create / update own profile (strict schema)
  *   POST /api/v1/me/consents   append-only consent event (terms + privacy versions)
+ *   POST /api/v1/me/consents/withdraw   append-only withdrawal event; patient routes then refuse
+ *                              (server/firebase/consent.ts) until consent is given again
  *
  * Collections: patientProfiles/{uid}, patientConsents/{id}, auditLogs/{id}. No diagnosis,
  * prescriptions, lab values, clinical notes or files are stored here.
@@ -15,6 +17,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { firestore } from "./admin";
 import type { AuthUser } from "./identity";
+import { readConsentStatus, forgetConsent } from "./consent";
+import { TERMS_VERSION, PRIVACY_VERSION } from "../../shared/consent";
 
 export const ncrCities = ["Delhi", "Gurugram", "Noida", "Greater Noida", "Ghaziabad", "Faridabad"] as const;
 
@@ -99,6 +103,8 @@ export function patientRouter() {
         email: user.email || null,
         role: user.claimRole || "patient",
         profile: plain(await getPatientProfile(user.uid)),
+        // Mandatory service consent only; marketing opt-in is separate and never required.
+        consent: { status: await readConsentStatus(user.uid), termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION },
       });
     } catch (err) { next(err); }
   });
@@ -126,10 +132,27 @@ export function patientRouter() {
       if (!parsed.success) {
         return res.status(400).json({ error: "VALIDATION_ERROR", message: "The required terms must be accepted.", details: parsed.error.flatten() });
       }
+      // Only the current versions can be accepted: an old screen cannot record stale terms.
+      if (parsed.data.termsVersion !== TERMS_VERSION || parsed.data.privacyVersion !== PRIVACY_VERSION) {
+        return res.status(409).json({ error: "CONSENT_VERSION_MISMATCH", message: "The terms have been updated. Please reload and review them.", termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION });
+      }
       const consentRef = firestore.collection("patientConsents").doc();
-      await consentRef.create({ uid: user.uid, ...parsed.data, recordedAt: FieldValue.serverTimestamp(), source: "patient_web" });
+      await consentRef.create({ uid: user.uid, action: "grant", ...parsed.data, recordedAt: FieldValue.serverTimestamp(), source: "patient_web" });
       await writeAuditEvent({ actorUid: user.uid, action: "patient.consent.record", resourceType: "patientConsent", resourceId: consentRef.id });
+      forgetConsent(user.uid);
       res.status(201).json({ ok: true });
+    } catch (err) { next(err); }
+  });
+
+  router.post("/consents/withdraw", async (req, res, next) => {
+    try {
+      const user = caller(req)!;
+      if (user.isDemo) return res.status(403).json({ error: "DEMO", message: "The demo sandbox cannot record consent." });
+      const consentRef = firestore.collection("patientConsents").doc();
+      await consentRef.create({ uid: user.uid, action: "withdraw", recordedAt: FieldValue.serverTimestamp(), source: "patient_web" });
+      await writeAuditEvent({ actorUid: user.uid, action: "patient.consent.withdraw", resourceType: "patientConsent", resourceId: consentRef.id });
+      forgetConsent(user.uid);
+      res.status(201).json({ ok: true, consentStatus: "withdrawn" });
     } catch (err) { next(err); }
   });
 

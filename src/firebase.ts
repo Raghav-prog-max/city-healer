@@ -128,8 +128,9 @@ export const recordConsent = (consent: { termsAccepted: true; termsVersion: stri
 export const getMyAccount = () => apiWithToken("/api/v1/me");
 
 /** Current versions of the documents a patient accepts at sign-up. Bump when they change. */
-export const TERMS_VERSION = "2026-11-15";
-export const PRIVACY_VERSION = "2026-11-15";
+// One definition, shared with the server that enforces them.
+export { TERMS_VERSION, PRIVACY_VERSION } from "../shared/consent";
+import { TERMS_VERSION, PRIVACY_VERSION } from "../shared/consent";
 
 /**
  * Create an email account. With a profile (onboarding) it is saved, with the consent, to
