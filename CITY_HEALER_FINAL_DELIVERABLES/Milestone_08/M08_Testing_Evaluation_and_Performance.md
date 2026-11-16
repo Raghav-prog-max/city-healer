@@ -103,7 +103,7 @@ See Milestone 7 (7.8, 7.11).
 
 ![Figure 26: Terminal output of the final npm test run](../screenshots/fig-26-npm-test-output.png)
 
-PENDING: Figure 26. The full text of the run is already in `../final-npm-test.log`.
+Figure 26 shows the summary lines of that run; the full text is in `../final-npm-test.log`.
 
 ## 8.11 Test cases (selected)
 

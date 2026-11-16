@@ -103,7 +103,7 @@ The order of work followed the audit's action plan (`CITY_HEALER_AUDIT_REPORT/RE
 
 ![Figure 19: City Healer component architecture](../screenshots/fig-19-architecture-diagram.png)
 
-PENDING: Figure 19 must be drawn from the text diagram below; no image exists yet.
+Figure 19 is drawn from the text diagram below (source: `../screenshots/fig-19-architecture-diagram.svg`).
 
 ```
 Browser (React 19 SPA, /en and /hi)
@@ -252,9 +252,8 @@ All screenshots were captured from the running app against local emulators with 
 
 ![Figure 1: Landing page](../screenshots/fig-01-landing-page.jpg)
 ![Figure 18: Bilingual 404 page for an unknown URL (replaces the legacy app)](../screenshots/fig-18-404-page.jpg)
-![Figure 19: Component architecture (to be drawn)](../screenshots/fig-19-architecture-diagram.png)
+![Figure 19: Component architecture](../screenshots/fig-19-architecture-diagram.png)
 
-PENDING: Figure 19.
 
 ## 5.11 Test cases
 

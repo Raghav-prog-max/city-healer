@@ -224,7 +224,7 @@ Added in Milestones 5–10. Every entry marked "to be checked" must be verified 
 
 | Appendix | Content | Status |
 |---|---|---|
-| A | Screenshots (`screenshots/`, Figures 1–18) | Captured; Figures 19–28 PENDING (see `README.md`) |
+| A | Screenshots (`screenshots/`, Figures 1–18) | Captured: Figures 1–18 (app), 19 (architecture diagram), 20–27 (app and test run), 28 (title slide) |
 | B | `TEST_EXECUTION_LOG.md` and `final-npm-test.log` | Done |
 | C | `EVIDENCE_REGISTER.md` | Done |
 | D | `RUBRIC_TRACEABILITY.md` | Done |

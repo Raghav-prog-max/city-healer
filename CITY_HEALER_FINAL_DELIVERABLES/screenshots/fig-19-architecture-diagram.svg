@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <title>City Healer component architecture</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .box{fill:#ffffff;stroke:#cbd5e1;stroke-width:1.5}
+      .band{fill:#f1f5f9;stroke:#cbd5e1;stroke-width:1.2}
+      .chain{fill:#e0f2fe;stroke:#7dd3fc;stroke-width:1.2}
+      .mod{fill:#ffffff;stroke:#94a3b8;stroke-width:1.2}
+      .fs{fill:#fef3c7;stroke:#f59e0b;stroke-width:1.4}
+      .sql{fill:#dcfce7;stroke:#22c55e;stroke-width:1.4}
+      .json{fill:#ede9fe;stroke:#8b5cf6;stroke-width:1.4}
+      .ext{fill:#fff1f2;stroke:#fb7185;stroke-width:1.4}
+      .h{font-size:17px;font-weight:700;fill:#0f172a}
+      .t{font-size:13px;fill:#1e293b}
+      .s{font-size:11.5px;fill:#475569}
+      .line{stroke:#475569;stroke-width:1.6;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#475569;stroke-width:1.4;fill:none;stroke-dasharray:5 4;marker-end:url(#arrow)}
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="820" fill="#f8fafc"/>
+  <text x="30" y="38" class="h" font-size="22">City Healer: component architecture (main at ab6a05a)</text>
+  <text x="30" y="60" class="s">One Node process serves the API and the built frontend. Solid arrows: requests and data. Dashed: optional or deployment-time.</text>
+
+  <!-- Browser -->
+  <rect x="30" y="85" width="520" height="118" rx="12" class="box"/>
+  <text x="48" y="112" class="h">Browser: React 19 single-page app</text>
+  <text x="48" y="136" class="t">Routes /en and /hi · Patient dashboard · Provider workspace</text>
+  <text x="48" y="156" class="t">Hospital desk · Admin (providers, hospital listings) · 404 page</text>
+  <text x="48" y="180" class="s">Firebase Web SDK: phone OTP or email sign-in → ID token (JWT) sent as</text>
+  <text x="48" y="195" class="s">Authorization: Bearer … ; session restored on reload</text>
+
+  <!-- Firebase Auth -->
+  <rect x="640" y="85" width="270" height="118" rx="12" class="ext"/>
+  <text x="658" y="112" class="h">Firebase Authentication</text>
+  <text x="658" y="136" class="t">Phone OTP and email/password</text>
+  <text x="658" y="156" class="t">Roles as custom claims (admin-set)</text>
+  <text x="658" y="180" class="s">Local: Auth emulator (port 9099)</text>
+
+  <!-- Optional LLM -->
+  <rect x="950" y="85" width="220" height="118" rx="12" class="ext"/>
+  <text x="968" y="112" class="h">Gemini API (optional)</text>
+  <text x="968" y="136" class="t">Only if GEMINI_API_KEY is set</text>
+  <text x="968" y="156" class="t">Not configured in this build</text>
+  <text x="968" y="180" class="s">Offline models answer instead</text>
+
+  <path d="M550 125 H636" class="line"/>
+  <text x="560" y="117" class="s">sign in</text>
+
+  <!-- Express band -->
+  <rect x="30" y="235" width="1140" height="350" rx="14" class="band"/>
+  <text x="48" y="262" class="h">Express server (server.ts, Node + TypeScript)</text>
+
+  <!-- request chain -->
+  <text x="48" y="290" class="s">Every request passes this chain, in order:</text>
+  <g>
+    <rect x="48" y="300" width="160" height="58" rx="8" class="chain"/>
+    <text x="58" y="323" class="t">Security headers</text>
+    <text x="58" y="341" class="s">CSP + HSTS in production</text>
+
+    <rect x="222" y="300" width="160" height="58" rx="8" class="chain"/>
+    <text x="232" y="323" class="t">JSON body parser</text>
+    <text x="232" y="341" class="s">bad JSON → 400</text>
+
+    <rect x="396" y="300" width="160" height="58" rx="8" class="chain"/>
+    <text x="406" y="323" class="t">authenticateUser</text>
+    <text x="406" y="341" class="s">verify token, revocation</text>
+
+    <rect x="570" y="300" width="160" height="58" rx="8" class="chain"/>
+    <text x="580" y="323" class="t">requireConsent</text>
+    <text x="580" y="341" class="s">patients, fails closed</text>
+
+    <rect x="744" y="300" width="160" height="58" rx="8" class="chain"/>
+    <text x="754" y="323" class="t">Rate limits</text>
+    <text x="754" y="341" class="s">writes, SOS, AI</text>
+
+    <rect x="918" y="300" width="232" height="58" rx="8" class="chain"/>
+    <text x="928" y="323" class="t">requireRole + ownership</text>
+    <text x="928" y="341" class="s">checked in handler / transaction</text>
+
+    <path d="M208 329 H218" class="line"/><path d="M382 329 H392" class="line"/><path d="M556 329 H566" class="line"/>
+    <path d="M730 329 H740" class="line"/><path d="M904 329 H914" class="line"/>
+  </g>
+  <path d="M60 203 V219 H16 V329 H44" class="line"/>
+  <text x="70" y="223" class="s">HTTPS API calls with the ID token</text>
+  <path d="M520 296 C560 240 700 230 760 206" class="dash"/>
+  <text x="600" y="234" class="s">verify ID token</text>
+
+  <!-- modules -->
+  <text x="48" y="392" class="s">Modules (routes and their logic):</text>
+  <g>
+    <rect x="48" y="402" width="215" height="76" rx="8" class="mod"/>
+    <text x="58" y="424" class="t">Triage and copilot</text>
+    <text x="58" y="442" class="s">emergency rules first, then</text>
+    <text x="58" y="457" class="s">trained models; LLM optional</text>
+    <text x="58" y="472" class="s">shared/triage*.ts, server/ai</text>
+
+    <rect x="273" y="402" width="215" height="76" rx="8" class="mod"/>
+    <text x="283" y="424" class="t">Hospitals and beds</text>
+    <text x="283" y="442" class="s">weighted Top-K ranking,</text>
+    <text x="283" y="457" class="s">nearest scan; hospital desk</text>
+    <text x="283" y="472" class="s">shared/hospitalRanking.ts</text>
+
+    <rect x="498" y="402" width="215" height="76" rx="8" class="mod"/>
+    <text x="508" y="424" class="t">Booking and consultation</text>
+    <text x="508" y="442" class="s">slots, appointments, messages,</text>
+    <text x="508" y="457" class="s">check-in, prescriptions</text>
+    <text x="508" y="472" class="s">server/firebase/*.ts</text>
+
+    <rect x="723" y="402" width="215" height="76" rx="8" class="mod"/>
+    <text x="733" y="424" class="t">Records and lab reader</text>
+    <text x="733" y="442" class="s">health wallet, report upload,</text>
+    <text x="733" y="457" class="s">risk models, reference ranges</text>
+    <text x="733" y="472" class="s">server/ai/labValues.ts</text>
+
+    <rect x="948" y="402" width="202" height="76" rx="8" class="mod"/>
+    <text x="958" y="424" class="t">Medicines and pharmacy</text>
+    <text x="958" y="442" class="s">search, RAG answers (cited),</text>
+    <text x="958" y="457" class="s">demo orders, diet plans</text>
+    <text x="958" y="472" class="s">medicineIndex.ts, rag.ts</text>
+
+    <rect x="48" y="488" width="215" height="76" rx="8" class="mod"/>
+    <text x="58" y="510" class="t">Emergency SOS</text>
+    <text x="58" y="528" class="s">alert + nearest hospital record;</text>
+    <text x="58" y="543" class="s">alerts scoped per facility</text>
+    <text x="58" y="558" class="s">(no real ambulance dispatch)</text>
+
+    <rect x="273" y="488" width="215" height="76" rx="8" class="mod"/>
+    <text x="283" y="510" class="t">Accounts and providers</text>
+    <text x="283" y="528" class="s">profile, consent, admin grants</text>
+    <text x="283" y="543" class="s">doctor role, verification</text>
+    <text x="283" y="558" class="s">patients.ts, providers.ts</text>
+
+    <rect x="498" y="488" width="215" height="76" rx="8" class="mod"/>
+    <text x="508" y="510" class="t">Errors and fallbacks</text>
+    <text x="508" y="528" class="s">unknown /api → JSON 404;</text>
+    <text x="508" y="543" class="s">unhandled → JSON 500, no stack</text>
+    <text x="508" y="558" class="s">server/httpHardening.ts</text>
+
+    <rect x="723" y="488" width="427" height="76" rx="8" class="mod"/>
+    <text x="733" y="510" class="t">Static frontend</text>
+    <text x="733" y="528" class="s">In production the same process serves dist/ (Vite build) and refuses a</text>
+    <text x="733" y="543" class="s">build compiled for the emulators or another Firebase project.</text>
+    <text x="733" y="558" class="s">In development the Vite dev middleware serves the app with hot reload.</text>
+  </g>
+  <path d="M1160 203 V384 L1120 398" class="dash"/>
+  <text x="1092" y="380" class="s">optional</text>
+
+  <!-- data stores -->
+  <rect x="30" y="625" width="420" height="170" rx="12" class="fs"/>
+  <text x="48" y="652" class="h">Cloud Firestore (server-only)</text>
+  <text x="48" y="676" class="t">patientProfiles · patientConsents · auditLogs</text>
+  <text x="48" y="696" class="t">doctors (verified providers) · doctorSlots</text>
+  <text x="48" y="716" class="t">appointments (+ messages) · prescriptions</text>
+  <text x="48" y="736" class="t">notificationOutbox (queued, not yet sent)</text>
+  <text x="48" y="762" class="s">Rules deny all client access except reading your own profile.</text>
+  <text x="48" y="778" class="s">Local: Firestore emulator (port 8085).</text>
+
+  <rect x="470" y="625" width="420" height="170" rx="12" class="sql"/>
+  <text x="488" y="652" class="h">SQLite (database.ts)</text>
+  <text x="488" y="676" class="t">hospitals (OpenStreetMap import) · hospital_reports</text>
+  <text x="488" y="696" class="t">doctors (look-only sample directory)</text>
+  <text x="488" y="716" class="t">medical_records · medicines · medicine_orders</text>
+  <text x="488" y="736" class="t">emergency_alerts</text>
+  <text x="488" y="762" class="s">Old appointment, queue and chat tables are kept but unused.</text>
+  <text x="488" y="778" class="s">DB_PATH points at a persistent volume when deployed.</text>
+
+  <rect x="910" y="625" width="260" height="170" rx="12" class="json"/>
+  <text x="928" y="652" class="h">Model files (JSON)</text>
+  <text x="928" y="676" class="t">triage · intent · facility</text>
+  <text x="928" y="696" class="t">lab risk models</text>
+  <text x="928" y="716" class="t">medicine index · foods</text>
+  <text x="928" y="762" class="s">Trained in ml/ (Python), loaded</text>
+  <text x="928" y="778" class="s">at start-up, inference in-process.</text>
+
+  <path d="M240 585 V621" class="line"/>
+  <text x="250" y="608" class="s">accounts, booking, consultation, messages, prescriptions</text>
+  <path d="M680 585 V621" class="line"/>
+  <text x="690" y="608" class="s">hospitals, records, pharmacy, SOS</text>
+  <path d="M1040 585 V621" class="line"/>
+  <text x="1050" y="608" class="s">model inference</text>
+</svg>

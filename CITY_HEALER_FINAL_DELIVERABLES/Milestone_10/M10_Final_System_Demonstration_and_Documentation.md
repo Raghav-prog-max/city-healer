@@ -112,7 +112,6 @@ All 18 captured screenshots are listed in `../README.md`.
 ![Figure 1: Landing page](../screenshots/fig-01-landing-page.jpg)
 ![Figure 28: Title slide of the final presentation](../screenshots/fig-28-presentation-title.png)
 
-PENDING: Figure 28.
 
 ## 10.11 Test cases (demonstration acceptance)
 
