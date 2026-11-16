@@ -33,6 +33,9 @@ import { verifyFirebaseToken, type AuthUser, type Role } from "./server/firebase
 import { providerDoctorsRouter, appointmentsRouter, verifiedProviders } from "./server/firebase/booking";
 import { providerSelfRouter, adminProvidersRouter } from "./server/firebase/providers";
 import { consultationsRouter, prescriptionsRouter } from "./server/firebase/consultations";
+import { messagesRouter } from "./server/firebase/messages";
+import { checkinRouter } from "./server/firebase/checkin";
+import { rateLimit } from "./server/firebase/rateLimit";
 import { requireConsent } from "./server/firebase/consent";
 import { BUILD_INFO_FILE, frontendBuildProblem } from "./shared/buildEnv";
 import { patientRouter } from "./server/firebase/patients";
@@ -397,6 +400,19 @@ app.use("/api/v1/appointments", consultationsRouter({
   recordsOfPatient: (patientUid) => dbAll("SELECT * FROM medical_records WHERE patientId = ? ORDER BY date DESC", [patientUid]),
 }));
 app.use("/api/v1/prescriptions", prescriptionsRouter());
+// Messages between the two parties of a booking (server/firebase/messages.ts). Also before the
+// patient-only booking router, since doctors use these routes too. The limiters are in memory
+// (server/firebase/rateLimit.ts). Polls are counted per open panel (uid and appointment), with
+// one per-uid ceiling over all of them, so a doctor with several threads open is not refused.
+const appointmentPostLimit = rateLimit({ limit: Number(process.env.MESSAGES_POST_LIMIT) || 20, windowMs: 10 * 60_000 });
+const messagesPollLimit = rateLimit({ limit: Number(process.env.MESSAGES_POLL_LIMIT) || 30, windowMs: 60_000, perAppointment: true });
+const queuePollLimit = rateLimit({ limit: Number(process.env.QUEUE_POLL_LIMIT) || Number(process.env.MESSAGES_POLL_LIMIT) || 30, windowMs: 60_000, perAppointment: true });
+const appointmentPollCeiling = rateLimit({ limit: Number(process.env.APPOINTMENT_POLL_CEILING) || 300, windowMs: 60_000 });
+app.use("/api/v1/appointments", messagesRouter({ postLimit: appointmentPostLimit, pollLimit: [appointmentPollCeiling, messagesPollLimit] }));
+// Same-day check-in on in-person bookings (server/firebase/checkin.ts). Before the patient-only
+// booking router too, since doctors call patients in. GET /queue has its own per-booking poll
+// limiter under the same per-uid ceiling.
+app.use("/api/v1/appointments", checkinRouter({ pollLimit: [appointmentPollCeiling, queuePollLimit] }));
 app.use("/api/v1/appointments", appointmentsRouter());
 // Doctor and admin screens for provider onboarding (server/firebase/providers.ts).
 app.use("/api/v1/provider", providerSelfRouter());

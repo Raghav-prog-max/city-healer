@@ -35,6 +35,8 @@ import { z } from "zod";
 import { firestore } from "./admin";
 import type { AuthUser, Role } from "./identity";
 import { ncrCities, writeAuditEvent } from "./patients";
+import { doctorUnread, isUrgent, patientUnread } from "./messages";
+import { istDayBounds } from "./istDay";
 
 const doctorsCol = () => firestore.collection("doctors");
 const slotsCol = () => firestore.collection("doctorSlots");
@@ -251,7 +253,12 @@ export async function rescheduleAppointment(uid: string, id: string, newSlotId: 
     if (n.get("startsAt") <= nowIso()) throw Error("SLOT_IN_PAST");
     tx.update(ns, { status: "booked", appointmentId: id, updatedAt: FieldValue.serverTimestamp() });
     if (o.exists && o.get("appointmentId") === id) tx.update(os, { status: "open", appointmentId: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
-    tx.update(a, { slotId: newSlotId, startsAt: n.get("startsAt"), endsAt: n.get("endsAt"), updatedAt: FieldValue.serverTimestamp() });
+    // A check-in belongs to the old time (server/firebase/checkin.ts): the new one starts afresh.
+    tx.update(a, {
+      slotId: newSlotId, startsAt: n.get("startsAt"), endsAt: n.get("endsAt"),
+      arrivedAt: FieldValue.delete(), calledAt: FieldValue.delete(), checkInCount: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
     tx.create(outboxCol().doc(), { type: "appointment_rescheduled", recipientUid: uid, appointmentId: id, status: "pending", createdAt: FieldValue.serverTimestamp() });
   });
   await writeAuditEvent({ actorUid: uid, action: "appointment.rescheduled", resourceType: "appointment", resourceId: id });
@@ -364,7 +371,18 @@ export function appointmentsRouter() {
   // The patient's name comes from their profile; nothing else about the patient is included.
   r.get("/doctor", allowRoles("DOCTOR"), notDemo, async (req, res) => {
     try {
-      const s = await appointmentsCol().where("doctorId", "==", user(req)!.uid).limit(300).get();
+      const uid = user(req)!.uid;
+      // Two reads. The general list is capped and unordered; today's bookings (Asia/Kolkata day)
+      // come from the indexed day query (doctorId, startsAt; firebase/firestore.indexes.json),
+      // so the Today card never misses a patient who is here, however many bookings the doctor has.
+      const { startIso, endIso } = istDayBounds(Date.now());
+      const [general, today] = await Promise.all([
+        appointmentsCol().where("doctorId", "==", uid).limit(300).get(),
+        appointmentsCol().where("doctorId", "==", uid).where("startsAt", ">=", startIso).where("startsAt", "<", endIso).orderBy("startsAt").limit(500).get(),
+      ]);
+      const byId = new Map(general.docs.map((d) => [d.id, d]));
+      for (const d of today.docs) byId.set(d.id, d);
+      const s = { docs: [...byId.values()] };
       const patientUids = [...new Set(s.docs.map((d) => String(d.get("patientUid"))))];
       const profiles = patientUids.length ? await firestore.getAll(...patientUids.map((uid) => firestore.collection("patientProfiles").doc(uid))) : [];
       const nameOf = new Map(profiles.map((p) => [p.id, p.exists ? String(p.get("fullName") || "") : ""]));
@@ -372,6 +390,10 @@ export function appointmentsRouter() {
         id: d.id, patientName: nameOf.get(String(d.get("patientUid"))) || "", reason: d.get("reason") || "",
         startsAt: d.get("startsAt"), endsAt: d.get("endsAt"), consultationType: d.get("consultationType"), status: d.get("status"),
         cancelledBy: d.get("cancelledBy") || null, hasPrescription: !!d.get("hasPrescription"),
+        // Same-day check-in (server/firebase/checkin.ts): when the patient arrived and was called.
+        arrivedAt: d.get("arrivedAt") ?? null, calledAt: d.get("calledAt") ?? null,
+        // Whether there is something to read, never what it says (server/firebase/messages.ts).
+        chat: { unread: doctorUnread(d.get("chat") || {}), urgent: isUrgent(d.get("chat") || {}) },
       })).sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
       res.json({ appointments });
     } catch (e) { fail(res, e); }
@@ -391,10 +413,17 @@ export function appointmentsRouter() {
   r.get("/mine", async (req, res) => {
     try {
       const s = await appointmentsCol().where("patientUid", "==", user(req)!.uid).limit(100).get();
-      const appointments = s.docs.map((d) => {
-        const { createdAt, updatedAt, ...rest } = d.data();
-        return { id: d.id, ...rest };
-      }).sort((a: any, b: any) => String(a.startsAt).localeCompare(String(b.startsAt)));
+      // An explicit list of fields, not the whole document: the booking also carries the chat
+      // summary and the patient's own uid, which the screens have no use for.
+      const appointments = s.docs.map((d) => ({
+        id: d.id, doctorId: d.get("doctorId"), doctorName: d.get("doctorName"), specialty: d.get("specialty"),
+        slotId: d.get("slotId"), consultationType: d.get("consultationType"), reason: d.get("reason") ?? "",
+        startsAt: d.get("startsAt"), endsAt: d.get("endsAt"), status: d.get("status"),
+        cancelledBy: d.get("cancelledBy"), cancelReason: d.get("cancelReason"), completedAt: d.get("completedAt"),
+        hasPrescription: !!d.get("hasPrescription"),
+        arrivedAt: d.get("arrivedAt") ?? null, calledAt: d.get("calledAt") ?? null,
+        chatUnread: patientUnread(d.get("chat") || {}),
+      })).sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
       res.json({ appointments });
     } catch (e) { fail(res, e); }
   });

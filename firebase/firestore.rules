@@ -37,6 +37,11 @@ service cloud.firestore {
     // the appointment; no client SDK can.
     match /prescriptions/{id} { allow read, write: if false; }
 
+    // Messages about an appointment (server/firebase/messages.ts) are clinical: what a patient
+    // wrote to their doctor. Only the server reads or writes them, after checking the caller is
+    // a party to the booking and inside its window; no client SDK can, and nothing edits them.
+    match /appointments/{id}/messages/{messageId} { allow read, write: if false; }
+
     // Deny all unspecified collections until a collection-specific policy is added.
     match /{document=**} {
       allow read, write: if false;

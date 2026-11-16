@@ -171,7 +171,10 @@ describe("booking", () => {
     const appt = mine.body.appointments.find((x: any) => x.id === aliceAppt);
     assert.ok(appt);
     assert.equal(appt.doctorName, application.fullName);
-    assert.equal(appt.patientUid, a.alice.uid);
+    // An explicit list of fields: not the patient's own uid, and not the raw chat summary.
+    assert.equal(appt.patientUid, undefined);
+    assert.equal(appt.chat, undefined);
+    assert.equal(appt.chatUnread, false);
     const bobs = await api("GET", "/api/v1/appointments/mine", a.bob.token);
     assert.ok(!bobs.body.appointments.some((x: any) => x.id === aliceAppt && x.status === "confirmed"));
   });
@@ -183,7 +186,8 @@ describe("booking", () => {
     assert.ok(appt, "the doctor's list includes Alice's booking");
     assert.equal(appt.patientName, "Alice Patient");
     assert.equal(appt.status, "confirmed");
-    assert.deepEqual(Object.keys(appt).sort(), ["cancelledBy", "consultationType", "endsAt", "hasPrescription", "id", "patientName", "reason", "startsAt", "status"], "nothing else about the patient is sent");
+    assert.deepEqual(Object.keys(appt).sort(), ["arrivedAt", "calledAt", "cancelledBy", "chat", "consultationType", "endsAt", "hasPrescription", "id", "patientName", "reason", "startsAt", "status"], "nothing else about the patient is sent");
+    assert.deepEqual(appt.chat, { unread: false, urgent: false }, "whether there are messages, never what they say");
 
     const other = await api("GET", "/api/v1/appointments/doctor", a.otherDoctor.token);
     assert.equal(other.status, 200);
