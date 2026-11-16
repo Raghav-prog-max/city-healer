@@ -177,6 +177,65 @@ export async function cancelAppointment(uid: string, id: string) {
   await writeAuditEvent({ actorUid: uid, action: "appointment.cancelled", resourceType: "appointment", resourceId: id });
 }
 
+/** What a patient is told when City Healer cancels because the doctor was refused. */
+export const DOCTOR_REFUSED_REASON = "This doctor is no longer available on City Healer. Please book another doctor.";
+
+export interface RefusalCancellation {
+  /** Upcoming appointments cancelled. */
+  cancelled: number;
+  /** Confirmed appointments that had already started: left for the doctor to cancel or, once verified again, complete. */
+  started: number;
+  /** Upcoming appointments that could not be cancelled this time. Running it again retries them. */
+  failed: number;
+}
+
+/**
+ * Cancel the upcoming appointments of a doctor whose verification has been refused, so no
+ * patient is left holding a booking with someone City Healer no longer vouches for.
+ *
+ * Only appointments that have not started are cancelled. One that has started may be a visit
+ * that took place and is waiting for the doctor to close it: telling that patient to "book
+ * another doctor" would be wrong, so it is left as it is and counted in `started`.
+ *
+ * Each appointment is cancelled in its own transaction (a patient may be cancelling or
+ * rescheduling at the same moment): status "cancelled", cancelledBy "city_healer", the time
+ * withdrawn, and a notification queued for the patient (nothing sends these yet). One failing
+ * does not stop the rest; it is counted in `failed`, and calling this again retries it.
+ * Completed and already-cancelled appointments, and prescriptions, are never touched.
+ */
+export async function cancelOpenAppointmentsOfDoctor(doctorUid: string, actorUid: string): Promise<RefusalCancellation> {
+  const snap = await appointmentsCol().where("doctorId", "==", doctorUid).get();
+  const result: RefusalCancellation = { cancelled: 0, started: 0, failed: 0 };
+  for (const doc of snap.docs.filter((d) => d.get("status") === "confirmed")) {
+    let outcome: "cancelled" | "started" | "unchanged";
+    try {
+      outcome = await firestore.runTransaction(async (tx) => {
+        const a = await tx.get(doc.ref);
+        if (!a.exists || a.get("status") !== "confirmed") return "unchanged" as const; // changed since the query
+        if (a.get("startsAt") <= nowIso()) return "started" as const;
+        const slotId = a.get("slotId");
+        const slotRef = typeof slotId === "string" && slotId ? slotsCol().doc(slotId) : null;
+        const slot = slotRef ? await tx.get(slotRef) : null;
+        tx.update(doc.ref, { status: "cancelled", cancelledBy: "city_healer", cancelReason: DOCTOR_REFUSED_REASON, updatedAt: FieldValue.serverTimestamp() });
+        if (slotRef && slot?.exists && slot.get("appointmentId") === doc.id) tx.update(slotRef, { status: "withdrawn", appointmentId: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
+        tx.create(outboxCol().doc(), { type: "appointment_cancelled_doctor_refused", recipientUid: a.get("patientUid"), appointmentId: doc.id, status: "pending", createdAt: FieldValue.serverTimestamp() });
+        return "cancelled" as const;
+      });
+    } catch (err) {
+      console.error("[booking] could not cancel an appointment of a refused doctor:", err instanceof Error ? err.message : "unknown_error");
+      result.failed++;
+      continue;
+    }
+    if (outcome === "started") result.started++;
+    if (outcome !== "cancelled") continue;
+    result.cancelled++;
+    // The cancellation stands even if its audit entry cannot be written; the rest still run.
+    try { await writeAuditEvent({ actorUid, action: "appointment.cancelled_doctor_refused", resourceType: "appointment", resourceId: doc.id }); }
+    catch (err) { console.error("[booking] audit event not written:", err instanceof Error ? err.message : "unknown_error"); }
+  }
+  return result;
+}
+
 export async function rescheduleAppointment(uid: string, id: string, newSlotId: string) {
   const a = appointmentsCol().doc(id), ns = slotsCol().doc(newSlotId);
   await firestore.runTransaction(async (tx) => {
@@ -284,7 +343,14 @@ export function providerDoctorsRouter() {
       await ref.update({ ...p.data, reviewedBy: user(req)!.uid, reviewedAt: nowIso() });
       forgetProviders();
       await writeAuditEvent({ actorUid: user(req)!.uid, action: `doctor.${p.data.verificationStatus}`, resourceType: "doctor", resourceId: ref.id });
-      res.json({ doctorId: ref.id, verificationStatus: p.data.verificationStatus, listingStatus: p.data.listingStatus });
+      // A refused doctor's upcoming appointments are cancelled. Done after the refusal is saved:
+      // from that point the doctor cannot be booked, so none can be added. Sending the same
+      // refusal again is safe and retries any that failed.
+      const swept = p.data.verificationStatus === "rejected" ? await cancelOpenAppointmentsOfDoctor(ref.id, user(req)!.uid) : { cancelled: 0, started: 0, failed: 0 };
+      res.json({
+        doctorId: ref.id, verificationStatus: p.data.verificationStatus, listingStatus: p.data.listingStatus,
+        cancelledAppointments: swept.cancelled, startedAppointmentsLeft: swept.started, failedCancellations: swept.failed,
+      });
     } catch (e) { fail(res, e); }
   });
 

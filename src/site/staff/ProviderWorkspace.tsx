@@ -90,7 +90,7 @@ function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<voi
     },
   }));
 
-  const statusLabel = b.status === "confirmed" ? p.confirmed : b.status === "completed" ? p.completed : b.cancelledBy === "doctor" ? p.cancelledByYou : b.status === "cancelled" ? p.cancelled : b.status;
+  const statusLabel = b.status === "confirmed" ? p.confirmed : b.status === "completed" ? p.completed : b.cancelledBy === "doctor" ? p.cancelledByYou : b.cancelledBy === "city_healer" ? p.cancelledByCityHealer : b.status === "cancelled" ? p.cancelled : b.status;
   const small = "rounded-md border border-line px-2.5 py-1 text-xs font-semibold hover:border-care disabled:opacity-50";
   const input = "mt-1 h-10 w-full rounded-lg border border-line bg-white px-2.5 text-[15px] outline-none focus:border-care focus:ring-4 focus:ring-care/15";
 

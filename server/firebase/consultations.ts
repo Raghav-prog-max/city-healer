@@ -14,7 +14,8 @@
  * (doctors/{uid}); anyone else's appointment answers 404, exactly like one that does not exist.
  * Completing, prescribing and reading records also need that profile to be verified right now:
  * a doctor whose verification was refused or is pending again keeps the doctor role, but not
- * these. Cancelling stays open to them, since it only releases the patient.
+ * these. Cancelling stays open to them, since it only releases the patient. (A refusal also
+ * cancels the doctor's open appointments: cancelOpenAppointmentsOfDoctor in booking.ts.)
  *
  * A patient's records are readable by the doctor only:
  *   - on a confirmed or completed appointment with that doctor, never a cancelled one;

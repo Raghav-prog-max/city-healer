@@ -29,6 +29,7 @@ const initials = (name) => (name || "CH").replace(/^Dr\.?\s*/i, "").split(/\s+/)
 
 const COPY = {
   en: {
+    byDoctor: "Cancelled by the doctor", byCityHealer: "Cancelled by City Healer: this doctor is no longer available here. Please book another doctor.",
     banner: "Only doctors whose registration City Healer has checked, and who have published open times, appear here. Booking is confirmed by the server.",
     bannerTag: "VERIFIED ONLY", search: "Search verified doctor, specialty or locality...",
     specialty: "Specialty", city: "City", consultation: "Consultation", allSpecialties: "All specialties", allCities: "All NCR cities",
@@ -57,6 +58,7 @@ const COPY = {
     status: { confirmed: "CONFIRMED", cancelled: "CANCELLED" },
   },
   hi: {
+    byDoctor: "डॉक्टर ने रद्द किया", byCityHealer: "City Healer ने रद्द किया: यह डॉक्टर अब यहाँ उपलब्ध नहीं हैं। कृपया दूसरे डॉक्टर के साथ बुक करें।",
     banner: "यहाँ केवल वे डॉक्टर दिखते हैं जिनका पंजीकरण City Healer ने जाँचा है और जिन्होंने खाली समय जोड़ा है। बुकिंग की पुष्टि सर्वर करता है।",
     bannerTag: "केवल सत्यापित", search: "सत्यापित डॉक्टर, विशेषज्ञता या इलाका खोजें...",
     specialty: "विशेषज्ञता", city: "शहर", consultation: "परामर्श", allSpecialties: "सभी विशेषज्ञताएँ", allCities: "सभी NCR शहर",
@@ -233,6 +235,8 @@ export default function BookingPage() {
           <div>
             <b>{c.status[a.status] || String(a.status || "").toUpperCase()}</b>
             <span>{fmtDate(a.startsAt)} · {fmtTime(a.startsAt)} – {fmtTime(a.endsAt)}{a.doctorName ? ` · ${a.doctorName}` : ""}{a.consultationType ? ` · ${a.consultationType === "online" ? c.online : c.inPerson}` : ""}</span>
+            {a.cancelledBy === "doctor" && <span>{c.byDoctor}{a.cancelReason ? `: ${a.cancelReason}` : ""}</span>}
+            {a.cancelledBy === "city_healer" && <span>{c.byCityHealer}</span>}
             <small>{c.reference}: {a.id}</small>
           </div>
           <div className="appointment-actions">{a.status === "confirmed" && Date.parse(a.startsAt) > Date.now() && <><button onClick={() => reschedule(a)}>{c.reschedule}</button><button className="danger-action" onClick={() => cancel(a.id)}>{c.cancel}</button></>}</div>
