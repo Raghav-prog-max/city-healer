@@ -32,6 +32,7 @@
  * Responses hold a count and the caller's own state only, never another patient's name, uid,
  * time or id. Audit events hold ids only.
  */
+import { estimateOpdWait } from "../../shared/waitTime";
 import { Router, type Request, type Response, type NextFunction, type RequestHandler } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
@@ -117,10 +118,20 @@ async function aheadOf(snap: Snap): Promise<number> {
   return s.docs.filter((d) => d.id !== snap.id && isWaiting(d) && (d.get("startsAt") < startsAt || (d.get("startsAt") === startsAt && d.id < snap.id))).length;
 }
 
-/** The caller's own view of their place: never anyone else's data. */
+/**
+ * The caller's own view of their place: never anyone else's data. While waiting it includes a
+ * rough wait (A7, shared/waitTime.ts) from the number ahead and this booking's slot length:
+ * a range, labelled as an estimate, never a promised time.
+ */
 async function ownView(snap: Snap) {
   const state = stateOf(snap);
-  return { state, arrivedAt: state === "not_arrived" ? null : (snap.get("arrivedAt") ?? null), ahead: state === "waiting" ? await aheadOf(snap) : 0 };
+  const ahead = state === "waiting" ? await aheadOf(snap) : 0;
+  const slotMinutes = Math.round((Date.parse(snap.get("endsAt")) - Date.parse(snap.get("startsAt"))) / 60_000);
+  const est = state === "waiting" ? estimateOpdWait({ patientsAhead: ahead, slotMinutes: slotMinutes > 0 ? slotMinutes : undefined, fixedOverheadMin: 0 }) : null;
+  return {
+    state, arrivedAt: state === "not_arrived" ? null : (snap.get("arrivedAt") ?? null), ahead,
+    estimate: est ? { low: est.low, high: est.high, basis: est.basis, confidence: est.confidence } : null,
+  };
 }
 
 const ownBooking = (snap: Snap, u: AuthUser) => snap.exists && snap.get("patientUid") === u.uid;

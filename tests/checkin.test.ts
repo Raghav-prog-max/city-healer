@@ -291,7 +291,7 @@ describe("when a patient can check in", () => {
     const r = await checkIn(done, a.dana.token);
     assert.equal(r.status, 409);
     assert.equal(r.body.code, "APPOINTMENT_NOT_OPEN");
-    assert.deepEqual((await queue(done, a.dana.token)).body, { state: "done", arrivedAt: null, ahead: 0 });
+    assert.deepEqual((await queue(done, a.dana.token)).body, { state: "done", arrivedAt: null, ahead: 0, estimate: null });
   });
 });
 
@@ -299,7 +299,7 @@ describe("the line: booked time decides, not arrival", () => {
   test("before checking in, a patient is not in the line", async () => {
     const r = await queue(appt.q3, a.carl.token);
     assert.equal(r.status, 200);
-    assert.deepEqual(r.body, { state: "not_arrived", arrivedAt: null, ahead: 0 });
+    assert.deepEqual(r.body, { state: "not_arrived", arrivedAt: null, ahead: 0, estimate: null });
   });
 
   test("noise that must never count: other doctors, online, cancelled, completed, called, another day", async () => {
@@ -333,11 +333,17 @@ describe("the line: booked time decides, not arrival", () => {
     assert.equal(alice.body.ahead, 0);
     assert.equal((await queue(appt.q2, a.bob.token)).body.ahead, 1);
     assert.equal((await queue(appt.q3, a.carl.token)).body.ahead, 2, "Carl arrived first and is still third");
+    // A7: a rough wait from the number ahead and the slot length, as a range, never a promised time.
+    const carl = (await queue(appt.q3, a.carl.token)).body;
+    assert.equal(carl.estimate.basis, "slot-length");
+    assert.ok(carl.estimate.low > 0 && carl.estimate.low <= carl.estimate.high, JSON.stringify(carl.estimate));
+    const bobView = (await queue(appt.q2, a.bob.token)).body;
+    assert.ok(carl.estimate.high > bobView.estimate.high, "more people ahead means a longer estimate");
   });
 
   test("the response holds the caller's own state and a count, nothing about anyone else", async () => {
     const r = await queue(appt.q3, a.carl.token);
-    assert.deepEqual(Object.keys(r.body).sort(), ["ahead", "arrivedAt", "state"]);
+    assert.deepEqual(Object.keys(r.body).sort(), ["ahead", "arrivedAt", "estimate", "state"]);
     const text = JSON.stringify(r.body) + JSON.stringify((await checkIn(appt.q3, a.carl.token)).body);
     for (const s of [a.alice.uid, a.bob.uid, appt.q1, appt.q2, a.dev.uid, "Alice", "Bob", ...appt.noise.split(",")]) assert.ok(!text.includes(s), `leaked ${s}`);
   });
@@ -410,7 +416,7 @@ describe("the doctor calls in, or marks not here", () => {
   test("not here clears the arrival; the others move up and the patient can check in again", async () => {
     assert.deepEqual((await visit(appt.q2, a.dev.token, { state: "not_here" })).body, { appointmentId: appt.q2, state: "not_arrived" });
     const bob = await queue(appt.q2, a.bob.token);
-    assert.deepEqual(bob.body, { state: "not_arrived", arrivedAt: null, ahead: 0 });
+    assert.deepEqual(bob.body, { state: "not_arrived", arrivedAt: null, ahead: 0, estimate: null });
     assert.equal((await queue(appt.q3, a.carl.token)).body.ahead, 0);
     assert.equal((await auditFor(appt.q2, "appointment.arrival_cleared")).length, 1);
     const again = await checkIn(appt.q2, a.bob.token);
@@ -476,7 +482,7 @@ describe("rescheduling clears the check-in", () => {
     const row = await mineRow(appt.resched, a.fay);
     assert.equal(row.arrivedAt, null);
     assert.equal(row.calledAt, null);
-    assert.deepEqual((await queue(appt.resched, a.fay.token)).body, { state: "not_arrived", arrivedAt: null, ahead: 0 });
+    assert.deepEqual((await queue(appt.resched, a.fay.token)).body, { state: "not_arrived", arrivedAt: null, ahead: 0, estimate: null });
   });
 });
 

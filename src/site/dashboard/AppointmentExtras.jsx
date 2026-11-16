@@ -90,7 +90,7 @@ const CLOCK_MS = 30_000;
  */
 export function CheckInLine({ a, t, onChanged }) {
   const fromProps = a.calledAt ? "called" : a.arrivedAt ? "waiting" : "not_arrived";
-  const [view, setView] = useState({ state: fromProps, ahead: null, from: fromProps });
+  const [view, setView] = useState({ state: fromProps, ahead: null, estimate: null, from: fromProps });
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -106,7 +106,7 @@ export function CheckInLine({ a, t, onChanged }) {
   useVisiblePoll(async () => {
     try {
       const r = await request(`/api/v1/appointments/${encodeURIComponent(a.id)}/queue`);
-      setView((v) => ({ ...v, state: r.state, ahead: r.ahead }));
+      setView((v) => ({ ...v, state: r.state, ahead: r.ahead, estimate: r.estimate ?? null }));
       if (r.state === "done" || r.state === "not_arrived") onChanged();
     } catch (e) {
       // Cancelled or no longer in person: the list reload shows the booking as it is now. Any
@@ -119,7 +119,7 @@ export function CheckInLine({ a, t, onChanged }) {
     setBusy(true); setError("");
     try {
       const r = await request(`/api/v1/appointments/${encodeURIComponent(a.id)}/check-in`, { method });
-      setView((v) => ({ ...v, state: r.state, ahead: r.ahead ?? null }));
+      setView((v) => ({ ...v, state: r.state, ahead: r.ahead ?? null, estimate: r.estimate ?? null }));
       onChanged();
     } catch (e) { setError(shown(t, e.message)); onChanged(); } finally { setBusy(false); }
   };
@@ -130,7 +130,7 @@ export function CheckInLine({ a, t, onChanged }) {
   else if (current.state === "waiting") {
     const place = current.ahead === null ? "" : current.ahead === 0 ? t.youAreNext : current.ahead === 1 ? t.aheadOne : fill(t.aheadMany, { n: current.ahead });
     body = <>
-      <span>{t.checkedIn} {place} {current.ahead ? t.notATime : ""} {fill(t.bookedTime, { time: a.time })}</span>
+      <span>{t.checkedIn} {place} {current.ahead ? t.notATime : ""} {current.ahead && current.estimate ? fill(t.waitEstimate, { low: current.estimate.low, high: current.estimate.high }) : ""} {fill(t.bookedTime, { time: a.time })}</span>
       <button type="button" className="text-btn" disabled={busy} onClick={() => call("DELETE")}>{t.leaveLine}</button>
     </>;
   } else if (current.state === "not_arrived" && checkInOpen(a.startsAt, a.endsAt, now)) {

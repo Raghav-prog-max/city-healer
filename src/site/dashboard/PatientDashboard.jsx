@@ -62,7 +62,7 @@ const copy = {
     chatClosed: "Messaging for this appointment has closed. Book a follow-up, or call 112 in an emergency.",
     chatCancelled: "This appointment was cancelled, so no messages can be sent about it. You can still read them.",
     arrived: "I have arrived", checkedIn: "You are checked in.", aheadMany: "{n} patients before you.", aheadOne: "1 patient before you.", youAreNext: "You are next.",
-    notATime: "This is your place in the line, not a time.", bookedTime: "Your booked time is {time}.", doctorReady: "The doctor is ready for you.", leaveLine: "Leave the line" },
+    notATime: "This is your place in the line, not a time.", waitEstimate: "Rough estimate: about {low}–{high} minutes, based on appointment length.", bookedTime: "Your booked time is {time}.", doctorReady: "The doctor is ready for you.", leaveLine: "Leave the line" },
   hi: { prescription: "प्रिस्क्रिप्शन", rxInstructions: "निर्देश", cancelledByDoctor: "डॉक्टर ने रद्द किया", cancelledByCityHealer: "City Healer ने रद्द किया: यह डॉक्टर अब यहाँ उपलब्ध नहीं हैं। कृपया दूसरे डॉक्टर के साथ बुक करें।", apptLoadError: "आपके अपॉइंटमेंट लोड नहीं हो सके। कृपया फिर कोशिश करें।", overview: "होम", find: "देखभाल खोजें", appointments: "अपॉइंटमेंट", records: "हेल्थ वॉलेट", family: "परिवार की देखभाल", assistant: "AI सहायक", settings: "सेटिंग्स", nutrition: "पोषण", medicines: "दवाइयाँ", emergency: "आपातकाल", models: "AI मॉडल",
     morning: "सुप्रभात", afternoon: "नमस्कार", evening: "शुभ संध्या", headline: "आपकी सेहत, एक साथ।", sub: "आपकी देखभाल की जानकारी, एक ही जगह।", location: "दिल्ली NCR", nearYou: "आपके पास",
     search: "डॉक्टर, विशेषज्ञता, अस्पताल या सेवा खोजें", book: "डॉक्टर खोजें", lab: "लैब रिपोर्ट समझें", meds: "दवाइयाँ", emergencyHelp: "आपातकालीन सहायता",
@@ -94,7 +94,7 @@ const copy = {
     chatClosed: "इस अपॉइंटमेंट के लिए संदेश भेजना बंद हो गया है। फ़ॉलो-अप बुक करें, या आपातकाल में 112 पर कॉल करें।",
     chatCancelled: "यह अपॉइंटमेंट रद्द हो गया है, इसलिए इसके बारे में संदेश नहीं भेजे जा सकते। आप उन्हें अब भी पढ़ सकते हैं।",
     arrived: "मैं पहुँच गया/गई हूँ", checkedIn: "आपका चेक-इन हो गया है।", aheadMany: "आपसे पहले {n} मरीज़ हैं।", aheadOne: "आपसे पहले 1 मरीज़ है।", youAreNext: "अगली बारी आपकी है।",
-    notATime: "यह लाइन में आपकी जगह है, समय नहीं।", bookedTime: "आपका बुक किया गया समय {time} है।", doctorReady: "डॉक्टर आपसे मिलने के लिए तैयार हैं।", leaveLine: "लाइन छोड़ें" },
+    notATime: "यह लाइन में आपकी जगह है, समय नहीं।", waitEstimate: "मोटा अनुमान: अपॉइंटमेंट की अवधि के आधार पर लगभग {low}–{high} मिनट।", bookedTime: "आपका बुक किया गया समय {time} है।", doctorReady: "डॉक्टर आपसे मिलने के लिए तैयार हैं।", leaveLine: "लाइन छोड़ें" },
 };
 
 const NAV = [["overview", LayoutDashboard], ["find", Search], ["appointments", CalendarDays], ["records", FolderHeart], ["nutrition", Salad], ["medicines", Pill], ["family", Users], ["assistant", MessageCircle], ["emergency", Ambulance]];
