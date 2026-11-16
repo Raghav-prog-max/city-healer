@@ -19,6 +19,7 @@ import { triageWithoutAI, detectLang, type Lang } from "../../shared/triage";
 import { triage } from "../../shared/triageModel";
 import { predictIntent, INTENT_THRESHOLD, type Intent } from "../../shared/intentModel";
 import { analyseLabReport, type Panel } from "../../shared/labModels";
+import { extractLabValues } from "./labValues";
 import { doctorCategoryFor } from "../../shared/specialties";
 import { lookupMedicine, searchMedicines, substitutesFor } from "../medicineIndex";
 import { recommendDiet, parseCondition } from "../dietRecommender";
@@ -52,45 +53,8 @@ const t = (lang: Lang, en: string, hi: string) => (lang === "hi" ? hi : en);
 
 // ---------------------------------------------------------------- lab values in free text
 
-const ANALYTES: { key: string; panel: Panel; re: RegExp }[] = [
-  { key: "glucose", panel: "diabetes", re: /(?:fasting\s*)?(?:glucose|sugar|fbs|शुगर)\D{0,12}(\d+(?:\.\d+)?)/i },
-  { key: "hba1c", panel: "diabetes", re: /(?:hba1c|ha?emoglobin\s*a1c|glycated\s+ha?emoglobin|\ba1c)\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "bmi", panel: "diabetes", re: /\bbmi\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "cholesterol", panel: "heart", re: /(?:total\s*)?cholesterol\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "ldl", panel: "heart", re: /\bldl\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "hdl", panel: "heart", re: /\bhdl\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "triglycerides", panel: "heart", re: /triglycerides?\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "alt", panel: "liver", re: /\b(?:alt|sgpt)\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "ast", panel: "liver", re: /\b(?:ast|sgot)\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "totalBilirubin", panel: "liver", re: /bilirubin\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "albumin", panel: "liver", re: /albumin\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "haemoglobin", panel: "cbc", // "HbA1c" and "haemoglobin A1c" are the diabetes test, not haemoglobin; \b does not work
-    // before Devanagari, so it applies to the Latin spellings only.
-    re: /(?:(?<!glycated\s)\bha?emoglobin(?!\s*a1c)|\bhb(?![a-z0-9])|हीमोग्लोबिन)\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "wbc", panel: "cbc", re: /\b(?:wbc|white (?:blood )?cells?)\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "platelets", panel: "cbc", re: /platelets?\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "mcv", panel: "cbc", re: /\bmcv\D{0,8}(\d+(?:\.\d+)?)/i },
-  { key: "tsh", panel: "thyroid", re: /\btsh\D{0,8}(\d+(?:\.\d+)?)/i },
-];
-
-export function extractLabValues(text: string): { panel: Panel | null; values: Record<string, number> } {
-  const values: Record<string, number> = {};
-  const votes = new Map<Panel, number>();
-  for (const a of ANALYTES) {
-    const m = text.match(a.re);
-    if (m) {
-      let v = Number(m[1]);
-      if (a.key === "platelets" && v < 2000) v *= 1000; // "platelets 150" means 150,000 (in thousands)
-      values[a.key] = v;
-      votes.set(a.panel, (votes.get(a.panel) || 0) + 1);
-    }
-  }
-  const panel = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-  if (/\b(male|man|पुरुष)\b/i.test(text)) values.male = 1;
-  const age = text.match(/\b(\d{1,2})\s*(?:years?|yrs?|yo|साल)\b/i);
-  if (age) values.age = Number(age[1]);
-  return { panel, values };
-}
+// Reading lab values (labels, Indian number formats, ranges, plausibility) lives in labValues.ts.
+export { extractLabValues } from "./labValues";
 
 // ---------------------------------------------------------------- medicine names in free text
 

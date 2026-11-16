@@ -9,7 +9,7 @@
  * PDF text uses Mozilla pdf.js (`pdfjs-dist`) when it is installed; without it a PDF gets
  * status "dependency_missing", as in the zip. Scanned images need OCR, which is not set up.
  */
-import { extractLabValues } from "./orchestrator";
+import { extractLabValues, type LabExtraction } from "./labValues";
 
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
 
@@ -19,7 +19,8 @@ export interface ExtractedDocument {
   message?: string;
   text: string;
   candidateValues: { label: string; value: number; unit: string }[];
-  lab: { panel: string | null; values: Record<string, number> };
+  /** Recognised lab values in the wallet form's units, each with the text it was read from. */
+  lab: LabExtraction;
   clinicalInterpretation: "not_performed";
 }
 
@@ -47,9 +48,6 @@ export function candidateValues(text: string) {
   }
   return out;
 }
-
-/** Report columns use runs of spaces; the lab-value patterns expect a word or two of gap. */
-const squeeze = (text: string) => text.replace(/[ \t]{2,}/g, " ");
 
 async function pdfText(bytes: Uint8Array): Promise<string | null> {
   let pdfjs: any;
@@ -80,7 +78,7 @@ async function pdfText(bytes: Uint8Array): Promise<string | null> {
 }
 
 export async function extractDocument(filename: string, bytes: Uint8Array): Promise<ExtractedDocument> {
-  const base = { candidateValues: [], lab: { panel: null, values: {} }, clinicalInterpretation: "not_performed" as const, text: "" };
+  const base = { candidateValues: [], lab: { panel: null, values: {}, sources: {}, skipped: [] } as LabExtraction, clinicalInterpretation: "not_performed" as const, text: "" };
   const name = String(filename || "").toLowerCase();
   const isPdf = name.endsWith(".pdf") || (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46); // %PDF
   let text: string;
@@ -103,5 +101,5 @@ export async function extractDocument(filename: string, bytes: Uint8Array): Prom
   if (!text.trim()) {
     return { ...base, engine, status: "no_text_found", message: "No text found. A scanned report is an image and needs OCR, which is not set up." };
   }
-  return { ...base, status: "extracted", engine, text, candidateValues: candidateValues(text), lab: extractLabValues(squeeze(text)) };
+  return { ...base, status: "extracted", engine, text, candidateValues: candidateValues(text), lab: extractLabValues(text) };
 }

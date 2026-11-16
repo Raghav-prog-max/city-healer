@@ -28,13 +28,18 @@ export default function WalletPage({ embedded = false, onSaved }: { embedded?: b
   const [saving, setSaving] = useState(false);
   const [reading, setReading] = useState(false);
   const [readNote, setReadNote] = useState("");
+  // Values pre-filled from a report that the patient has not yet confirmed or edited, with the
+  // text each was read from. Analyse stays off until every one has been checked.
+  const [unconfirmed, setUnconfirmed] = useState<Record<string, string>>({});
+  const [skippedNote, setSkippedNote] = useState("");
+  const settle = (key: string) => setUnconfirmed((u) => { const { [key]: _, ...rest } = u; return rest; });
 
   // Report upload (Intelligence Platform module 3): the server reads the file in memory and
   // returns recognised lab values; they fill the form for the patient to check, never analysed
   // without them pressing Analyse.
   const readReport = async (file: File | undefined) => {
     if (!file) return;
-    setReading(true); setReadNote(""); setError("");
+    setReading(true); setReadNote(""); setSkippedNote(""); setError("");
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
       const res = await fetch(`/api/v1/documents/extract?filename=${encodeURIComponent(file.name)}`, {
@@ -49,10 +54,16 @@ export default function WalletPage({ embedded = false, onSaved }: { embedded?: b
       const keys = new Set([...(meta?.panels[doc.lab?.panel as Panel] || []).map((f) => f.key), "male"]);
       const found = (Object.entries(doc.lab?.values || {}) as [string, number][]).filter(([k]) => keys.has(k));
       if (doc.status !== "extracted") { setReadNote(doc.message || t.wallet.nothingFound); return; }
+      // Tests the report names but whose number could not be read safely are listed, not guessed.
+      const fieldsOf = (p: Panel | undefined) => (p && meta?.panels[p]) || [];
+      const skippedPanel = (doc.lab?.panel as Panel) || PANELS.find((p) => fieldsOf(p).some((f) => (doc.lab?.skipped || []).some((s: any) => s.key === f.key)));
+      const skipped = fieldsOf(skippedPanel).filter((f) => (doc.lab?.skipped || []).some((s: any) => s.key === f.key)).map((f) => f.label.replace(/\s*\(.*\)$/, ""));
+      if (skipped.length) setSkippedNote(t.wallet.skipped(skipped.join(", ")));
       if (!doc.lab?.panel || !found.length) { setReadNote(t.wallet.nothingFound); return; }
       setPanel(doc.lab.panel as Panel);
       setResult(null);
       setValues(Object.fromEntries(found.map(([k, v]) => [k, String(v)])));
+      setUnconfirmed(Object.fromEntries(found.filter(([k]) => k !== "male").map(([k]) => [k, String(doc.lab?.sources?.[k] ?? "")])));
       setReadNote(t.wallet.filled(found.filter(([k]) => k !== "male").length, file.name));
     } catch (err: any) { setError(err.message); } finally { setReading(false); }
   };
@@ -62,10 +73,11 @@ export default function WalletPage({ embedded = false, onSaved }: { embedded?: b
   const fields = (meta?.panels[panel] || []).filter((f) => f.key !== "male");
   const needsSex = (meta?.panels[panel] || []).some((f) => f.key === "male") || panel === "cbc" || panel === "heart";
 
-  const choosePanel = (p: Panel) => { setPanel(p); setValues({}); setResult(null); setReadNote(""); };
+  const choosePanel = (p: Panel) => { setPanel(p); setValues({}); setUnconfirmed({}); setResult(null); setReadNote(""); setSkippedNote(""); };
+  const toCheck = Object.keys(unconfirmed).length;
   const fillSample = () => {
     const s = meta?.samples[SAMPLE_FOR[panel]];
-    if (s) setValues(Object.fromEntries(Object.entries(s.values).map(([k, v]) => [k, String(v)])));
+    if (s) { setValues(Object.fromEntries(Object.entries(s.values).map(([k, v]) => [k, String(v)]))); setUnconfirmed({}); }
   };
   const analyse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,6 +112,7 @@ export default function WalletPage({ embedded = false, onSaved }: { embedded?: b
               </label>
               <p className="mt-1 text-xs text-subtle">{t.wallet.uploadHint}</p>
               {readNote && <p className="mt-2 text-sm" role="status">{readNote}</p>}
+              {skippedNote && <p className="mt-2 text-sm text-amber-800" role="status">{skippedNote}</p>}
             </div>
           )}
           {meta && (
@@ -135,14 +148,24 @@ export default function WalletPage({ embedded = false, onSaved }: { embedded?: b
                 ) : (
                   <label key={f.key} className="text-[13px] font-medium leading-tight">
                     {f.label.replace(/\s*\(.*\)$/, "")}{f.unit && <span className="font-normal text-subtle"> ({f.unit})</span>}
-                    <input type="number" step="any" inputMode="decimal" className={`${input} mt-1`} value={values[f.key] ?? ""} onChange={(e) => setValues((s) => ({ ...s, [f.key]: e.target.value }))} />
+                    <input type="number" step="any" inputMode="decimal" value={values[f.key] ?? ""}
+                      className={`${input} mt-1 ${f.key in unconfirmed ? "!border-amber-500 !bg-amber-50" : ""}`}
+                      aria-describedby={f.key in unconfirmed ? `from-report-${f.key}` : undefined}
+                      onChange={(e) => { setValues((s) => ({ ...s, [f.key]: e.target.value })); settle(f.key); }} />
+                    {f.key in unconfirmed && (
+                      <span id={`from-report-${f.key}`} className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-normal text-amber-800">
+                        <span>{unconfirmed[f.key] ? t.wallet.fromReport(unconfirmed[f.key]) : t.wallet.fromReportPlain}</span>
+                        <button type="button" onClick={() => settle(f.key)} className="rounded-md border border-amber-500 bg-white px-2 py-0.5 font-semibold text-amber-900">{t.wallet.confirmValue}</button>
+                      </span>
+                    )}
                   </label>
                 ))}
               </div>
+              {toCheck > 0 && <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">{t.wallet.confirmFirst(toCheck)}</p>}
               <div className="flex flex-wrap gap-2">
-                <Button type="submit" loading={busy} disabled={!Object.values(values).some((v) => v !== "")}>{t.wallet.analyse}</Button>
+                <Button type="submit" loading={busy} disabled={toCheck > 0 || !Object.values(values).some((v) => v !== "")}>{t.wallet.analyse}</Button>
                 <Button type="button" variant="secondary" onClick={fillSample}>{t.wallet.sample}</Button>
-                <Button type="button" variant="ghost" onClick={() => { setValues({}); setResult(null); }}>{t.wallet.clearValues}</Button>
+                <Button type="button" variant="ghost" onClick={() => { setValues({}); setUnconfirmed({}); setResult(null); }}>{t.wallet.clearValues}</Button>
               </div>
             </form>
           )}
