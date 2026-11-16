@@ -1,0 +1,576 @@
+{
+ "version": 1,
+ "algorithm": "standardised features -> logistic regression (class-balanced)",
+ "models": {
+  "diabetes": {
+   "features": [
+    {
+     "key": "glucose",
+     "label": "Fasting / 2-h glucose",
+     "unit": "mg/dL",
+     "log": false,
+     "median": 117.0,
+     "mean": 121.65625,
+     "scale": 30.418463,
+     "coef": 1.094714
+    },
+    {
+     "key": "diastolicBp",
+     "label": "Diastolic blood pressure",
+     "unit": "mmHg",
+     "log": false,
+     "median": 72.0,
+     "mean": 72.386719,
+     "scale": 12.088764,
+     "coef": -0.090499
+    },
+    {
+     "key": "bmi",
+     "label": "Body-mass index",
+     "unit": "kg/m\u00b2",
+     "log": false,
+     "median": 32.3,
+     "mean": 32.455208,
+     "scale": 6.870699,
+     "coef": 0.670931
+    },
+    {
+     "key": "age",
+     "label": "Age",
+     "unit": "years",
+     "log": false,
+     "median": 29.0,
+     "mean": 33.240885,
+     "scale": 11.752573,
+     "coef": 0.411752
+    }
+   ],
+   "intercept": -0.224618,
+   "samples": 768,
+   "positiveRate": 0.349,
+   "metrics": {
+    "cv_accuracy": 0.752,
+    "cv_auc": 0.831,
+    "test_accuracy": 0.724,
+    "test_auc": 0.808,
+    "test_sensitivity": 0.642,
+    "test_precision": 0.597
+   },
+   "parity": [
+    {
+     "input": {
+      "glucose": 99.0,
+      "diastolicBp": 74.0,
+      "bmi": 29.0,
+      "age": 32.0
+     },
+     "probability": 0.192641
+    },
+    {
+     "input": {
+      "glucose": 132.0,
+      "diastolicBp": null,
+      "bmi": 32.9,
+      "age": 23.0
+     },
+     "probability": 0.458887
+    },
+    {
+     "input": {
+      "glucose": 120.0,
+      "diastolicBp": 80.0,
+      "bmi": 38.9,
+      "age": 41.0
+     },
+     "probability": 0.636444
+    },
+    {
+     "input": {
+      "glucose": 154.0,
+      "diastolicBp": 74.0,
+      "bmi": 29.3,
+      "age": 39.0
+     },
+     "probability": 0.694442
+    },
+    {
+     "input": {
+      "glucose": 87.0,
+      "diastolicBp": 58.0,
+      "bmi": 32.7,
+      "age": 25.0
+     },
+     "probability": 0.163973
+    },
+    {
+     "input": {
+      "glucose": 165.0,
+      "diastolicBp": 76.0,
+      "bmi": 47.9,
+      "age": 26.0
+     },
+     "probability": 0.928424
+    },
+    {
+     "input": {
+      "glucose": 109.0,
+      "diastolicBp": 92.0,
+      "bmi": 42.7,
+      "age": 54.0
+     },
+     "probability": 0.711111
+    },
+    {
+     "input": {
+      "glucose": 73.0,
+      "diastolicBp": null,
+      "bmi": 21.1,
+      "age": 25.0
+     },
+     "probability": 0.033235
+    }
+   ],
+   "source": "Pima Indians Diabetes Database (NIDDK / UCI)"
+  },
+  "heart": {
+   "features": [
+    {
+     "key": "age",
+     "label": "Age",
+     "unit": "years",
+     "log": false,
+     "median": 56.0,
+     "mean": 54.438944,
+     "scale": 9.023735,
+     "coef": 0.246471
+    },
+    {
+     "key": "male",
+     "label": "Male (1) / female (0)",
+     "unit": "",
+     "log": false,
+     "median": 1.0,
+     "mean": 0.679868,
+     "scale": 0.466527,
+     "coef": 0.890117
+    },
+    {
+     "key": "chestPainType",
+     "label": "Chest pain type (1 typical angina \u2026 4 none)",
+     "unit": "",
+     "log": false,
+     "median": 3.0,
+     "mean": 3.158416,
+     "scale": 0.95854,
+     "coef": 0.744798
+    },
+    {
+     "key": "restingBp",
+     "label": "Resting systolic blood pressure",
+     "unit": "mmHg",
+     "log": false,
+     "median": 130.0,
+     "mean": 131.689769,
+     "scale": 17.570681,
+     "coef": 0.41712
+    },
+    {
+     "key": "cholesterol",
+     "label": "Total cholesterol",
+     "unit": "mg/dL",
+     "log": false,
+     "median": 241.0,
+     "mean": 246.693069,
+     "scale": 51.691406,
+     "coef": 0.307015
+    },
+    {
+     "key": "fastingSugarHigh",
+     "label": "Fasting sugar above 120 mg/dL (1 yes / 0 no)",
+     "unit": "",
+     "log": false,
+     "median": 0.0,
+     "mean": 0.148515,
+     "scale": 0.35561,
+     "coef": -0.063954
+    },
+    {
+     "key": "maxHeartRate",
+     "label": "Maximum heart rate on exercise test",
+     "unit": "bpm",
+     "log": false,
+     "median": 153.0,
+     "mean": 149.607261,
+     "scale": 22.837225,
+     "coef": -0.709862
+    },
+    {
+     "key": "exerciseAngina",
+     "label": "Chest pain on exertion (1 yes / 0 no)",
+     "unit": "",
+     "log": false,
+     "median": 0.0,
+     "mean": 0.326733,
+     "scale": 0.469019,
+     "coef": 0.508015
+    }
+   ],
+   "intercept": -0.068973,
+   "samples": 303,
+   "positiveRate": 0.459,
+   "metrics": {
+    "cv_accuracy": 0.753,
+    "cv_auc": 0.839,
+    "test_accuracy": 0.868,
+    "test_auc": 0.907,
+    "test_sensitivity": 0.829,
+    "test_precision": 0.879
+   },
+   "parity": [
+    {
+     "input": {
+      "age": 50.0,
+      "male": 0.0,
+      "chestPainType": 3.0,
+      "restingBp": 120.0,
+      "cholesterol": 219.0,
+      "fastingSugarHigh": 0.0,
+      "maxHeartRate": 158.0,
+      "exerciseAngina": 0.0
+     },
+     "probability": 0.066575
+    },
+    {
+     "input": {
+      "age": 38.0,
+      "male": 1.0,
+      "chestPainType": 1.0,
+      "restingBp": 120.0,
+      "cholesterol": 231.0,
+      "fastingSugarHigh": 0.0,
+      "maxHeartRate": 182.0,
+      "exerciseAngina": 1.0
+     },
+     "probability": 0.099218
+    },
+    {
+     "input": {
+      "age": 70.0,
+      "male": 1.0,
+      "chestPainType": 2.0,
+      "restingBp": 156.0,
+      "cholesterol": 245.0,
+      "fastingSugarHigh": 0.0,
+      "maxHeartRate": 143.0,
+      "exerciseAngina": 0.0
+     },
+     "probability": 0.625275
+    },
+    {
+     "input": {
+      "age": 67.0,
+      "male": 1.0,
+      "chestPainType": 4.0,
+      "restingBp": 100.0,
+      "cholesterol": 299.0,
+      "fastingSugarHigh": 0.0,
+      "maxHeartRate": 125.0,
+      "exerciseAngina": 1.0
+     },
+     "probability": 0.932014
+    },
+    {
+     "input": {
+      "age": 62.0,
+      "male": 0.0,
+      "chestPainType": 4.0,
+      "restingBp": 124.0,
+      "cholesterol": 209.0,
+      "fastingSugarHigh": 0.0,
+      "maxHeartRate": 163.0,
+      "exerciseAngina": 0.0
+     },
+     "probability": 0.160353
+    },
+    {
+     "input": {
+      "age": 51.0,
+      "male": 1.0,
+      "chestPainType": 3.0,
+      "restingBp": 94.0,
+      "cholesterol": 227.0,
+      "fastingSugarHigh": 0.0,
+      "maxHeartRate": 154.0,
+      "exerciseAngina": 1.0
+     },
+     "probability": 0.483136
+    },
+    {
+     "input": {
+      "age": 58.0,
+      "male": 0.0,
+      "chestPainType": 3.0,
+      "restingBp": 120.0,
+      "cholesterol": 340.0,
+      "fastingSugarHigh": 0.0,
+      "maxHeartRate": 172.0,
+      "exerciseAngina": 0.0
+     },
+     "probability": 0.105409
+    },
+    {
+     "input": {
+      "age": 66.0,
+      "male": 1.0,
+      "chestPainType": 4.0,
+      "restingBp": 112.0,
+      "cholesterol": 212.0,
+      "fastingSugarHigh": 0.0,
+      "maxHeartRate": 132.0,
+      "exerciseAngina": 1.0
+     },
+     "probability": 0.894852
+    }
+   ],
+   "source": "UCI Heart Disease, Cleveland Clinic Foundation"
+  },
+  "liver": {
+   "features": [
+    {
+     "key": "age",
+     "label": "Age",
+     "unit": "years",
+     "log": false,
+     "median": 45.0,
+     "mean": 44.746141,
+     "scale": 16.175942,
+     "coef": 0.304864
+    },
+    {
+     "key": "male",
+     "label": "Male (1) / female (0)",
+     "unit": "",
+     "log": false,
+     "median": 1.0,
+     "mean": 0.756432,
+     "scale": 0.429235,
+     "coef": -0.018599
+    },
+    {
+     "key": "totalBilirubin",
+     "label": "Total bilirubin",
+     "unit": "mg/dL",
+     "log": true,
+     "median": 1.0,
+     "mean": 1.053606,
+     "scale": 0.73834,
+     "coef": -0.004494
+    },
+    {
+     "key": "directBilirubin",
+     "label": "Direct bilirubin",
+     "unit": "mg/dL",
+     "log": true,
+     "median": 0.3,
+     "mean": 0.60792,
+     "scale": 0.656125,
+     "coef": 0.735539
+    },
+    {
+     "key": "alkalinePhosphatase",
+     "label": "Alkaline phosphatase (ALP)",
+     "unit": "U/L",
+     "log": true,
+     "median": 208.0,
+     "mean": 5.498013,
+     "scale": 0.525873,
+     "coef": 0.220543
+    },
+    {
+     "key": "alt",
+     "label": "ALT (SGPT)",
+     "unit": "U/L",
+     "log": true,
+     "median": 35.0,
+     "mean": 3.782434,
+     "scale": 0.882841,
+     "coef": 0.585578
+    },
+    {
+     "key": "ast",
+     "label": "AST (SGOT)",
+     "unit": "U/L",
+     "log": true,
+     "median": 42.0,
+     "mean": 3.983485,
+     "scale": 0.980406,
+     "coef": 0.195859
+    },
+    {
+     "key": "totalProtein",
+     "label": "Total protein",
+     "unit": "g/dL",
+     "log": false,
+     "median": 6.6,
+     "mean": 6.48319,
+     "scale": 1.08452,
+     "coef": 0.755241
+    },
+    {
+     "key": "albumin",
+     "label": "Albumin",
+     "unit": "g/dL",
+     "log": false,
+     "median": 3.1,
+     "mean": 3.141852,
+     "scale": 0.794836,
+     "coef": -0.988215
+    },
+    {
+     "key": "agRatio",
+     "label": "Albumin / globulin ratio",
+     "unit": "",
+     "log": false,
+     "median": 0.93,
+     "mean": 0.946947,
+     "scale": 0.318222,
+     "coef": 0.349846
+    }
+   ],
+   "intercept": 0.456762,
+   "samples": 583,
+   "positiveRate": 0.714,
+   "metrics": {
+    "cv_accuracy": 0.634,
+    "cv_auc": 0.728,
+    "test_accuracy": 0.705,
+    "test_auc": 0.817,
+    "test_sensitivity": 0.683,
+    "test_precision": 0.877
+   },
+   "parity": [
+    {
+     "input": {
+      "age": 45.0,
+      "male": 0.0,
+      "totalBilirubin": 0.7,
+      "directBilirubin": 0.2,
+      "alkalinePhosphatase": 170.0,
+      "alt": 21.0,
+      "ast": 14.0,
+      "totalProtein": 5.7,
+      "albumin": 2.5,
+      "agRatio": 0.7
+     },
+     "probability": 0.297064
+    },
+    {
+     "input": {
+      "age": 45.0,
+      "male": 1.0,
+      "totalBilirubin": 0.7,
+      "directBilirubin": 0.2,
+      "alkalinePhosphatase": 180.0,
+      "alt": 18.0,
+      "ast": 58.0,
+      "totalProtein": 6.7,
+      "albumin": 3.7,
+      "agRatio": 1.2
+     },
+     "probability": 0.278815
+    },
+    {
+     "input": {
+      "age": 68.0,
+      "male": 1.0,
+      "totalBilirubin": 1.8,
+      "directBilirubin": 0.5,
+      "alkalinePhosphatase": 151.0,
+      "alt": 18.0,
+      "ast": 22.0,
+      "totalProtein": 6.5,
+      "albumin": 4.0,
+      "agRatio": 1.6
+     },
+     "probability": 0.353498
+    },
+    {
+     "input": {
+      "age": 50.0,
+      "male": 0.0,
+      "totalBilirubin": 0.7,
+      "directBilirubin": 0.1,
+      "alkalinePhosphatase": 192.0,
+      "alt": 20.0,
+      "ast": 41.0,
+      "totalProtein": 7.3,
+      "albumin": 3.3,
+      "agRatio": 0.8
+     },
+     "probability": 0.399027
+    },
+    {
+     "input": {
+      "age": 33.0,
+      "male": 1.0,
+      "totalBilirubin": 0.9,
+      "directBilirubin": 0.8,
+      "alkalinePhosphatase": 680.0,
+      "alt": 37.0,
+      "ast": 40.0,
+      "totalProtein": 5.9,
+      "albumin": 2.6,
+      "agRatio": 0.8
+     },
+     "probability": 0.643567
+    },
+    {
+     "input": {
+      "age": 38.0,
+      "male": 0.0,
+      "totalBilirubin": 0.7,
+      "directBilirubin": 0.1,
+      "alkalinePhosphatase": 152.0,
+      "alt": 90.0,
+      "ast": 21.0,
+      "totalProtein": 7.1,
+      "albumin": 4.2,
+      "agRatio": 1.4
+     },
+     "probability": 0.3803
+    },
+    {
+     "input": {
+      "age": 34.0,
+      "male": 0.0,
+      "totalBilirubin": 0.6,
+      "directBilirubin": 0.1,
+      "alkalinePhosphatase": 161.0,
+      "alt": 15.0,
+      "ast": 19.0,
+      "totalProtein": 6.6,
+      "albumin": 3.4,
+      "agRatio": 1.0
+     },
+     "probability": 0.181734
+    },
+    {
+     "input": {
+      "age": 54.0,
+      "male": 1.0,
+      "totalBilirubin": 0.8,
+      "directBilirubin": 0.2,
+      "alkalinePhosphatase": 181.0,
+      "alt": 35.0,
+      "ast": 20.0,
+      "totalProtein": 5.5,
+      "albumin": 2.7,
+      "agRatio": 0.96
+     },
+     "probability": 0.397126
+    }
+   ],
+   "source": "UCI Indian Liver Patient Dataset (ILPD)"
+  }
+ }
+}

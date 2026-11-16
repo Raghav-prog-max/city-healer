@@ -104,6 +104,15 @@ export async function initializeDatabase() {
       await dbExec("ALTER TABLE users ADD COLUMN hospitalId TEXT");
     }
 
+    // 1d. City and locality, collected at onboarding so care can be searched near the
+    // patient (Delhi NCR launch cities). Kept as separate fields, per the frontend plan.
+    for (const col of ["city", "locality"]) {
+      if (!userCols.some((c) => c.name === col)) {
+        console.log(`[SQLite Migration] Adding users.${col}...`);
+        await dbExec(`ALTER TABLE users ADD COLUMN ${col} TEXT`);
+      }
+    }
+
     // 2. Hospitals
     await dbExec(`
       CREATE TABLE IF NOT EXISTS hospitals (
@@ -147,6 +156,56 @@ export async function initializeDatabase() {
         imageUrl TEXT
       )
     `);
+
+    // A doctor is bookable only once City Healer has verified their registration and
+    // practice details. The seeded directory uses real practitioners' names with
+    // illustrative details, so every seeded row starts unverified: look-only.
+    // Hospitals: where each row came from, its city, and whether bed numbers were reported.
+    // Bed and ICU counts are only meaningful when a hospital's staff report them; no open
+    // dataset has them. The seeded counts were illustrative, so they are cleared the first
+    // time this runs and stay empty ("not reported") until staff update them.
+    const hospitalCols = await dbAll<{ name: string }>("PRAGMA table_info(hospitals)");
+    for (const [col, type] of [["osmId", "TEXT"], ["source", "TEXT DEFAULT 'seed'"], ["city", "TEXT"], ["website", "TEXT"]] as const) {
+      if (!hospitalCols.some((c) => c.name === col)) await dbExec(`ALTER TABLE hospitals ADD COLUMN ${col} ${type}`);
+    }
+    // Listing quality: hidden listings (with why), a match in the government facility registry,
+    // where each department is known from, and whether it is a large general hospital.
+    for (const [col, type] of [
+      ["listingStatus", "TEXT DEFAULT 'active'"], ["hiddenReason", "TEXT"], ["registryId", "TEXT"],
+      ["facilityType", "TEXT"], ["departmentSources", "TEXT"], ["generalCare", "INTEGER DEFAULT 0"],
+      // Government health-scheme empanelment (CGHS / DGEHS lists) and NABH status as listed there.
+      ["empanelment", "TEXT"], ["nabhAccredited", "INTEGER DEFAULT 0"],
+      // Facility classifier (ml/train_facility.py): probability the name is a hospital's, what it
+      // most looks like, and what confirms it is a hospital (registry / empanelled / reviewed / seed).
+      ["hospitalScore", "REAL"], ["likelyKind", "TEXT"], ["confirmation", "TEXT"],
+    ] as const) {
+      if (!hospitalCols.some((c) => c.name === col)) await dbExec(`ALTER TABLE hospitals ADD COLUMN ${col} ${type}`);
+    }
+    // Problems people report with a listing ("not a hospital", "closed", ...), for review.
+    await dbExec(`
+      CREATE TABLE IF NOT EXISTS hospital_reports (
+        id TEXT PRIMARY KEY,
+        hospitalId TEXT NOT NULL,
+        uid TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        note TEXT,
+        status TEXT DEFAULT 'open',
+        createdAt TEXT NOT NULL,
+        UNIQUE (hospitalId, uid)
+      )
+    `);
+
+    if (!hospitalCols.some((c) => c.name === "bedsReportedAt")) {
+      console.log("[SQLite Migration] Adding hospitals.bedsReportedAt; clearing illustrative bed and ICU counts...");
+      await dbExec("ALTER TABLE hospitals ADD COLUMN bedsReportedAt TEXT");
+      await dbExec("UPDATE hospitals SET totalBeds = NULL, availableBeds = NULL, icuBeds = NULL, icuAvailable = NULL, emergencyOccupancy = NULL");
+    }
+
+    const doctorCols = await dbAll<{ name: string }>("PRAGMA table_info(doctors)");
+    if (!doctorCols.some((c) => c.name === "verified")) {
+      console.log("[SQLite Migration] Adding doctors.verified (all existing doctors unverified)...");
+      await dbExec("ALTER TABLE doctors ADD COLUMN verified INTEGER DEFAULT 0");
+    }
 
     // 4. Appointments
     await dbExec(`
@@ -273,8 +332,9 @@ export async function initializeDatabase() {
             hasOpdBooking, email, doctorsAvailableCount
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-          h.id, h.name, h.address, h.totalBeds, h.availableBeds, h.icuBeds, h.icuAvailable,
-          h.emergencyOccupancy, h.lat, h.lng, h.phone, h.rating, 
+          // Bed and ICU counts are not seeded: they are "not reported" until hospital staff report them.
+          h.id, h.name, h.address, null, null, null, null,
+          null, h.lat, h.lng, h.phone, h.rating, 
           JSON.stringify(h.specialties), JSON.stringify(h.categories),
           h.hasAmbulanceSupport ? 1 : 0, h.ambulanceSupportCount, h.isGovernment ? 1 : 0,
           h.hasTelemedicine ? 1 : 0, h.hasOpdBooking ? 1 : 0, h.email, h.doctorsAvailableCount

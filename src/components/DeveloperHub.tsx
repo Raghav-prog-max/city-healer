@@ -348,7 +348,7 @@ export default function DeveloperHub({ isAppDarkMode = false }: { isAppDarkMode?
         setTimeout(() => {
           addAiPipelineLog("⚡ Executing plan steps...");
           addAiPipelineLog("🔗 Fetching Firebase collection: /doctors where specialty == 'Pulmonologist'. Found: Dr. Naresh Trehan (Online).");
-          addAiPipelineLog("🤖 Running Gemini prompt engineering refinement...");
+          addAiPipelineLog("🤖 Running local intent rules and database retrieval...");
           setAiPipelineStep("done");
           addAiPipelineLog("❇️ Pipeline successfully generated structured response card!");
         }, 1200);
@@ -531,8 +531,8 @@ export default function DeveloperHub({ isAppDarkMode = false }: { isAppDarkMode?
                       <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl w-fit mb-2">
                         <Sparkles className="h-5 w-5" />
                       </div>
-                      <p className="text-white text-xs font-black">Gemini Flash SDK</p>
-                      <p className="text-[10px] text-slate-400 mt-1">Pathology diagnostics & Indian diet advisor scheduler.</p>
+                      <p className="text-white text-xs font-black">Trained Triage Model</p>
+                      <p className="text-[10px] text-slate-400 mt-1">Symptom triage model with red-flag safety rules.</p>
                     </button>
 
                     <button
@@ -630,15 +630,15 @@ export default function DeveloperHub({ isAppDarkMode = false }: { isAppDarkMode?
                         <div className="flex items-center gap-2 text-emerald-500 font-extrabold text-sm uppercase">
                           <Sparkles className="h-4 w-4" /> AI Layer Specs
                         </div>
-                        <h5 className="text-sm font-black mt-1">Gemini Flash SDK Integration</h5>
+                        <h5 className="text-sm font-black mt-1">Trained Triage Model</h5>
                         <p className="text-xs text-slate-500 leading-relaxed">
-                          Powers smart clinical services. Communicates with Google's GenAI model using precise system guidelines to output structured medical advice and pathological analyses.
+                          Powers symptom triage. A TF-IDF and logistic regression classifier, trained on 1,205 symptom descriptions in English and Hindi across 22 conditions, runs on this server. Red-flag safety rules decide emergencies before the model is consulted.
                         </p>
                         <div className="pt-2 space-y-1">
                           <p className="text-[10px] text-slate-400 font-bold uppercase">AI Skill Integrations:</p>
                           <ul className="text-xs text-slate-650 space-y-1 list-disc pl-4">
-                            <li><strong>Google @google/genai:</strong> Core API SDK client.</li>
-                            <li><strong>Intent Recognizer:</strong> Context-aware prompt routing.</li>
+                            <li><strong>scikit-learn:</strong> Training pipeline; weights exported to JSON.</li>
+                            <li><strong>Intent Recognizer:</strong> Keyword rules with database retrieval.</li>
                             <li><strong>Ayurvedic Diet Planner:</strong> Curates clinical meal tables.</li>
                           </ul>
                         </div>

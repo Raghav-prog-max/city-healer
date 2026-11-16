@@ -1,0 +1,224 @@
+{
+  "records": 11498,
+  "name_lookup_top1": 1.0,
+  "use_search_precision_at_5": 0.72,
+  "lookup": [
+    {
+      "query": "dolo 650",
+      "found": "Dolo Drops",
+      "ok": true
+    },
+    {
+      "query": "crocin advanc",
+      "found": "Crocin Advance 500mg Tablet",
+      "ok": true
+    },
+    {
+      "query": "paracetmol",
+      "found": "ingredient:paracetamol",
+      "ok": true
+    },
+    {
+      "query": "metfromin",
+      "found": "ingredient:metformin",
+      "ok": true
+    },
+    {
+      "query": "azithral 500",
+      "found": "Azithral 500 Tablet",
+      "ok": true
+    },
+    {
+      "query": "azee 500",
+      "found": "Azee 500 Tablet",
+      "ok": true
+    },
+    {
+      "query": "pan 40",
+      "found": "PAN 40 Tablet",
+      "ok": true
+    },
+    {
+      "query": "montair lc",
+      "found": "Montair LC Kid Tablet DT",
+      "ok": true
+    },
+    {
+      "query": "telma 40",
+      "found": "Telma 40 Tablet",
+      "ok": true
+    },
+    {
+      "query": "augmentin 625",
+      "found": "Augmentin 625 Duo Tablet",
+      "ok": true
+    },
+    {
+      "query": "allegra 120",
+      "found": "Allegra 120mg Tablet",
+      "ok": true
+    },
+    {
+      "query": "thyronorm 50",
+      "found": "Thyronorm 50mcg Tablet",
+      "ok": true
+    },
+    {
+      "query": "glycomet 500",
+      "found": "Glycomet 500 SR Tablet",
+      "ok": true
+    },
+    {
+      "query": "atorva 10",
+      "found": "Atorva Tablet",
+      "ok": true
+    },
+    {
+      "query": "amlong 5",
+      "found": "Amlong 10 Tablet",
+      "ok": true
+    },
+    {
+      "query": "ecosprin 75",
+      "found": "Ecosprin 75 Tablet",
+      "ok": true
+    },
+    {
+      "query": "razo 20",
+      "found": "Razo 20 Tablet",
+      "ok": true
+    },
+    {
+      "query": "meftal spas",
+      "found": "Meftal-Spas Tablet",
+      "ok": true
+    },
+    {
+      "query": "ondem 4",
+      "found": "Ondem 4 Tablet",
+      "ok": true
+    },
+    {
+      "query": "sinarest",
+      "found": "Sinarest LP New Tablet",
+      "ok": true
+    },
+    {
+      "query": "zifi 200",
+      "found": "Zifi 200 Tablet",
+      "ok": true
+    }
+  ],
+  "search": [
+    {
+      "query": "medicine for acidity",
+      "precision_at_5": 0.8,
+      "top": [
+        "Rantac Mps Oral Suspension Elaichi Sugar Free",
+        "Anxipan Capsule",
+        "Talsil Forte Suspension",
+        "Gastril Mps Syrup",
+        "Ranidom Suspension"
+      ]
+    },
+    {
+      "query": "fever and pain relief",
+      "precision_at_5": 0.6,
+      "top": [
+        "Dolestin 250 Tablet",
+        "Pyridium 200 Tablet",
+        "Infen P Tablet",
+        "Pacimol DS Oral Suspension",
+        "PCM Tablet"
+      ]
+    },
+    {
+      "query": "high blood pressure",
+      "precision_at_5": 0.4,
+      "top": [
+        "Doxacard 2 Tablet",
+        "Alphadopa 500 Tablet",
+        "Triplixam 4mg/1.25mg/5mg Tablet",
+        "Lotensyl 10 Tablet",
+        "Irovel H Tablet"
+      ]
+    },
+    {
+      "query": "type 2 diabetes",
+      "precision_at_5": 0.6,
+      "top": [
+        "Glinate 120 Tablet",
+        "Valera Tablet",
+        "Zoryl 1 Tablet",
+        "Apriglim 2 Tablet",
+        "Amaryl 1mg Tablet"
+      ]
+    },
+    {
+      "query": "allergy sneezing runny nose",
+      "precision_at_5": 1.0,
+      "top": [
+        "Singulair 4mg Chewable Tablet",
+        "Romilast 4mg Tablet",
+        "Montina 4 Tablet",
+        "Montair 4mg Chewable Tablet",
+        "Lasma 4 Tablet"
+      ]
+    },
+    {
+      "query": "bacterial infection",
+      "precision_at_5": 0.2,
+      "top": [
+        "Netromax 300mg Injection",
+        "G-Cin Tablet",
+        "Gramoneg Oral Suspension",
+        "Albavir Tablet",
+        "Atazor-R 300mg/100mg Tablet"
+      ]
+    },
+    {
+      "query": "high cholesterol",
+      "precision_at_5": 1.0,
+      "top": [
+        "Lopid Capsule",
+        "Adilip 135 Tablet DR",
+        "Adilip 45 Tablet DR",
+        "Fenocor 67mg Capsule",
+        "Lipicard Capsule"
+      ]
+    },
+    {
+      "query": "asthma",
+      "precision_at_5": 0.8,
+      "top": [
+        "Alatro Tablet",
+        "New Theo-Asthalin Syrup",
+        "Derinide 200 Inhaler CFC Free",
+        "Derinide 0.5mg Respules 2ml",
+        "Budate 200 Transhaler"
+      ]
+    },
+    {
+      "query": "fungal infection of skin",
+      "precision_at_5": 0.8,
+      "top": [
+        "Naftate Cream",
+        "Dersil-AF Body Wash",
+        "Kozol Soap",
+        "Ludura Lotion",
+        "Seriva 2% Lotion"
+      ]
+    },
+    {
+      "query": "vitamin d deficiency",
+      "precision_at_5": 1.0,
+      "top": [
+        "Alphadol 0.5mcg Soft Gelatin Capsule",
+        "Alphadol 0.25mcg Capsule",
+        "Alphadol 1mcg Soft Gelatin Capsule",
+        "Vito Gold D3 Oral Solution",
+        "Loy D3 Capsule"
+      ]
+    }
+  ]
+}

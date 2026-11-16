@@ -1,0 +1,4 @@
+node v25.2.1 npm 11.7.0
+Python 3.13.1
+java version "1.8.0_471"
+OS: MINGW64_NT-10.0-26300 RaghavSharma 3.6.5-22c95533.x86_64 2025-10-10 12:02 UTC x86_64 Msys

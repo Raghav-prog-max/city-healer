@@ -1,0 +1,60 @@
+{
+  "foods_raw": 5020,
+  "foods_kept": 788,
+  "fibre_measured": 650,
+  "fibre_predicted": 138,
+  "fibre_model": {
+    "algorithm": "gradient boosting regressor",
+    "test_mae_g": 0.659,
+    "baseline_category_median_mae_g": 1.575
+  },
+  "kmeans": {
+    "k": 4,
+    "silhouette_by_k": {
+      "4": 0.45,
+      "5": 0.389,
+      "6": 0.367,
+      "7": 0.373,
+      "8": 0.388,
+      "9": 0.39
+    },
+    "clusters": [
+      {
+        "calories": 116,
+        "protein": 5.7,
+        "carbs": 15.9,
+        "fat": 3.4,
+        "fiber": 3.8,
+        "size": 366,
+        "name": "Balanced"
+      },
+      {
+        "calories": 582,
+        "protein": 23.3,
+        "carbs": 19.8,
+        "fat": 50.0,
+        "fiber": 9.9,
+        "size": 15,
+        "name": "Rich / fried"
+      },
+      {
+        "calories": 205,
+        "protein": 17.2,
+        "carbs": 7.6,
+        "fat": 11.6,
+        "fiber": 1.2,
+        "size": 352,
+        "name": "Protein-rich"
+      },
+      {
+        "calories": 346,
+        "protein": 10.9,
+        "carbs": 58.5,
+        "fat": 7.6,
+        "fiber": 7.4,
+        "size": 55,
+        "name": "Starchy / grains"
+      }
+    ]
+  }
+}

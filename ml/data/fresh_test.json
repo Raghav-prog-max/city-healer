@@ -1,0 +1,113 @@
+{
+  "_note": "Held-out everyday-language test sentences written for this project (with AI assistance), never used in training. They are not real patient records.",
+  "allergy": {
+    "en": ["whenever i dust the shelves i start sneezing and my nose itches like crazy", "got itchy swollen eyes and a runny nose after playing in the garden, no temperature"],
+    "hi": ["अगरबत्ती के धुएँ से मुझे छींकें आने लगती हैं और आँखें लाल होकर खुजलाती हैं", "झींगा खाने के बाद मेरे हाथों पर खुजली वाले लाल चकत्ते उभर आए"],
+    "hing": ["purani kitabein nikalte hi chheenkein shuru ho jaati hain aur naak mein khujli hoti hai"]
+  },
+  "arthritis": {
+    "en": ["my mother's knee joints are swollen and she can barely bend them in the morning", "pain and stiffness in the small joints of both hands, worse when I wake up"],
+    "hi": ["मेरी माँ के घुटनों के जोड़ सूजे हैं और सुबह उन्हें मोड़ना मुश्किल होता है", "दोनों हाथों के छोटे जोड़ों में दर्द और अकड़न रहती है"],
+    "hing": ["papa ke ghutno ke jod mein soojan hai aur chalne mein dard hota hai"]
+  },
+  "bronchial asthma": {
+    "en": ["my daughter makes a whistling noise when breathing and coughs every night", "chest feels tight and I wheeze whenever the air quality is bad"],
+    "hi": ["मेरी बेटी को साँस लेते समय सीटी की आवाज़ आती है और हर रात खांसी होती है", "खराब हवा वाले दिन सीने में जकड़न और घरघराहट होती है"],
+    "hing": ["thand mein saans lete time seeti ki awaaz aati hai aur inhaler se aaram milta hai"]
+  },
+  "cervical spondylosis": {
+    "en": ["constant ache in my neck that shoots into my right arm when I look down at my phone", "my neck cracks and feels stiff, and my shoulder and arm tingle"],
+    "hi": ["फोन देखते समय गर्दन में दर्द होता है जो दाहिनी बाँह तक जाता है", "गर्दन अकड़ी रहती है और कंधे व बाँह में झनझनाहट होती है"],
+    "hing": ["office mein computer par kaam karne se gardan mein dard aur kandhe mein akdan rehti hai"]
+  },
+  "chicken pox": {
+    "en": ["my kid came home from school with fever and now has watery itchy spots on the tummy and face", "itchy blisters all over that are scabbing, started two days after a fever"],
+    "hi": ["बच्चे को बुखार के बाद पेट और चेहरे पर पानी वाले खुजलीदार दाने निकल आए हैं", "पूरे बदन पर फफोले हैं जो सूखकर पपड़ी बन रहे हैं, पहले बुखार आया था"],
+    "hing": ["beti ko bukhar ke baad poore badan par paani wale daane nikal aaye hain aur khujli ho rahi hai"]
+  },
+  "common cold": {
+    "en": ["sniffles, sneezing and a tickly throat since I got caught in the rain", "nose is blocked, bit of a cough, throat hurts when swallowing"],
+    "hi": ["बारिश में भीगने के बाद से नाक बह रही है और गला खराब है", "नाक बंद है, थोड़ी खांसी है और निगलने में गले में दर्द होता है"],
+    "hing": ["do din se zukam hai, naak beh rahi hai aur gala kharab hai"]
+  },
+  "dengue": {
+    "en": ["burning high fever, eyes hurt when I move them, every joint is aching and there are red dots on my arms", "fever of 103 with awful body pain and my gums bled a little"],
+    "hi": ["तेज़ बुखार है, आँखें घुमाने पर दर्द होता है, हर जोड़ दुख रहा है और बाँहों पर लाल बिंदियाँ हैं", "104 बुखार के साथ हड्डियों में भयंकर दर्द है और मसूड़ों से थोड़ा खून आया"],
+    "hing": ["tez bukhar ke saath aankhon ke peeche dard hai aur poore badan mein haddi tod dard hai"]
+  },
+  "diabetes": {
+    "en": ["drinking water all day but still thirsty, and running to the bathroom every hour", "lost five kilos without trying, always tired, and a small wound on my toe won't heal"],
+    "hi": ["दिन भर पानी पीता हूँ फिर भी प्यास नहीं बुझती और हर घंटे पेशाब जाना पड़ता है", "बिना कोशिश के वज़न कम हो गया है, थकान रहती है और पैर की उंगली का घाव नहीं भर रहा"],
+    "hing": ["bahut pyaas lagti hai, raat ko baar baar peshab ke liye uthna padta hai aur thakan rehti hai"]
+  },
+  "drug reaction": {
+    "en": ["the doctor gave me new tablets on Monday and since yesterday I am covered in an itchy rash", "my face puffed up and skin turned red after the first dose of a new medicine"],
+    "hi": ["सोमवार को डॉक्टर ने नई गोलियाँ दीं और कल से पूरे शरीर पर खुजली वाले दाने हैं", "नई दवा की पहली खुराक के बाद चेहरा सूज गया और त्वचा लाल हो गई"],
+    "hing": ["nayi tablet khane ke baad se poore shareer par laal chakatte aur khujli ho gayi hai"]
+  },
+  "fungal infection": {
+    "en": ["there's a round itchy red patch on my waist where my belt sits and it keeps growing", "skin between my toes is soggy, itchy and flaking after wearing shoes all day"],
+    "hi": ["कमर पर जहाँ बेल्ट रहती है वहाँ गोल लाल खुजली वाला निशान है जो बढ़ रहा है", "दिन भर जूते पहनने से पैर की उंगलियों के बीच खुजली और त्वचा गल रही है"],
+    "hing": ["garmi mein jaangho ke beech daad ho gaya hai aur bahut khujli hoti hai"]
+  },
+  "gastroesophageal reflux disease": {
+    "en": ["after dinner I get a burning in my chest and sour stuff comes up my throat when I lie down", "terrible acidity and sour burps every time I have fried food"],
+    "hi": ["रात के खाने के बाद लेटते ही सीने में जलन होती है और गले में खट्टा पानी आ जाता है", "तला हुआ खाते ही एसिडिटी और खट्टी डकारें शुरू हो जाती हैं"],
+    "hing": ["raat ko khana khane ke baad seene mein jalan aur khatti dakar aati hai"]
+  },
+  "hypertension": {
+    "en": ["my BP machine shows 170/105 and I have a dull headache and feel giddy", "head feels heavy every morning and the nurse said my pressure is too high"],
+    "hi": ["मशीन में बीपी 170/105 आ रहा है, सिर में हल्का दर्द है और चक्कर आ रहे हैं", "रोज़ सुबह सिर भारी रहता है और नर्स ने कहा ब्लड प्रेशर बहुत ज़्यादा है"],
+    "hing": ["mera BP bahut high aa raha hai aur sir mein dard aur chakkar hai"]
+  },
+  "impetigo": {
+    "en": ["my toddler has crusty yellow sores near the lips that keep spreading", "oozing sores around my nostrils dried into honey coloured scabs"],
+    "hi": ["मेरे छोटे बच्चे के होंठों के पास पीली पपड़ी वाले घाव हैं जो फैल रहे हैं", "नाक के छेदों के पास रिसते घाव सूखकर शहद के रंग की पपड़ी बन गए"],
+    "hing": ["bachche ke munh ke paas peeli papdi wale ghaav ho gaye hain"]
+  },
+  "jaundice": {
+    "en": ["the whites of my eyes look yellow and my pee is very dark", "feeling sick, no hunger, and my skin has a yellow tinge"],
+    "hi": ["मेरी आँखों का सफेद हिस्सा पीला दिख रहा है और पेशाब बहुत गहरा है", "जी खराब रहता है, भूख नहीं है और त्वचा पीली लग रही है"],
+    "hing": ["aankhen peeli ho gayi hain aur peshab ka rang gehra peela hai, bhookh nahi lagti"]
+  },
+  "malaria": {
+    "en": ["every second day I get shaking chills, then a burning fever, then I'm drenched in sweat", "fever with teeth-chattering cold in the evenings ever since the monsoon mosquitoes came"],
+    "hi": ["हर दूसरे दिन कंपकंपी के साथ ठंड लगती है, फिर तेज़ बुखार और फिर पसीने से भीग जाता हूँ", "शाम को दाँत किटकिटाने वाली ठंड के साथ बुखार चढ़ता है"],
+    "hing": ["thand lagkar bukhar aata hai, kapkapi hoti hai aur phir paseena aata hai"]
+  },
+  "migraine": {
+    "en": ["pounding pain on the left side of my head, I feel sick and can't stand the light", "I see zigzag lines and then get a splitting one-sided headache"],
+    "hi": ["सिर के बाईं तरफ धड़कता दर्द है, जी मिचला रहा है और रोशनी सहन नहीं होती", "पहले टेढ़ी-मेढ़ी रेखाएँ दिखती हैं, फिर आधे सिर में फटने वाला दर्द होता है"],
+    "hing": ["aadhe sir mein tez dard hai, roshni se dard badhta hai aur ulti jaisa lag raha hai"]
+  },
+  "peptic ulcer disease": {
+    "en": ["a burning ache just below my ribs when I'm hungry that eases once I eat something", "stomach hurts at 2 am most nights and my stool looked black"],
+    "hi": ["भूख लगने पर पसलियों के नीचे जलन वाला दर्द होता है जो कुछ खाने से ठीक हो जाता है", "रात को दो बजे पेट में दर्द होता है और मल काला आया"],
+    "hing": ["khaali pet mein pet ke upar jalan wala dard hota hai, khana khane se aaram milta hai"]
+  },
+  "pneumonia": {
+    "en": ["coughing up thick green phlegm with fever and a sharp pain in my chest when I breathe in", "my grandfather has a wet cough, high temperature, chills and is breathing quickly"],
+    "hi": ["हरा गाढ़ा बलगम आ रहा है, बुखार है और साँस लेने पर सीने में चुभन होती है", "दादाजी को बलगम वाली खांसी, तेज़ बुखार, ठंड है और साँस तेज़ चल रही है"],
+    "hing": ["peela balgam wali khansi hai, tez bukhar hai aur saans lene mein dard hota hai"]
+  },
+  "psoriasis": {
+    "en": ["thick flaky silver-white patches on my elbows that itch and never clear", "my scalp is covered in scaly red plaques and my nails are pitted"],
+    "hi": ["कोहनियों पर मोटी चाँदी जैसी सफेद पपड़ी वाले चकत्ते हैं जो ठीक नहीं होते", "सिर की त्वचा पर लाल पपड़ीदार चकत्ते हैं और नाखूनों में गड्ढे हैं"],
+    "hing": ["kohni aur ghutno par safed papdi wale laal chakatte hain jo jaate nahi"]
+  },
+  "typhoid": {
+    "en": ["fever climbing a little more each day for eight days, tummy ache and no appetite", "I've had a constant fever with constipation and weakness since eating at a roadside stall"],
+    "hi": ["आठ दिन से बुखार रोज़ थोड़ा बढ़ रहा है, पेट दर्द है और भूख नहीं लगती", "ठेले का खाना खाने के बाद से लगातार बुखार, कब्ज़ और कमजोरी है"],
+    "hing": ["hafte bhar se bukhar utar nahi raha, pet mein dard aur kamzori hai"]
+  },
+  "urinary tract infection": {
+    "en": ["stinging pain every time I pee and I feel like going again right after", "cloudy urine with a bad smell and an ache low in my belly"],
+    "hi": ["हर बार पेशाब करते समय चुभन होती है और तुरंत फिर पेशाब लगता है", "पेशाब गंदला और बदबूदार है और पेट के निचले हिस्से में दर्द है"],
+    "hing": ["peshab mein jalan ho rahi hai aur baar baar toilet jaana pad raha hai"]
+  },
+  "varicose veins": {
+    "en": ["lumpy blue veins on my calves that throb after a day on my feet", "my legs feel heavy and swollen by evening and the veins stick out"],
+    "hi": ["पिंडलियों पर उभरी नीली नसें हैं जो दिन भर खड़े रहने के बाद दुखती हैं", "शाम तक पैर भारी और सूजे लगते हैं और नसें उभर आती हैं"],
+    "hing": ["pairon ki nasen neeli aur ubhri hui hain, khade rehne par dard hota hai"]
+  }
+}

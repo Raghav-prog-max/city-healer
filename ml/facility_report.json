@@ -1,0 +1,131 @@
+{
+  "names": 73952,
+  "train": 59161,
+  "test": 14791,
+  "labels": {
+    "pharmacy": 5232,
+    "clinic": 21876,
+    "hospital": 40880,
+    "laboratory": 981,
+    "dentist": 4983
+  },
+  "held_out_accuracy": 0.871,
+  "per_class": {
+    "clinic": {
+      "precision": 0.7842137466857027,
+      "recall": 0.8788571428571429,
+      "f1-score": 0.8288424229359775,
+      "support": 4375.0
+    },
+    "dentist": {
+      "precision": 0.8281665190434012,
+      "recall": 0.9378134403209629,
+      "f1-score": 0.8795860771401693,
+      "support": 997.0
+    },
+    "hospital": {
+      "precision": 0.9612381865497877,
+      "recall": 0.8583659491193738,
+      "f1-score": 0.9068941009239516,
+      "support": 8176.0
+    },
+    "laboratory": {
+      "precision": 0.4222873900293255,
+      "recall": 0.7346938775510204,
+      "f1-score": 0.5363128491620112,
+      "support": 196.0
+    },
+    "pharmacy": {
+      "precision": 0.8370635631154879,
+      "recall": 0.8930276981852913,
+      "f1-score": 0.8641404805914972,
+      "support": 1047.0
+    },
+    "accuracy": 0.8705969846528294,
+    "macro avg": {
+      "precision": 0.7665938810847409,
+      "recall": 0.8605516216067581,
+      "f1-score": 0.8031551861507215,
+      "support": 14791.0
+    },
+    "weighted avg": {
+      "precision": 0.883975015448242,
+      "recall": 0.8705969846528294,
+      "f1-score": 0.8740295781233811,
+      "support": 14791.0
+    }
+  },
+  "note": "OSM labels are the mappers' tags and are themselves noisy; the held-out score measures agreement with them.",
+  "probe": {
+    "Sharma Ji": {
+      "clinic": 0.151,
+      "dentist": 0.079,
+      "hospital": 0.104,
+      "laboratory": 0.076,
+      "pharmacy": 0.59
+    },
+    "Gupta and Sons": {
+      "clinic": 0.037,
+      "dentist": 0.014,
+      "hospital": 0.016,
+      "laboratory": 0.027,
+      "pharmacy": 0.906
+    },
+    "Jayprakash Infotech": {
+      "clinic": 0.306,
+      "dentist": 0.065,
+      "hospital": 0.172,
+      "laboratory": 0.186,
+      "pharmacy": 0.271
+    },
+    "Kailash Hospital": {
+      "clinic": 0.083,
+      "dentist": 0.005,
+      "hospital": 0.903,
+      "laboratory": 0.004,
+      "pharmacy": 0.004
+    },
+    "Apollo Pharmacy": {
+      "clinic": 0.004,
+      "dentist": 0.001,
+      "hospital": 0.009,
+      "laboratory": 0.017,
+      "pharmacy": 0.969
+    },
+    "Dr Lal PathLabs": {
+      "clinic": 0.005,
+      "dentist": 0.003,
+      "hospital": 0.006,
+      "laboratory": 0.985,
+      "pharmacy": 0.001
+    },
+    "Smile Dental Care": {
+      "clinic": 0.001,
+      "dentist": 0.998,
+      "hospital": 0.0,
+      "laboratory": 0.0,
+      "pharmacy": 0.0
+    },
+    "Dr. Mehta's Clinic": {
+      "clinic": 0.927,
+      "dentist": 0.042,
+      "hospital": 0.027,
+      "laboratory": 0.002,
+      "pharmacy": 0.002
+    },
+    "Saket City": {
+      "clinic": 0.124,
+      "dentist": 0.047,
+      "hospital": 0.283,
+      "laboratory": 0.25,
+      "pharmacy": 0.298
+    },
+    "Fortis Escorts Heart Institute": {
+      "clinic": 0.072,
+      "dentist": 0.006,
+      "hospital": 0.881,
+      "laboratory": 0.019,
+      "pharmacy": 0.021
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "audit_date": "2026-11-16",
+  "release_recommendation": "NOT READY for real patients",
+  "blockers": ["BUG-001", "BUG-002", "BUG-003", "BUG-004", "BUG-005", "BUG-006", "BUG-007"],
+  "scores": {
+    "frontend_functionality": 62,
+    "patient_onboarding": 55,
+    "doctor_discovery_and_booking": 70,
+    "backend_reliability": 66,
+    "authentication_and_authorization": 78,
+    "ai_copilot": 40,
+    "nlp_and_voice": 55,
+    "document_intelligence": 30,
+    "predictive_ml": "NOT EVALUATED",
+    "care_discovery": 45,
+    "proprietary_model_research": 58,
+    "ai_operations": 40,
+    "performance_and_efficiency": 52,
+    "security_and_privacy": 50,
+    "overall_integration": 50
+  },
+  "llm_in_use": false,
+  "llm_tokens_and_cost": "NOT APPLICABLE",
+  "tests": { "existing_unit": "109/109", "existing_server": "128/128", "audit_security_checks": "19/23" }
+}

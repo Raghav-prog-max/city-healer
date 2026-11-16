@@ -1,0 +1,40 @@
+/**
+ * Requests from the new UI to the City Healer server.
+ *
+ * Unlike src/utils/api.ts, there is no silent fallback to browser-stored sample data: if the
+ * server fails, the caller gets an error and the screen says so. A screen showing results
+ * that came from nowhere was one of the reasons the old app "did not work".
+ */
+import { auth } from "../../firebase";
+import { getDemoSessionRole } from "../../utils/api";
+
+export class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
+export async function request<T>(url: string, options: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    if (token) headers.Authorization = `Bearer ${token}`;
+  } catch {}
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: options.method || (options.body ? "POST" : "GET"),
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
+    });
+  } catch (e: any) {
+    if (e?.name === "AbortError") throw e;
+    throw new ApiError("network", 0);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(data.error || `HTTP ${res.status}`, res.status);
+  return data as T;
+}
+
+export const isDemo = () => !!getDemoSessionRole();

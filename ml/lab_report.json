@@ -1,0 +1,95 @@
+{
+  "diabetes": {
+    "source": "Pima Indians Diabetes Database (NIDDK / UCI)",
+    "samples": 768,
+    "positive_rate": 0.349,
+    "models": {
+      "logistic_regression": {
+        "cv_accuracy": 0.752,
+        "cv_auc": 0.831,
+        "test_accuracy": 0.724,
+        "test_auc": 0.808,
+        "test_sensitivity": 0.642,
+        "test_precision": 0.597
+      },
+      "random_forest": {
+        "cv_accuracy": 0.759,
+        "cv_auc": 0.818,
+        "test_accuracy": 0.74,
+        "test_auc": 0.819,
+        "test_sensitivity": 0.672,
+        "test_precision": 0.616
+      },
+      "gradient_boosting": {
+        "cv_accuracy": 0.755,
+        "cv_auc": 0.814,
+        "test_accuracy": 0.74,
+        "test_auc": 0.805,
+        "test_sensitivity": 0.567,
+        "test_precision": 0.644
+      }
+    }
+  },
+  "heart": {
+    "source": "UCI Heart Disease, Cleveland Clinic Foundation",
+    "samples": 303,
+    "positive_rate": 0.459,
+    "models": {
+      "logistic_regression": {
+        "cv_accuracy": 0.753,
+        "cv_auc": 0.839,
+        "test_accuracy": 0.868,
+        "test_auc": 0.907,
+        "test_sensitivity": 0.829,
+        "test_precision": 0.879
+      },
+      "random_forest": {
+        "cv_accuracy": 0.771,
+        "cv_auc": 0.847,
+        "test_accuracy": 0.816,
+        "test_auc": 0.884,
+        "test_sensitivity": 0.829,
+        "test_precision": 0.784
+      },
+      "gradient_boosting": {
+        "cv_accuracy": 0.745,
+        "cv_auc": 0.811,
+        "test_accuracy": 0.75,
+        "test_auc": 0.848,
+        "test_sensitivity": 0.629,
+        "test_precision": 0.786
+      }
+    }
+  },
+  "liver": {
+    "source": "UCI Indian Liver Patient Dataset (ILPD)",
+    "samples": 583,
+    "positive_rate": 0.714,
+    "models": {
+      "logistic_regression": {
+        "cv_accuracy": 0.634,
+        "cv_auc": 0.728,
+        "test_accuracy": 0.705,
+        "test_auc": 0.817,
+        "test_sensitivity": 0.683,
+        "test_precision": 0.877
+      },
+      "random_forest": {
+        "cv_accuracy": 0.65,
+        "cv_auc": 0.713,
+        "test_accuracy": 0.719,
+        "test_auc": 0.79,
+        "test_sensitivity": 0.779,
+        "test_precision": 0.818
+      },
+      "gradient_boosting": {
+        "cv_accuracy": 0.673,
+        "cv_auc": 0.669,
+        "test_accuracy": 0.685,
+        "test_auc": 0.719,
+        "test_sensitivity": 0.885,
+        "test_precision": 0.73
+      }
+    }
+  }
+}

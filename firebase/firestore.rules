@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function hasRole(role) {
+      return signedIn() && request.auth.token.role == role;
+    }
+
+    // Patient profile and consent writes are server-only through Firebase Admin.
+    // The Admin SDK bypasses rules; all client access remains explicitly scoped.
+    match /patientProfiles/{uid} {
+      allow read: if isSelf(uid);
+      allow create, update, delete: if false;
+    }
+
+    match /patientConsents/{consentId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Audit logs are never exposed to client SDKs.
+    match /auditLogs/{eventId} {
+      allow read, write: if false;
+    }
+
+    // Provider booking (server/firebase/booking.ts): doctors (holds registration numbers),
+    // doctorSlots, appointments and notificationOutbox are read and written only by the server,
+    // inside transactions, so a client can never lock a slot or see another patient's booking.
+    match /doctors/{id} { allow read, write: if false; }
+    match /doctorSlots/{id} { allow read, write: if false; }
+    match /appointments/{id} { allow read, write: if false; }
+    match /notificationOutbox/{id} { allow read, write: if false; }
+
+    // Deny all unspecified collections until a collection-specific policy is added.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

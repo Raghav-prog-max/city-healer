@@ -22,3 +22,15 @@ serviceAccountKey*.json
 
 # Local editor/agent tooling, not project code
 .claude/
+
+# Firebase emulator data (local test accounts and profiles)
+.firebase-emulator-data/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Public training datasets, downloaded by ml/fetch_data.py
+ml/raw/
+
+# Downloaded open datasets (scripts/fetch-osm-hospitals.py)
+data/raw/

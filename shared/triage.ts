@@ -11,18 +11,24 @@
  * translation can be corrected without risking a clinical rule.
  */
 
+import { detectEmergency, CRISIS_HELPLINES, type EmergencyCategory } from "./emergencySafety";
+
 export type Lang = "en" | "hi";
 
 export type OfflineTriage = {
   suspectedCondition: string;
   explanation: string;
   specialistType: string;
+  /** The specialist in English whatever the reply language; used for routing, not display. */
+  specialistEn?: string;
   urgencyLevel: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   recommendations: string[];
   flagUrgentSOS: boolean;
   source: "offline-heuristic";
   lang: Lang;
   notAssessed?: boolean;
+  /** Set when shared/emergencySafety.ts fired: which emergency, for the reply and audit traces. */
+  emergencyCategory?: EmergencyCategory;
 };
 
 export const hasAny = (text: string, terms: string[]) => terms.some((t) => text.includes(t));
@@ -62,7 +68,7 @@ const T = {
     "behosh", "hosh nahi", "dam ghut", "zeher", "zahar"
   ],
   trauma: [
-    "heavy bleeding", "bleeding heavily", "won't stop bleeding", "blood loss",
+    "heavy bleeding", "bleeding heavily", "won't stop bleeding", "blood loss", "severe bleeding", "bleeding a lot",
     "haemorrhage", "hemorrhage", "broken bone", "fracture", "broken leg", "broken arm",
     "deep cut", "stab", "gunshot", "severe burn", "head injury", "spinal",
     "खून बह", "बहुत खून", "रक्तस्राव", "हड्डी टूट", "टूट गई", "फ्रैक्चर",
@@ -79,9 +85,12 @@ const T = {
   cardioResp: [
     "chest pain", "chest pressure", "chest tight", "crushing chest", "left arm",
     "cannot breathe", "can't breathe", "gasping", "shortness of breath", "breathless", "suffocat",
+    // Also in the Intelligence Platform zip's urgent-phrase list (app/services/safety.py).
+    "difficulty breathing", "trouble breathing", "hard to breathe", "struggling to breathe",
     "साँस लेने में तकलीफ", "सांस लेने में तकलीफ", "साँस फूल", "सांस फूल",
     "दम फूल", "साँस नहीं आ", "सांस नहीं आ", "बाएं हाथ में दर्द",
-    "seene mein dard", "chhati mein dard", "saans lene mein", "saans phool", "dam phool"
+    "seene mein dard", "chhati mein dard", "chest mein dard", "saans lene mein", "saans phool", "dam phool",
+    "saans nahi", "saans nahin"
   ],
   gastro: [
     "vomit", "diarrhoea", "diarrhea", "loose motion", "stomach", "abdomen", "abdominal", "nausea",
@@ -119,7 +128,7 @@ const PART = {
 };
 
 type VerdictKey =
-  | "notSymptom" | "lifeThreatening" | "trauma" | "neuro" | "cardioResp"
+  | "notSymptom" | "selfHarm" | "lifeThreatening" | "trauma" | "neuro" | "cardioResp"
   | "gastro" | "febrile" | "headache" | "uri" | "unknown";
 
 interface Verdict {
@@ -151,6 +160,31 @@ const COPY: Record<VerdictKey, Verdict> = {
         "अपने आसपास बेड और आईसीयू की उपलब्धता देखने के लिए अस्पताल टैब खोलें",
         "यदि किसी को अभी एम्बुलेंस चाहिए तो SOS का उपयोग करें",
         "मार्गदर्शन के लिए यहाँ अपने शारीरिक लक्षण लिखें"
+      ]
+    }
+  },
+  // Self-harm: crisis support first. Tele-MANAS is the Government of India's 24x7 mental-health
+  // helpline. No reassurance and no "assessment": the person is pointed to people, now.
+  selfHarm: {
+    urgencyLevel: "CRITICAL", flagUrgentSOS: true,
+    en: {
+      condition: "Risk of self-harm",
+      explanation: "What you wrote suggests you may be thinking about harming yourself. Please talk to someone right now; you do not have to handle this alone, and an app cannot keep you safe.",
+      specialist: "Emergency Medicine / Psychiatry",
+      recommendations: [
+        `Call Tele-MANAS on ${CRISIS_HELPLINES.teleManas} or ${CRISIS_HELPLINES.teleManasTollFree} (free, 24x7), or ${CRISIS_HELPLINES.emergency} if you are in immediate danger`,
+        "Tell someone near you how you feel and stay with them",
+        "Move away from anything you could use to hurt yourself"
+      ]
+    },
+    hi: {
+      condition: "खुद को नुकसान पहुँचाने का खतरा",
+      explanation: "आपने जो लिखा उससे लगता है कि आप खुद को नुकसान पहुँचाने के बारे में सोच रहे हैं। कृपया अभी किसी से बात करें; आपको यह अकेले नहीं झेलना है, और कोई ऐप आपको सुरक्षित नहीं रख सकता।",
+      specialist: "आपातकालीन चिकित्सा / मनोचिकित्सा",
+      recommendations: [
+        `टेली-मानस ${CRISIS_HELPLINES.teleManas} या ${CRISIS_HELPLINES.teleManasTollFree} पर कॉल करें (निःशुल्क, 24x7), या तुरंत खतरा हो तो ${CRISIS_HELPLINES.emergency}`,
+        "अपने पास किसी को बताएँ कि आप कैसा महसूस कर रहे हैं और उनके साथ रहें",
+        "ऐसी किसी भी चीज़ से दूर हो जाएँ जिससे आप खुद को चोट पहुँचा सकते हैं"
       ]
     }
   },
@@ -363,8 +397,20 @@ const COPY: Record<VerdictKey, Verdict> = {
   }
 };
 
+const EMERGENCY_VERDICT: Record<EmergencyCategory, VerdictKey> = {
+  self_harm: "selfHarm", overdose: "lifeThreatening", unconscious: "lifeThreatening",
+  breathing: "cardioResp", chest_pain: "cardioResp", bleeding: "trauma",
+};
+
 /** Decide which verdict the message falls under. Order is severity order. */
-function classify(text: string): VerdictKey {
+function classify(text: string, original: string): { key: VerdictKey; emergency?: EmergencyCategory } {
+  // Emergency language first, before anything that could route the message elsewhere.
+  const e = detectEmergency(original);
+  if (e) return { key: EMERGENCY_VERDICT[e.category], emergency: e.category };
+  return { key: classifyRest(text) };
+}
+
+function classifyRest(text: string): VerdictKey {
   const looksLikeFacilitySearch = hasAny(text, T.facility) && !hasAny(text, T.anySymptom);
   if (looksLikeFacilitySearch) return "notSymptom";
 
@@ -391,7 +437,7 @@ function classify(text: string): VerdictKey {
 export function triageWithoutAI(symptomsText: string, lang?: Lang): OfflineTriage {
   const text = String(symptomsText).toLowerCase();
   const language: Lang = lang || detectLang(symptomsText);
-  const key = classify(text);
+  const { key, emergency } = classify(text, String(symptomsText));
   const v = COPY[key];
   const c = v[language];
 
@@ -399,11 +445,13 @@ export function triageWithoutAI(symptomsText: string, lang?: Lang): OfflineTriag
     suspectedCondition: c.condition,
     explanation: c.explanation,
     specialistType: c.specialist,
+    specialistEn: v.en.specialist,
     urgencyLevel: v.urgencyLevel,
     recommendations: c.recommendations,
     flagUrgentSOS: v.flagUrgentSOS,
     source: "offline-heuristic",
     lang: language,
-    ...(v.notAssessed ? { notAssessed: true } : {})
+    ...(v.notAssessed ? { notAssessed: true } : {}),
+    ...(emergency ? { emergencyCategory: emergency } : {})
   };
 }

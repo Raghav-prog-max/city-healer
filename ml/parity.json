@@ -1,0 +1,242 @@
+[
+ {
+  "text": "I have a burning sensation in my stomach that comes and goes. It's worse when I eat and when I lie down. I also have heartburn and indigestion.",
+  "label": "gastroesophageal reflux disease",
+  "confidence": 0.6907
+ },
+ {
+  "text": "I've been coughing up phlegm and my back hurts. I also feel weak and disoriented, and my neck hurts.",
+  "label": "cervical spondylosis",
+  "confidence": 0.629
+ },
+ {
+  "text": "I have a lot of heartburn and indigestion, especially after eating spicy or fatty foods. I also have chest pain when I lean forward or lie down.",
+  "label": "gastroesophageal reflux disease",
+  "confidence": 0.9217
+ },
+ {
+  "text": "I've been having trouble breathing, a cough that won't go away, and I'm exhausted. I've been coughing up a lot of thick, mucusy stuff and I have a fever. I'm just so tired from all of this.",
+  "label": "bronchial asthma",
+  "confidence": 0.9302
+ },
+ {
+  "text": "I have been having trouble with my vision, seeing things as distorted and experiencing visual disturbances. I have also been experiencing headaches.",
+  "label": "migraine",
+  "confidence": 0.8926
+ },
+ {
+  "text": "I've been having a lot of itching, nausea, and fatigue. I've also been running a fever and losing weight. My pee is black, and I've developed a yellow rash. My stomach hurts, too.",
+  "label": "jaundice",
+  "confidence": 0.1569
+ },
+ {
+  "text": "I've been having neck pain, and I've been feeling lightheaded and shaky. I also have a dry cough, and I'm not as strong as I used to be.",
+  "label": "cervical spondylosis",
+  "confidence": 0.3912
+ },
+ {
+  "text": "I've been having a lot of trouble breathing, and I feel like I'm constantly nauseous. I also have mild belly pain. It's been really scary.",
+  "label": "typhoid",
+  "confidence": 0.2638
+ },
+ {
+  "text": "I've been having a hard time peeing. It hurts when I go, and it's bloody. My head hurts, and my urine smells really bad. I can't control when I have to go, and it's really urgent when I do.",
+  "label": "urinary tract infection",
+  "confidence": 0.9102
+ },
+ {
+  "text": "I have been having cramps in my calves when I walk or stand for a long time. I also have some very noticeable veins in my legs.",
+  "label": "varicose veins",
+  "confidence": 0.9795
+ },
+ {
+  "text": "I have a rash all over my body, and I can't stop scratching because my skin is itchy. My skin also has a few spots where the color is different and some lumps and knot-like pimples.",
+  "label": "fungal infection",
+  "confidence": 0.739
+ },
+ {
+  "text": "I've been having a hard time eating and swallowing. My nose is running and my throat hurts.",
+  "label": "allergy",
+  "confidence": 0.4644
+ },
+ {
+  "text": "I have been feeling very tired and weak. I have no appetite. I have been having a fever and chills every night. I have also been vomiting since yesterday.",
+  "label": "typhoid",
+  "confidence": 0.2419
+ },
+ {
+  "text": "I have a rash that is red and itchy. It is covered in silvery scales. It is on my back, elbows, and knees.",
+  "label": "psoriasis",
+  "confidence": 0.7697
+ },
+ {
+  "text": "I have red, scaly patches on my skin. They are itchy and sometimes painful. They are usually on my knees, elbows, and scalp.",
+  "label": "psoriasis",
+  "confidence": 0.8978
+ },
+ {
+  "text": "I've been having swelling in my legs for a few weeks now. It's gotten worse, and now I can see a lot of veins on my calves. I'm worried about it.",
+  "label": "varicose veins",
+  "confidence": 0.844
+ },
+ {
+  "text": "I have a runny nose and I am sneezing all the time. My eyes are itchy and often watery, and I am coughing all the time. My head hurts all the time. I am also feeling very tired.",
+  "label": "allergy",
+  "confidence": 0.6812
+ },
+ {
+  "text": "I've been feeling really sick lately. I've got a runny nose, a fever, and I've been coughing a lot. I'm also really tired and I don't feel like eating much.",
+  "label": "common cold",
+  "confidence": 0.4935
+ },
+ {
+  "text": "My legs are really bothering me. I get cramps when I exercise and the blood vessels are really noticeable.",
+  "label": "varicose veins",
+  "confidence": 0.7796
+ },
+ {
+  "text": "I've been having a hard time breathing, and I've been coughing up a lot of mucous. I'm also feeling really tired and weak.",
+  "label": "bronchial asthma",
+  "confidence": 0.8795
+ },
+ {
+  "text": "whenever i dust the shelves i start sneezing and my nose itches like crazy",
+  "label": "common cold",
+  "confidence": 0.4451
+ },
+ {
+  "text": "purani kitabein nikalte hi chheenkein shuru ho jaati hain aur naak mein khujli hoti hai",
+  "label": "allergy",
+  "confidence": 0.434
+ },
+ {
+  "text": "दोनों हाथों के छोटे जोड़ों में दर्द और अकड़न रहती है",
+  "label": "arthritis",
+  "confidence": 0.2099
+ },
+ {
+  "text": "मेरी बेटी को साँस लेते समय सीटी की आवाज़ आती है और हर रात खांसी होती है",
+  "label": "bronchial asthma",
+  "confidence": 0.5833
+ },
+ {
+  "text": "my neck cracks and feels stiff, and my shoulder and arm tingle",
+  "label": "cervical spondylosis",
+  "confidence": 0.3738
+ },
+ {
+  "text": "my kid came home from school with fever and now has watery itchy spots on the tummy and face",
+  "label": "chicken pox",
+  "confidence": 0.2221
+ },
+ {
+  "text": "beti ko bukhar ke baad poore badan par paani wale daane nikal aaye hain aur khujli ho rahi hai",
+  "label": "chicken pox",
+  "confidence": 0.3778
+ },
+ {
+  "text": "नाक बंद है, थोड़ी खांसी है और निगलने में गले में दर्द होता है",
+  "label": "common cold",
+  "confidence": 0.352
+ },
+ {
+  "text": "तेज़ बुखार है, आँखें घुमाने पर दर्द होता है, हर जोड़ दुख रहा है और बाँहों पर लाल बिंदियाँ हैं",
+  "label": "pneumonia",
+  "confidence": 0.1293
+ },
+ {
+  "text": "lost five kilos without trying, always tired, and a small wound on my toe won't heal",
+  "label": "diabetes",
+  "confidence": 0.5611
+ },
+ {
+  "text": "the doctor gave me new tablets on Monday and since yesterday I am covered in an itchy rash",
+  "label": "drug reaction",
+  "confidence": 0.5599
+ },
+ {
+  "text": "nayi tablet khane ke baad se poore shareer par laal chakatte aur khujli ho gayi hai",
+  "label": "drug reaction",
+  "confidence": 0.4786
+ },
+ {
+  "text": "दिन भर जूते पहनने से पैर की उंगलियों के बीच खुजली और त्वचा गल रही है",
+  "label": "fungal infection",
+  "confidence": 0.6005
+ },
+ {
+  "text": "रात के खाने के बाद लेटते ही सीने में जलन होती है और गले में खट्टा पानी आ जाता है",
+  "label": "gastroesophageal reflux disease",
+  "confidence": 0.6981
+ },
+ {
+  "text": "head feels heavy every morning and the nurse said my pressure is too high",
+  "label": "hypertension",
+  "confidence": 0.2226
+ },
+ {
+  "text": "my toddler has crusty yellow sores near the lips that keep spreading",
+  "label": "impetigo",
+  "confidence": 0.6947
+ },
+ {
+  "text": "bachche ke munh ke paas peeli papdi wale ghaav ho gaye hain",
+  "label": "impetigo",
+  "confidence": 0.7381
+ },
+ {
+  "text": "जी खराब रहता है, भूख नहीं है और त्वचा पीली लग रही है",
+  "label": "jaundice",
+  "confidence": 0.3221
+ },
+ {
+  "text": "हर दूसरे दिन कंपकंपी के साथ ठंड लगती है, फिर तेज़ बुखार और फिर पसीने से भीग जाता हूँ",
+  "label": "malaria",
+  "confidence": 0.6013
+ },
+ {
+  "text": "I see zigzag lines and then get a splitting one-sided headache",
+  "label": "migraine",
+  "confidence": 0.5393
+ },
+ {
+  "text": "a burning ache just below my ribs when I'm hungry that eases once I eat something",
+  "label": "peptic ulcer disease",
+  "confidence": 0.2061
+ },
+ {
+  "text": "khaali pet mein pet ke upar jalan wala dard hota hai, khana khane se aaram milta hai",
+  "label": "peptic ulcer disease",
+  "confidence": 0.7386
+ },
+ {
+  "text": "दादाजी को बलगम वाली खांसी, तेज़ बुखार, ठंड है और साँस तेज़ चल रही है",
+  "label": "pneumonia",
+  "confidence": 0.785
+ },
+ {
+  "text": "कोहनियों पर मोटी चाँदी जैसी सफेद पपड़ी वाले चकत्ते हैं जो ठीक नहीं होते",
+  "label": "psoriasis",
+  "confidence": 0.2612
+ },
+ {
+  "text": "I've had a constant fever with constipation and weakness since eating at a roadside stall",
+  "label": "typhoid",
+  "confidence": 0.4197
+ },
+ {
+  "text": "stinging pain every time I pee and I feel like going again right after",
+  "label": "urinary tract infection",
+  "confidence": 0.17
+ },
+ {
+  "text": "peshab mein jalan ho rahi hai aur baar baar toilet jaana pad raha hai",
+  "label": "diabetes",
+  "confidence": 0.3066
+ },
+ {
+  "text": "शाम तक पैर भारी और सूजे लगते हैं और नसें उभर आती हैं",
+  "label": "varicose veins",
+  "confidence": 0.3341
+ }
+]

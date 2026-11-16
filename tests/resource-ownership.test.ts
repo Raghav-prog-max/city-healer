@@ -11,23 +11,22 @@
  *
  * Each test below is one of those exploits, asserted to fail.
  *
- *   npx tsx --test tests/resource-ownership.test.ts
+ *   npm run test:server   (starts the Firebase emulators the accounts live in)
  */
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
+import { verifyDoctorsInTestDb, createActor, requireEmulators, type Actor } from "./helpers/firebaseAccounts";
 
 const PORT = Number(process.env.TEST_PORT) || 3801;
 const BASE = `http://127.0.0.1:${PORT}`;
 const TEST_DB = "city_healer.ownership.test.db";
 const TEST_DB_PATH = path.resolve(process.cwd(), TEST_DB);
-const TEST_JWT_SECRET = "ownership-suite-secret-not-used-anywhere-0123456789";
 
 let server: ChildProcessWithoutNullStreams;
 
-interface Actor { uid: string; token: string; }
 const actors: Record<string, Actor> = {};
 let bobAppointment = "";
 
@@ -51,29 +50,8 @@ async function waitForHealth(timeoutMs = 60_000) {
   throw new Error(`Test server did not become healthy on ${BASE}`);
 }
 
-/** Write a provisioning link straight into the throwaway database. */
-async function bindInTestDb(sql: string, params: unknown[]): Promise<void> {
-  const sqlite3 = (await import("sqlite3")).default;
-  const db = new sqlite3.Database(TEST_DB_PATH);
-  await new Promise<void>((resolve, reject) => {
-    db.run(sql, params as any[], function (err) {
-      if (err) return reject(err);
-      if (this.changes !== 1) return reject(new Error(`binding affected ${this.changes} rows`));
-      resolve();
-    });
-  });
-  await new Promise<void>((resolve) => db.close(() => resolve()));
-}
-
-async function register(email: string, name: string, role: string): Promise<Actor> {
-  const password = "OwnerPassw0rd!x";
-  await api("POST", "/api/auth/register", undefined, { email, password, name, role });
-  const login = await api("POST", "/api/auth/login", undefined, { email, password });
-  assert.equal(login.status, 200, `login failed for ${email}: ${JSON.stringify(login.body)}`);
-  return { uid: login.body.user.uid, token: login.body.token };
-}
-
 before(async () => {
+  requireEmulators();
   if (existsSync(TEST_DB_PATH)) rmSync(TEST_DB_PATH, { force: true });
 
   server = spawn("npx", ["tsx", "server.ts"], {
@@ -82,8 +60,8 @@ before(async () => {
       ...process.env,
       PORT: String(PORT),
       DB_PATH: TEST_DB,
-      JWT_SECRET: TEST_JWT_SECRET,
       DEMO_MODE: "false",
+      AI_RATE_LIMIT: "1000",
       NODE_ENV: "development",
       API_ONLY: "true",
       DISABLE_HMR: "true"
@@ -94,12 +72,16 @@ before(async () => {
   server.stderr.on("data", () => {});
   await waitForHealth();
 
-  actors.bob = await register("bob@own.invalid", "Bob Patient", "PATIENT");
-  actors.drOwner = await register("dr.owner@own.invalid", "Dr Owner", "DOCTOR");
-  actors.drOther = await register("dr.other@own.invalid", "Dr Other", "DOCTOR");
-  actors.hospOwner = await register("hosp.owner@own.invalid", "Hosp One", "HOSPITAL");
-  actors.hospOther = await register("hosp.other@own.invalid", "Hosp Two", "HOSPITAL");
-  actors.admin = await register("admin@own.invalid", "Admin", "ADMIN");
+  // Doctor and facility links are Firebase custom claims (npm run set-role).
+  actors.bob = await createActor("bob@own.invalid", "Bob Patient", "PATIENT");
+  actors.drOwner = await createActor("dr.owner@own.invalid", "Dr Owner", "DOCTOR", { doctorId: "doc-1" });
+  actors.drOther = await createActor("dr.other@own.invalid", "Dr Other", "DOCTOR", { doctorId: "doc-2" });
+  actors.hospOwner = await createActor("hosp.owner@own.invalid", "Hosp One", "HOSPITAL", { hospitalId: "hosp-1" });
+  actors.hospOther = await createActor("hosp.other@own.invalid", "Hosp Two", "HOSPITAL", { hospitalId: "hosp-2" });
+  actors.admin = await createActor("admin@own.invalid", "Admin", "ADMIN");
+
+  // Seeded doctors are look-only until verified; verify the ones this suite books.
+  await verifyDoctorsInTestDb(TEST_DB_PATH, ["doc-1", "doc-2"]);
 
   // Bob books doc-1. Dr Owner is that clinician; Dr Other is a different one.
   const booked = await api("POST", "/api/appointments", actors.bob.token, {
@@ -107,11 +89,6 @@ before(async () => {
   });
   assert.equal(booked.status, 200);
   bobAppointment = booked.body.appointment.id;
-
-  await bindInTestDb("UPDATE users SET doctorId = ? WHERE uid = ?", ["doc-1", actors.drOwner.uid]);
-  await bindInTestDb("UPDATE users SET doctorId = ? WHERE uid = ?", ["doc-2", actors.drOther.uid]);
-  await bindInTestDb("UPDATE users SET hospitalId = ? WHERE uid = ?", ["hosp-1", actors.hospOwner.uid]);
-  await bindInTestDb("UPDATE users SET hospitalId = ? WHERE uid = ?", ["hosp-2", actors.hospOther.uid]);
 });
 
 function stopServer() {

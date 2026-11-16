@@ -1,0 +1,476 @@
+{
+  "_status": "DRAFT - NOT CLINICIAN-REVIEWED. Written by the engineering team with AI assistance on 2026-11-16 for P0 remediation. It must be reviewed and extended by a qualified clinician before any patient-facing release (see P0_REMEDIATION_REPORT.md). It contains no real patient messages.",
+  "_how_used": "tests/emergency-safety.test.ts requires every 'critical' message (development and holdout) to escalate to the emergency path, and reports the false-positive rate on 'non_emergency'. 'holdout' was written before the matcher was changed and is never used to tune it; a holdout miss found later is moved to 'development' with a note, never deleted.",
+  "critical": {
+    "development": [
+      {
+        "text": "I want to kill myself",
+        "category": "self_harm",
+        "lang": "en",
+        "note": "missed in audit (BUG-001)"
+      },
+      {
+        "text": "I took 30 sleeping pills",
+        "category": "overdose",
+        "lang": "en",
+        "note": "missed in audit (BUG-002)"
+      },
+      {
+        "text": "my lips are turning blue and I can barely breathe",
+        "category": "breathing",
+        "lang": "en",
+        "note": "missed in audit (BUG-003)"
+      },
+      {
+        "text": "मुझे साँस लेने में बहुत तकलीफ हो रही है",
+        "category": "breathing",
+        "lang": "hi",
+        "note": "missed in audit (BUG-003)"
+      },
+      {
+        "text": "I don't want to live anymore",
+        "category": "self_harm",
+        "lang": "en"
+      },
+      {
+        "text": "thinking of ending my life tonight",
+        "category": "self_harm",
+        "lang": "en"
+      },
+      {
+        "text": "i want to die",
+        "category": "self_harm",
+        "lang": "en"
+      },
+      {
+        "text": "I cut myself and want to hurt myself more",
+        "category": "self_harm",
+        "lang": "en"
+      },
+      {
+        "text": "mai khud ko maar dunga",
+        "category": "self_harm",
+        "lang": "hinglish"
+      },
+      {
+        "text": "mujhe ab jeena nahi hai",
+        "category": "self_harm",
+        "lang": "hinglish"
+      },
+      {
+        "text": "suicide karne ka mann kar raha hai",
+        "category": "self_harm",
+        "lang": "hinglish"
+      },
+      {
+        "text": "मैं आत्महत्या करना चाहता हूँ",
+        "category": "self_harm",
+        "lang": "hi"
+      },
+      {
+        "text": "मैं मरना चाहती हूँ",
+        "category": "self_harm",
+        "lang": "hi"
+      },
+      {
+        "text": "my son swallowed a whole strip of paracetamol",
+        "category": "overdose",
+        "lang": "en"
+      },
+      {
+        "text": "she drank rat poison",
+        "category": "overdose",
+        "lang": "en"
+      },
+      {
+        "text": "took too many tablets by mistake, feeling dizzy",
+        "category": "overdose",
+        "lang": "en"
+      },
+      {
+        "text": "usne 20 goli kha li",
+        "category": "overdose",
+        "lang": "hinglish"
+      },
+      {
+        "text": "बच्चे ने दवा की पूरी शीशी पी ली",
+        "category": "overdose",
+        "lang": "hi"
+      },
+      {
+        "text": "can't breath properly",
+        "category": "breathing",
+        "lang": "en",
+        "note": "misspelling"
+      },
+      {
+        "text": "i am gasping for air",
+        "category": "breathing",
+        "lang": "en"
+      },
+      {
+        "text": "saas nahi le pa raha",
+        "category": "breathing",
+        "lang": "hinglish",
+        "note": "misspelling saas"
+      },
+      {
+        "text": "saans lene mein bahut dikkat ho rahi hai",
+        "category": "breathing",
+        "lang": "hinglish"
+      },
+      {
+        "text": "सांस लेने में दिक्कत हो रही है",
+        "category": "breathing",
+        "lang": "hi"
+      },
+      {
+        "text": "severe chest pain spreading to my left arm",
+        "category": "chest_pain",
+        "lang": "en"
+      },
+      {
+        "text": "chest pian and sweating",
+        "category": "chest_pain",
+        "lang": "en",
+        "note": "misspelling"
+      },
+      {
+        "text": "seene me bahut tez dard ho raha hai",
+        "category": "chest_pain",
+        "lang": "hinglish"
+      },
+      {
+        "text": "छाती में बहुत तेज़ दर्द",
+        "category": "chest_pain",
+        "lang": "hi"
+      },
+      {
+        "text": "bleeding heavily from a cut on my leg",
+        "category": "bleeding",
+        "lang": "en"
+      },
+      {
+        "text": "blood is not stopping after the accident",
+        "category": "bleeding",
+        "lang": "en"
+      },
+      {
+        "text": "bahut khoon nikal raha hai",
+        "category": "bleeding",
+        "lang": "hinglish"
+      },
+      {
+        "text": "खून रुक नहीं रहा",
+        "category": "bleeding",
+        "lang": "hi"
+      },
+      {
+        "text": "my father fainted and is not waking up",
+        "category": "unconscious",
+        "lang": "en"
+      },
+      {
+        "text": "she passed out and won't respond",
+        "category": "unconscious",
+        "lang": "en"
+      },
+      {
+        "text": "papa behosh ho gaye",
+        "category": "unconscious",
+        "lang": "hinglish"
+      },
+      {
+        "text": "दादी बेहोश हो गई हैं",
+        "category": "unconscious",
+        "lang": "hi"
+      },
+      {
+        "text": "patient unconcious after fall",
+        "category": "unconscious",
+        "lang": "en",
+        "note": "misspelling"
+      }
+    ],
+    "holdout": [
+      {
+        "text": "I feel like ending it all",
+        "category": "self_harm",
+        "lang": "en"
+      },
+      {
+        "text": "nobody would care if I died, I have a plan",
+        "category": "self_harm",
+        "lang": "en"
+      },
+      {
+        "text": "main suicide kar lungi",
+        "category": "self_harm",
+        "lang": "hinglish"
+      },
+      {
+        "text": "apni jaan dena chahta hoon",
+        "category": "self_harm",
+        "lang": "hinglish"
+      },
+      {
+        "text": "मैं खुद को खत्म कर लूँगा",
+        "category": "self_harm",
+        "lang": "hi"
+      },
+      {
+        "text": "he ate a packet of sleeping tablets",
+        "category": "overdose",
+        "lang": "en"
+      },
+      {
+        "text": "accidentally drank phenyl",
+        "category": "overdose",
+        "lang": "en"
+      },
+      {
+        "text": "dadi ne galti se bahut saari dawai kha li",
+        "category": "overdose",
+        "lang": "hinglish"
+      },
+      {
+        "text": "उसने कीटनाशक पी लिया",
+        "category": "overdose",
+        "lang": "hi"
+      },
+      {
+        "text": "struggling to breathe and wheezing badly",
+        "category": "breathing",
+        "lang": "en"
+      },
+      {
+        "text": "baby's lips look bluish and breathing is very fast",
+        "category": "breathing",
+        "lang": "en"
+      },
+      {
+        "text": "dam ghut raha hai saans nahi aa rahi",
+        "category": "breathing",
+        "lang": "hinglish"
+      },
+      {
+        "text": "मुझे साँस लेने में परेशानी है",
+        "category": "breathing",
+        "lang": "hi"
+      },
+      {
+        "text": "crushing pain in my chest",
+        "category": "chest_pain",
+        "lang": "en"
+      },
+      {
+        "text": "chhati mein dard aur paseena",
+        "category": "chest_pain",
+        "lang": "hinglish"
+      },
+      {
+        "text": "सीने में दबाव और बायें हाथ में दर्द",
+        "category": "chest_pain",
+        "lang": "hi"
+      },
+      {
+        "text": "deep cut on hand, blood everywhere",
+        "category": "bleeding",
+        "lang": "en"
+      },
+      {
+        "text": "vomiting blood",
+        "category": "bleeding",
+        "lang": "en"
+      },
+      {
+        "text": "nose se khoon band nahi ho raha",
+        "category": "bleeding",
+        "lang": "hinglish"
+      },
+      {
+        "text": "बहुत ज़्यादा खून बह रहा है",
+        "category": "bleeding",
+        "lang": "hi"
+      },
+      {
+        "text": "my grandmother collapsed and is unresponsive",
+        "category": "unconscious",
+        "lang": "en"
+      },
+      {
+        "text": "he blacked out and isn't waking",
+        "category": "unconscious",
+        "lang": "en"
+      },
+      {
+        "text": "bhai hosh mein nahi aa raha",
+        "category": "unconscious",
+        "lang": "hinglish"
+      },
+      {
+        "text": "वह होश में नहीं है",
+        "category": "unconscious",
+        "lang": "hi"
+      }
+    ]
+  },
+  "non_emergency": [
+    {
+      "text": "I have a mild headache after work",
+      "lang": "en"
+    },
+    {
+      "text": "runny nose and sneezing since yesterday",
+      "lang": "en"
+    },
+    {
+      "text": "chest feels a bit congested from cold, no pain",
+      "lang": "en"
+    },
+    {
+      "text": "I used to have chest pain years ago, now fine; what diet is good for heart",
+      "lang": "en",
+      "note": "audit false positive (BUG-013)"
+    },
+    {
+      "text": "my grandmother watched a film about a man who stopped breathing",
+      "lang": "en"
+    },
+    {
+      "text": "mujhe halka bukhar hai",
+      "lang": "hinglish"
+    },
+    {
+      "text": "मुझे दो दिन से खांसी है",
+      "lang": "hi"
+    },
+    {
+      "text": "what is dolo 650 used for",
+      "lang": "en"
+    },
+    {
+      "text": "how many paracetamol tablets can an adult take in a day",
+      "lang": "en"
+    },
+    {
+      "text": "diet plan for diabetes vegetarian",
+      "lang": "en"
+    },
+    {
+      "text": "I need a cardiologist in Noida",
+      "lang": "en"
+    },
+    {
+      "text": "book an appointment with a skin doctor",
+      "lang": "en"
+    },
+    {
+      "text": "my haemoglobin is 9.5 and MCV 70, what does it mean",
+      "lang": "en"
+    },
+    {
+      "text": "this traffic is killing me, need a doctor for back pain",
+      "lang": "en"
+    },
+    {
+      "text": "I am dying to know my sugar report result",
+      "lang": "en"
+    },
+    {
+      "text": "breathing exercises for anxiety",
+      "lang": "en"
+    },
+    {
+      "text": "saans ki exercise batao",
+      "lang": "hinglish"
+    },
+    {
+      "text": "khoon ki jaanch kab karani chahiye",
+      "lang": "hinglish"
+    },
+    {
+      "text": "मेरी नींद पूरी नहीं होती",
+      "lang": "hi"
+    },
+    {
+      "text": "pet mein halka dard hai",
+      "lang": "hinglish"
+    },
+    {
+      "text": "I had 2 tablets of paracetamol for fever",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "maine dawai kha li",
+      "lang": "hinglish",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "took dolo 650 mg at night",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "bp ki goli kha li hai",
+      "lang": "hinglish",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "no problem breathing, just a cold",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "my phone died",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "dying of boredom at home",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "I fainted once last year, should I get tested",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "what is the dose of insulin",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "chest x-ray report normal",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "khoon ki kami hai",
+      "lang": "hinglish",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "kill the mosquitoes at home",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "saans lene ki exercise",
+      "lang": "hinglish",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "life is hard but I'm okay",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    },
+    {
+      "text": "end of my life insurance policy",
+      "lang": "en",
+      "note": "added after the matcher was written (false-positive probe)"
+    }
+  ]
+}

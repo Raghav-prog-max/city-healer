@@ -1,0 +1,163 @@
+{
+  "_about": "Held-out sentences for the intent classifier, written separately from intent_train.json and never used for training.",
+  "symptoms": {
+    "en": [
+      "I've had a high temperature for two days",
+      "my tummy is upset",
+      "there's a pain behind my eyes",
+      "I sneeze every morning"
+    ],
+    "hi": [
+      "मुझे बहुत कमज़ोरी लग रही है",
+      "पेट में गैस और दर्द है"
+    ],
+    "hing": [
+      "do din se bukhar utar nahi raha",
+      "kamar me dard hai"
+    ]
+  },
+  "lab_report": {
+    "en": [
+      "my triglycerides are 300",
+      "what does an ALT of 120 mean",
+      "please look at my sugar test",
+      "explain the numbers in my report"
+    ],
+    "hi": [
+      "रिपोर्ट में शुगर ज़्यादा आई है",
+      "मेरी जाँच के नतीजे समझाइए"
+    ],
+    "hing": [
+      "report me cholesterol high aaya",
+      "test result samjhao"
+    ]
+  },
+  "medicine": {
+    "en": [
+      "what is crocin for",
+      "is there a generic version of lipitor",
+      "side effects of azithral",
+      "which pill helps with allergies"
+    ],
+    "hi": [
+      "इस दवा को कैसे लें",
+      "एलर्जी की गोली बताइए"
+    ],
+    "hing": [
+      "crocin kis liye hoti hai",
+      "allergy ki goli batao"
+    ]
+  },
+  "diet": {
+    "en": [
+      "what should a diabetic have for lunch",
+      "healthy food for my heart",
+      "foods with lots of protein",
+      "I want to lose weight what do I eat"
+    ],
+    "hi": [
+      "डायबिटीज़ में दोपहर का खाना",
+      "दिल के लिए अच्छा खाना"
+    ],
+    "hing": [
+      "lunch me kya khau sugar me",
+      "protein ke liye kya khaye"
+    ]
+  },
+  "appointment": {
+    "en": [
+      "I'd like to see a doctor tomorrow",
+      "get me a heart doctor",
+      "any child specialist online",
+      "set up a consultation"
+    ],
+    "hi": [
+      "कल डॉक्टर को दिखाना है",
+      "दिल के डॉक्टर से मिलवाइए"
+    ],
+    "hing": [
+      "kal doctor ko dikhana hai",
+      "child specialist chahiye"
+    ]
+  },
+  "emergency": {
+    "en": [
+      "he's not breathing please help",
+      "car crash on the highway",
+      "urgent ambulance needed",
+      "my mother fainted and won't wake up"
+    ],
+    "hi": [
+      "जल्दी एम्बुलेंस भेजिए",
+      "माँ बेहोश हो गई हैं"
+    ],
+    "hing": [
+      "jaldi ambulance bhejo",
+      "mummy behosh ho gayi"
+    ]
+  },
+  "hospital_beds": {
+    "en": [
+      "any free ICU beds nearby",
+      "which hospital is closest",
+      "where can I find a ventilator bed",
+      "hospitals with available beds"
+    ],
+    "hi": [
+      "नज़दीकी अस्पताल कौन सा है",
+      "आईसीयू बेड कहाँ खाली है"
+    ],
+    "hing": [
+      "paas me koi hospital",
+      "icu bed kahan khali hai"
+    ]
+  },
+  "insurance": {
+    "en": [
+      "can I use my health insurance here",
+      "how to claim my policy",
+      "is this hospital cashless",
+      "what does my plan cover"
+    ],
+    "hi": [
+      "बीमा क्लेम कैसे होगा",
+      "पॉलिसी से पैसे मिलेंगे क्या"
+    ],
+    "hing": [
+      "insurance claim kaise hoga",
+      "policy se paise milenge kya"
+    ]
+  },
+  "greeting": {
+    "en": [
+      "hey",
+      "good afternoon",
+      "what are you",
+      "hello there"
+    ],
+    "hi": [
+      "प्रणाम",
+      "आप क्या करते हैं"
+    ],
+    "hing": [
+      "hello bhai",
+      "tum kya karte ho"
+    ]
+  },
+  "thanks": {
+    "en": [
+      "thanks so much",
+      "cool thank you",
+      "okay bye",
+      "that's helpful thanks"
+    ],
+    "hi": [
+      "बहुत धन्यवाद",
+      "ठीक है"
+    ],
+    "hing": [
+      "thank you ji",
+      "theek hai bye"
+    ]
+  }
+}
