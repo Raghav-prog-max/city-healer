@@ -98,6 +98,18 @@ named attack payloads. `npm test` asserts them.
 the database. Configure Firebase as in [FIREBASE_SETUP.md](FIREBASE_SETUP.md) (the
 `VITE_FIREBASE_*` values before building) and leave `DEMO_MODE` unset.
 
+The frontend's Firebase web config is compiled in at build time, so the image takes it as
+build arguments; local `.env` files are kept out of the image (`.dockerignore`):
+
+```bash
+docker build --build-arg VITE_FIREBASE_API_KEY=... --build-arg VITE_FIREBASE_AUTH_DOMAIN=... --build-arg VITE_FIREBASE_PROJECT_ID=... --build-arg VITE_FIREBASE_APP_ID=... -t city-healer .
+```
+
+On Railway, set the four `VITE_FIREBASE_*` service variables; they are passed to the build.
+The image build fails if any is missing or if emulator mode is on, and the production server
+refuses to start with a frontend built for the emulators or for a different Firebase project
+than `FIREBASE_PROJECT_ID` (`dist/build-info.json` records what a build was compiled for).
+
 ## Hospital and doctor data
 
 Hospitals come from OpenStreetMap (about 1,000 in the six Delhi NCR launch cities, imported

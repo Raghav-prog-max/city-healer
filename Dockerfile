@@ -16,6 +16,25 @@ COPY package.json ./
 RUN npm install --no-audit --no-fund
 
 COPY . .
+
+# Vite compiles the Firebase web config into the frontend, so it must be known at build time.
+# It comes from build arguments only (they are not secrets): .dockerignore keeps every local
+# .env file out of the image, and emulator mode is fixed off here. On Railway, service
+# variables with these names are passed as build arguments automatically.
+#   docker build --build-arg VITE_FIREBASE_API_KEY=... --build-arg VITE_FIREBASE_AUTH_DOMAIN=... \
+#                --build-arg VITE_FIREBASE_PROJECT_ID=... --build-arg VITE_FIREBASE_APP_ID=... .
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_APP_ID
+ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
+    VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN \
+    VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID \
+    VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID \
+    VITE_FIREBASE_EMULATORS=false
+# A release build fails rather than produce an image nobody can sign in to (emulator mode,
+# or web config missing): vite.config.ts, shared/buildEnv.ts.
+ENV CITY_HEALER_RELEASE_BUILD=true
 RUN npm run build
 
 # Trixie, not bookworm: sqlite3's prebuilt binding is linked against GLIBC_2.38
