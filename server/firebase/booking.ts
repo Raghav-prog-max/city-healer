@@ -19,6 +19,7 @@
  *   POST  /api/v1/doctors/applications          doctor: submit credentials (pending + hidden)
  *   POST  /api/v1/doctors/:doctorId/slots       doctor who owns the verified profile
  *   PATCH /api/v1/doctors/:doctorId/verification  admin only
+ *   GET   /api/v1/appointments/doctor           doctor: bookings made with their own profile
  *   POST  /api/v1/appointments                  patient
  *   GET   /api/v1/appointments/mine             patient
  *   POST  /api/v1/appointments/:id/cancel       owning patient
@@ -70,6 +71,25 @@ const publicDoctor = (id: string, d: FirebaseFirestore.DocumentData) => ({
 
 const isBookable = (d: FirebaseFirestore.DocumentSnapshot) =>
   d.exists && d.get("verificationStatus") === "verified" && d.get("listingStatus") === "active";
+
+export type PublicDoctor = ReturnType<typeof publicDoctor>;
+
+// The copilot and symptom triage recommend from this list on every call, so it is kept for a
+// short time rather than read from Firestore each time. Cleared when an application or a
+// verification decision changes who is listed (in this process; another process catches up
+// within PROVIDERS_CACHE_MS).
+const PROVIDERS_CACHE_MS = 60_000;
+let providersCache: { at: number; doctors: PublicDoctor[] } | null = null;
+const forgetProviders = () => { providersCache = null; };
+
+/** Every verified, active provider: the only doctors that can be booked. */
+export async function verifiedProviders(): Promise<PublicDoctor[]> {
+  if (providersCache && Date.now() - providersCache.at < PROVIDERS_CACHE_MS) return providersCache.doctors;
+  const s = await doctorsCol().where("verificationStatus", "==", "verified").where("listingStatus", "==", "active").limit(500).get();
+  const doctors = s.docs.map((d) => publicDoctor(d.id, d.data()));
+  providersCache = { at: Date.now(), doctors };
+  return doctors;
+}
 
 export const applicationSchema = z.object({
   fullName: z.string().trim().min(2).max(100),
@@ -184,6 +204,7 @@ export function providerDoctorsRouter() {
       const ref = doctorsCol().doc(uid);
       // Re-submitting puts the profile back to pending and hidden: changed credentials are re-checked.
       await ref.set({ ...p.data, ownerUid: uid, verificationStatus: "pending", listingStatus: "hidden", updatedAt: nowIso() }, { merge: true });
+      forgetProviders();
       await writeAuditEvent({ actorUid: uid, action: "doctor.application_submitted", resourceType: "doctor", resourceId: ref.id });
       res.status(202).json({ doctorId: ref.id, verificationStatus: "pending" });
     } catch (e) { fail(res, e); }
@@ -254,6 +275,7 @@ export function providerDoctorsRouter() {
       const ref = doctorsCol().doc(req.params.doctorId);
       if (!(await ref.get()).exists) return res.status(404).json({ error: "Doctor not found." });
       await ref.update({ ...p.data, reviewedBy: user(req)!.uid, reviewedAt: nowIso() });
+      forgetProviders();
       await writeAuditEvent({ actorUid: user(req)!.uid, action: `doctor.${p.data.verificationStatus}`, resourceType: "doctor", resourceId: ref.id });
       res.json({ doctorId: ref.id, ...p.data });
     } catch (e) { fail(res, e); }
@@ -264,6 +286,23 @@ export function providerDoctorsRouter() {
 
 export function appointmentsRouter() {
   const r = Router();
+
+  // A doctor's own bookings: appointments made with the profile this account owns (doctors/{uid}).
+  // The patient's name comes from their profile; nothing else about the patient is included.
+  r.get("/doctor", allowRoles("DOCTOR"), notDemo, async (req, res) => {
+    try {
+      const s = await appointmentsCol().where("doctorId", "==", user(req)!.uid).limit(300).get();
+      const patientUids = [...new Set(s.docs.map((d) => String(d.get("patientUid"))))];
+      const profiles = patientUids.length ? await firestore.getAll(...patientUids.map((uid) => firestore.collection("patientProfiles").doc(uid))) : [];
+      const nameOf = new Map(profiles.map((p) => [p.id, p.exists ? String(p.get("fullName") || "") : ""]));
+      const appointments = s.docs.map((d) => ({
+        id: d.id, patientName: nameOf.get(String(d.get("patientUid"))) || "", reason: d.get("reason") || "",
+        startsAt: d.get("startsAt"), endsAt: d.get("endsAt"), consultationType: d.get("consultationType"), status: d.get("status"),
+      })).sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
+      res.json({ appointments });
+    } catch (e) { fail(res, e); }
+  });
+
   r.use(allowRoles("PATIENT"), notDemo);
 
   r.post("/", async (req, res) => {

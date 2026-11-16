@@ -11,7 +11,7 @@ import { DoctorCard, HospitalCard, SafetyNote } from "../components/health";
 /** embedded: shown inside the patient dashboard, which supplies its own page title. */
 export default function FindCarePage({ embedded = false, only }: { embedded?: boolean; only?: "doctors" | "hospitals" } = {}) {
   const { t, href } = useI18n();
-  const { user, name, profile } = useSession();
+  const { profile } = useSession();
   const [params, setParams] = useSearchParams();
   const tab = only || (params.get("tab") === "hospitals" ? "hospitals" : "doctors");
   const [query, setQuery] = useState("");
@@ -24,8 +24,6 @@ export default function FindCarePage({ embedded = false, only }: { embedded?: bo
   const [doctors, setDoctors] = useState<any[] | null>(null);
   const [hospitals, setHospitals] = useState<any[] | null>(null);
   const [error, setError] = useState("");
-  const [booking, setBooking] = useState<string | null>(null);
-  const [booked, setBooked] = useState("");
   // 1,000+ hospitals: show the nearest first, a page at a time.
   const [shown, setShown] = useState(24);
 
@@ -45,20 +43,6 @@ export default function FindCarePage({ embedded = false, only }: { embedded?: bo
     (!q || `${d.name} ${d.specialty} ${d.hospitalName}`.toLowerCase().includes(q)));
   const shownHospitals = (hospitals || []).filter((h) =>
     !q || `${h.name} ${h.address} ${(h.specialties || []).join(" ")}`.toLowerCase().includes(q));
-
-  const book = async (d: any) => {
-    setBooking(d.id);
-    setBooked("");
-    try {
-      const date = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-      await request("/api/appointments", { body: { doctorId: d.id, patientId: user?.uid, patientName: name, date, time: "10:00", symptoms: "", type: "VIRTUAL" } });
-      setBooked(d.name);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBooking(null);
-    }
-  };
 
   const setTab = (v: string) => { const p = new URLSearchParams(params); p.set("tab", v); setParams(p, { replace: true }); };
 
@@ -98,12 +82,11 @@ export default function FindCarePage({ embedded = false, only }: { embedded?: bo
         {!coords && status !== "denied" && <Button variant="secondary" size="sm" onClick={locate} loading={status === "locating"}>{t.home.shareLocation}</Button>}
       </div>
 
-      {booked && <SafetyNote>{t.care2.booked} ({booked})</SafetyNote>}
       {error && <ErrorNote message={error} onRetry={load} />}
 
       {!doctors && !error ? <Spinner label={t.app.loading} /> : tab === "doctors" ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {shownDoctors.map((d) => <DoctorCard key={d.id} d={d} onBook={user ? book : undefined} booking={booking === d.id} />)}
+          {shownDoctors.map((d) => <DoctorCard key={d.id} d={{ ...d, bookable: false }} />)}
           {shownDoctors.length === 0 && <p className="text-subtle">{t.care2.none}</p>}
         </div>
       ) : (

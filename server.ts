@@ -25,7 +25,7 @@ import { lookupMedicine, searchMedicines, substitutesFor, MEDICINE_SOURCE, MEDIC
 import { recommendDiet, DIET_CONDITIONS, FOOD_SOURCE } from "./server/dietRecommender";
 import { adminAuth, usingEmulators, firebaseConfigProblem, firebaseProjectId } from "./server/firebase/admin";
 import { verifyFirebaseToken, ROLE_TO_CLAIM, type AuthUser, type Role } from "./server/firebase/identity";
-import { providerDoctorsRouter, appointmentsRouter } from "./server/firebase/booking";
+import { providerDoctorsRouter, appointmentsRouter, verifiedProviders } from "./server/firebase/booking";
 import { requireConsent } from "./server/firebase/consent";
 import { BUILD_INFO_FILE, frontendBuildProblem } from "./shared/buildEnv";
 import { patientRouter, getPatientProfile, savePatientProfile, legacyUserShape, patientProfileUpdateSchema, writeAuditEvent } from "./server/firebase/patients";
@@ -312,25 +312,46 @@ async function doctorTreatsPatient(doctorUid: string, patientId: string): Promis
 const MAX_HOSPITAL_SCORE = 120;
 
 /**
- * Up to three doctors of the given category: those online first, then the nearest
- * (by their hospital), then the best rated.
+ * Up to three doctors of the given category for the copilot and symptom triage.
+ *
+ * Verified providers (Firestore, server/firebase/booking.ts) come first: they are the only
+ * doctors that can be booked, and each is marked `bookable`. If fewer than three match, the
+ * rest come from the look-only directory (SQLite sample doctors: online first, then nearest by
+ * hospital, then best rated), marked `bookable: false` so no screen offers to book them.
  */
 async function recommendDoctors(doctorSpecialty: string, userLat?: number, userLng?: number) {
   try {
+    const wanted = doctorSpecialty.toLowerCase();
+    let providers: any[] = [];
+    try {
+      providers = (await verifiedProviders())
+        .filter((p) => String(p.specialty || "").trim().toLowerCase() === wanted)
+        .slice(0, 3)
+        .map((p) => ({
+          id: p.id, name: p.fullName, specialty: p.specialty, hospitalName: [p.locality, p.city].filter(Boolean).join(", "),
+          experience: p.experienceYears ?? null, consultationTypes: p.consultationTypes,
+          verified: true, bookable: true, source: "verified_provider", distanceKm: null,
+        }));
+    } catch (err) {
+      // The directory still answers if the provider list cannot be read.
+      console.error("[recommendDoctors] verified providers unavailable:", err instanceof Error ? err.message : "unknown_error");
+    }
+    if (providers.length >= 3) return providers;
+
     const doctors = await dbAll("SELECT * FROM doctors WHERE specialty = ?", [doctorSpecialty]);
     const hospitals = await dbAll("SELECT name, lat, lng FROM hospitals");
     const byName = new Map(hospitals.map((h) => [h.name, h]));
     const origin = parseLatLng(userLat, userLng);
-    return doctors
+    const directory = doctors
       .map((d) => {
         const h = byName.get(d.hospitalName);
-        return { ...d, online: !!d.online, distanceKm: origin && h ? Number(haversineKm(origin, h).toFixed(1)) : null };
+        return { ...d, online: !!d.online, verified: !!d.verified, bookable: false, source: "directory", distanceKm: origin && h ? Number(haversineKm(origin, h).toFixed(1)) : null };
       })
       .sort((a, b) =>
         Number(b.online) - Number(a.online) ||
         (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity) ||
-        (b.rating || 0) - (a.rating || 0))
-      .slice(0, 3);
+        (b.rating || 0) - (a.rating || 0));
+    return [...providers, ...directory].slice(0, 3);
   } catch (err) {
     console.error("[recommendDoctors Error]", err);
     return [];
