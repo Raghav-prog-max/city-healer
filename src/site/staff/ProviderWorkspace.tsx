@@ -8,6 +8,7 @@ import React, { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { useSession } from "../lib/session";
 import { request } from "../lib/api";
+import { downloadPrescriptionPdf } from "../lib/prescriptionPdf";
 import { Badge, Button, Card, ErrorNote, Spinner } from "../components/ui";
 import StaffShell, { fieldClass, formatSlot } from "./StaffShell";
 import BookingMessages from "./BookingMessages";
@@ -30,7 +31,7 @@ type Booking = {
   arrivedAt?: string | null; calledAt?: string | null; chat?: { unread: boolean; urgent: boolean };
 };
 type Medicine = { name: string; dosage: string; frequency: string; duration: string };
-type Prescription = { doctorName: string; diagnosis: string; medicines: Partial<Medicine>[]; instructions: string; issuedAt: string };
+type Prescription = { id?: string; specialty?: string; doctorName: string; diagnosis: string; medicines: Partial<Medicine>[]; instructions: string; issuedAt: string };
 const emptyMedicine = (): Medicine => ({ name: "", dosage: "", frequency: "", duration: "" });
 
 const tomorrow = () => new Date(Date.now() + 86_400_000).toLocaleDateString("en-CA");
@@ -179,6 +180,7 @@ function BookingRow({ b, onChanged, onChatRead }: { b: Booking; onChanged: () =>
           {rx.medicines.length > 0 && <ul className="mt-1.5 list-disc pl-5">{rx.medicines.map((m, i) => <li key={i}>{[m.name, m.dosage, m.frequency, m.duration].filter(Boolean).join(" · ")}</li>)}</ul>}
           {rx.instructions && <p className="mt-1.5">{rx.instructions}</p>}
           <p className="mt-1.5 text-xs text-subtle">{rx.doctorName} · {new Date(rx.issuedAt).toLocaleDateString(locale === "hi" ? "hi-IN" : "en-IN")}</p>
+          <Button size="sm" variant="secondary" className="mt-2" onClick={() => downloadPrescriptionPdf({ ...rx, patientName: b.patientName }).catch(() => setError(p.pdfFailed))}>{p.downloadPdf}</Button>
         </div>
       )}
 

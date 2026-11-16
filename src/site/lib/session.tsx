@@ -5,7 +5,7 @@
  */
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { auth, onAuthStateChanged, signOut as fbSignOut, type MockUser } from "../../firebase";
-import { setDemoSession, getDemoSessionRole } from "../../utils/api";
+import { setDemoSession, getDemoSessionRole } from "./demo";
 import { request, CONSENT_REQUIRED_EVENT } from "./api";
 
 export type Role = "PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN";
@@ -134,12 +134,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Where a staff account lands: doctors in the provider workspace, admins in provider review
- * (both in this site), hospital desks in the earlier workspace (src/App.tsx), which doctors and
- * admins can still open from a link on their page.
+ * Where a staff account lands: doctors in the provider workspace, hospital desks in the hospital
+ * workspace, admins in provider review.
  */
 export function staffHome(role: string, href: (path: string) => string) {
-  return role === "DOCTOR" ? href("/provider") : role === "ADMIN" ? href("/admin/providers") : "/dashboard";
+  return role === "DOCTOR" ? href("/provider") : role === "HOSPITAL" ? href("/hospital") : role === "ADMIN" ? href("/admin/providers") : href("/");
 }
 
 export function useSession(): Session {

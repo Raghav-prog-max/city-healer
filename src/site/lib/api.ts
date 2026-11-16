@@ -1,12 +1,12 @@
 /**
  * Requests from the new UI to the City Healer server.
  *
- * Unlike src/utils/api.ts, there is no silent fallback to browser-stored sample data: if the
+ * There is no silent fallback to browser-stored sample data (the old app had one): if the
  * server fails, the caller gets an error and the screen says so. A screen showing results
  * that came from nowhere was one of the reasons the old app "did not work".
  */
 import { auth } from "../../firebase";
-import { getDemoSessionRole } from "../../utils/api";
+import { getDemoSessionRole } from "./demo";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {

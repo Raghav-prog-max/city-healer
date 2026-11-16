@@ -164,23 +164,3 @@ export function patientRouter() {
   });
   return router;
 }
-
-/** Profile in the shape the older screens expect from /api/users/:uid. */
-export function legacyUserShape(user: AuthUser | { uid: string; email?: string; phone?: string; role: string }, profile: PatientProfile | null) {
-  const dob = profile?.dateOfBirth ? new Date(profile.dateOfBirth) : null;
-  const age = dob ? Math.floor((Date.now() - dob.getTime()) / 31557600000) : null;
-  return {
-    uid: user.uid,
-    name: profile?.fullName || "",
-    email: user.email || "",
-    phone: (user as any).phone || "",
-    role: user.role,
-    age,
-    gender: profile?.gender || null,
-    city: profile?.city || null,
-    locality: profile?.locality || null,
-    preferredLanguage: profile?.preferredLanguage || null,
-    dateOfBirth: profile?.dateOfBirth || null,
-    hasProfile: !!profile,
-  };
-}

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { MESSAGES, LOCALES, type Locale, type Messages } from "./messages";
 
-const STORAGE_KEY = "cityhealer_lang"; // shared with the older workspace screens
+const STORAGE_KEY = "cityhealer_lang";
 
 interface I18n {
   locale: Locale;
