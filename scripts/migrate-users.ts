@@ -20,16 +20,15 @@
  */
 import { parseArgs, loadFirebase } from "./firebase-cli";
 import { dbAll, sqliteDb } from "../database";
+import { hasLegacyDerivedPassword } from "./legacy-passwords";
 
 const CITIES = ["Delhi", "Gurugram", "Noida", "Greater Noida", "Ghaziabad", "Faridabad"];
-const legacyPassword = (email: string) => ["google-pass-123", `google-sso-${email.toLowerCase().trim()}`];
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const dryRun = !!args["dry-run"];
   const { adminAuth, firestore } = await loadFirebase(args);
   const { FieldValue } = await import("firebase-admin/firestore");
-  const bcrypt = (await import("bcryptjs")).default;
 
   const cols = (await dbAll<{ name: string }>("PRAGMA table_info(users)")).map((c) => c.name);
   const pick = (c: string) => (cols.includes(c) ? c : `NULL AS ${c}`);
@@ -46,11 +45,7 @@ async function main() {
     } catch { /* not in Firebase yet */ }
 
     let hash: string | null = r.passwordHash || null;
-    if (hash) {
-      for (const p of legacyPassword(r.email || "")) {
-        if (await bcrypt.compare(p, hash)) { hash = null; needReset.push(r.email); break; }
-      }
-    }
+    if (hash && await hasLegacyDerivedPassword(r.email || "", hash)) { hash = null; needReset.push(r.email); }
     const role = String(r.role || "PATIENT").toLowerCase();
     const claims: Record<string, string> = { role };
     if (r.doctorId) claims.doctorId = r.doctorId;
