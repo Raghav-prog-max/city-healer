@@ -519,6 +519,8 @@ const en = {
       keep: "Keep it",
       prescribe: "Write prescription",
       viewPrescription: "View prescription",
+      downloadPdf: "Download PDF",
+      pdfFailed: "The PDF could not be created. Please try again.",
       diagnosis: "Diagnosis",
       medicines: "Medicines",
       medName: "Medicine",
@@ -1154,6 +1156,9 @@ const hi: Messages = {
       keep: "रहने दें",
       prescribe: "प्रिस्क्रिप्शन लिखें",
       viewPrescription: "प्रिस्क्रिप्शन देखें",
+      // Hindi: needs fluent review
+      downloadPdf: "PDF डाउनलोड करें",
+      pdfFailed: "PDF नहीं बन सका। कृपया फिर कोशिश करें।",
       diagnosis: "निदान",
       medicines: "दवाएँ",
       medName: "दवा",
