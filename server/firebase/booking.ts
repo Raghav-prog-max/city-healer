@@ -35,6 +35,7 @@ import { z } from "zod";
 import { firestore } from "./admin";
 import type { AuthUser, Role } from "./identity";
 import { ncrCities, writeAuditEvent } from "./patients";
+import { doctorUnread, isUrgent, patientUnread } from "./messages";
 
 const doctorsCol = () => firestore.collection("doctors");
 const slotsCol = () => firestore.collection("doctorSlots");
@@ -372,6 +373,8 @@ export function appointmentsRouter() {
         id: d.id, patientName: nameOf.get(String(d.get("patientUid"))) || "", reason: d.get("reason") || "",
         startsAt: d.get("startsAt"), endsAt: d.get("endsAt"), consultationType: d.get("consultationType"), status: d.get("status"),
         cancelledBy: d.get("cancelledBy") || null, hasPrescription: !!d.get("hasPrescription"),
+        // Whether there is something to read, never what it says (server/firebase/messages.ts).
+        chat: { unread: doctorUnread(d.get("chat") || {}), urgent: isUrgent(d.get("chat") || {}) },
       })).sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
       res.json({ appointments });
     } catch (e) { fail(res, e); }
@@ -391,10 +394,17 @@ export function appointmentsRouter() {
   r.get("/mine", async (req, res) => {
     try {
       const s = await appointmentsCol().where("patientUid", "==", user(req)!.uid).limit(100).get();
-      const appointments = s.docs.map((d) => {
-        const { createdAt, updatedAt, ...rest } = d.data();
-        return { id: d.id, ...rest };
-      }).sort((a: any, b: any) => String(a.startsAt).localeCompare(String(b.startsAt)));
+      // An explicit list of fields, not the whole document: the booking also carries the chat
+      // summary and the patient's own uid, which the screens have no use for.
+      const appointments = s.docs.map((d) => ({
+        id: d.id, doctorId: d.get("doctorId"), doctorName: d.get("doctorName"), specialty: d.get("specialty"),
+        slotId: d.get("slotId"), consultationType: d.get("consultationType"), reason: d.get("reason") ?? "",
+        startsAt: d.get("startsAt"), endsAt: d.get("endsAt"), status: d.get("status"),
+        cancelledBy: d.get("cancelledBy"), cancelReason: d.get("cancelReason"), completedAt: d.get("completedAt"),
+        hasPrescription: !!d.get("hasPrescription"),
+        arrivedAt: d.get("arrivedAt") ?? null, calledAt: d.get("calledAt") ?? null,
+        chatUnread: patientUnread(d.get("chat") || {}),
+      })).sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
       res.json({ appointments });
     } catch (e) { fail(res, e); }
   });

@@ -28,6 +28,8 @@ import { verifyFirebaseToken, ROLE_TO_CLAIM, type AuthUser, type Role } from "./
 import { providerDoctorsRouter, appointmentsRouter, verifiedProviders } from "./server/firebase/booking";
 import { providerSelfRouter, adminProvidersRouter } from "./server/firebase/providers";
 import { consultationsRouter, prescriptionsRouter } from "./server/firebase/consultations";
+import { messagesRouter } from "./server/firebase/messages";
+import { rateLimit } from "./server/firebase/rateLimit";
 import { requireConsent } from "./server/firebase/consent";
 import { BUILD_INFO_FILE, frontendBuildProblem } from "./shared/buildEnv";
 import { patientRouter, getPatientProfile, savePatientProfile, legacyUserShape, patientProfileUpdateSchema, writeAuditEvent } from "./server/firebase/patients";
@@ -465,6 +467,13 @@ app.use("/api/v1/appointments", consultationsRouter({
   recordsOfPatient: (patientUid) => dbAll("SELECT * FROM medical_records WHERE patientId = ? ORDER BY date DESC", [patientUid]),
 }));
 app.use("/api/v1/prescriptions", prescriptionsRouter());
+// Messages between the two parties of a booking (server/firebase/messages.ts). Also before the
+// patient-only booking router, since doctors use these routes too. The limiters are per uid
+// and in memory (server/firebase/rateLimit.ts); the poll limiter is meant to be shared with
+// the other polled appointment routes.
+const appointmentPostLimit = rateLimit({ limit: Number(process.env.MESSAGES_POST_LIMIT) || 20, windowMs: 10 * 60_000 });
+const appointmentPollLimit = rateLimit({ limit: Number(process.env.MESSAGES_POLL_LIMIT) || 30, windowMs: 60_000 });
+app.use("/api/v1/appointments", messagesRouter({ postLimit: appointmentPostLimit, pollLimit: appointmentPollLimit }));
 app.use("/api/v1/appointments", appointmentsRouter());
 // Doctor and admin screens for provider onboarding (server/firebase/providers.ts).
 app.use("/api/v1/provider", providerSelfRouter());
