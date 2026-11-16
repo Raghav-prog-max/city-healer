@@ -3,8 +3,7 @@
  * Firebase in the browser: Authentication (phone OTP and email/password).
  *
  * This file used to be a hand-written imitation of Firebase that signed in against the
- * server's own /api/auth routes. It is now the real Firebase Web SDK. The exported names are
- * unchanged, because the older workspace screens (src/App.tsx) import them.
+ * server's own /api/auth routes. It is now the real Firebase Web SDK, used by the site in src/site.
  *
  * Phone sign-in follows the zip "City_Healer_Backend_Auth_Foundation" (client/firebase.ts):
  * requestPhoneOtp() then confirmPhoneOtp(). With VITE_FIREBASE_EMULATORS=true everything talks
@@ -18,8 +17,7 @@ import {
   signInWithEmailAndPassword as fbSignIn, createUserWithEmailAndPassword as fbCreateUser,
   signOut as fbSignOut, sendPasswordResetEmail as fbSendPasswordReset, sendEmailVerification as fbSendEmailVerification,
   updateProfile, updatePassword, reauthenticateWithCredential, EmailAuthProvider,
-  RecaptchaVerifier, signInWithPhoneNumber, setPersistence as fbSetPersistence,
-  browserLocalPersistence as fbLocal, browserSessionPersistence as fbSession,
+  RecaptchaVerifier, signInWithPhoneNumber,
   type ConfirmationResult, type User, type Auth,
 } from "firebase/auth";
 
@@ -49,10 +47,6 @@ if (usingFirebaseEmulators) {
 try { localStorage.removeItem("city_healer_jwt"); localStorage.removeItem("city_healer_user"); localStorage.removeItem("city_healer_mock_users"); } catch {}
 
 export type MockUser = User;
-export const db = {};
-export const browserLocalPersistence = fbLocal;
-export const browserSessionPersistence = fbSession;
-export const setPersistence = (a: Auth, p: typeof fbLocal) => fbSetPersistence(a, p);
 
 /** Firebase error codes in words a patient can act on. */
 const MESSAGES: Record<string, string> = {
@@ -134,7 +128,7 @@ import { TERMS_VERSION, PRIVACY_VERSION } from "../shared/consent";
 
 /**
  * Create an email account. With a profile (onboarding) it is saved, with the consent, to
- * Firestore straight away; without one (older screens) the person completes onboarding later.
+ * Firestore straight away; without one the person completes onboarding later.
  */
 export async function registerAccount(
   a: Auth,
@@ -145,10 +139,6 @@ export async function registerAccount(
   if (details.profile) await savePatientProfile({ fullName: details.name.trim(), ...details.profile });
   if (details.consent) await recordConsent({ termsAccepted: true, termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION, marketingOptIn: details.consent.marketingOptIn });
   return cred;
-}
-
-export async function createUserWithEmailAndPassword(a: Auth, email: string, pass: string) {
-  return registerAccount(a, { name: "", email, password: pass });
 }
 
 /** Change the password of an email account; Firebase requires the current one first. */
@@ -194,29 +184,3 @@ export async function confirmPhoneOtp(code: string) {
   confirmation = null;
   return credential.user;
 }
-
-// ---------------------------------------------------------------- unchanged helpers for older screens
-
-// Google sign-in is not configured for City Healer.
-export async function signInWithPopup(_a: Auth, _provider: unknown, _identity?: unknown): Promise<never> {
-  throw { code: "auth/operation-not-allowed", message: "Google sign-in is not set up. Use your phone number or email." };
-}
-export async function signInWithRedirect(_a: Auth, _provider: unknown) { return Promise.resolve(); }
-export class GoogleAuthProvider { addScope(_scope: string) {} }
-
-/** Profiles for the older screens, through the server (Firestore behind it). */
-export interface MockDocRef { collection: string; id: string }
-export function doc(_db: unknown, collectionName: string, id: string): MockDocRef { return { collection: collectionName, id }; }
-export async function getDoc(ref: MockDocRef) {
-  try {
-    const data = await apiWithToken(`/api/users/${ref.id}`);
-    return { exists: () => true, data: () => data };
-  } catch {
-    return { exists: () => false, data: () => null };
-  }
-}
-export const getDocFromServer = getDoc;
-export async function setDoc(ref: MockDocRef, data: any) {
-  await apiWithToken(`/api/users/${ref.id}`, { method: "PUT", body: JSON.stringify(data) });
-}
-export function serverTimestamp() { return new Date().toISOString(); }

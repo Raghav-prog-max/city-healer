@@ -11,11 +11,11 @@ const Onboarding = lazy(() => import("./onboarding/Onboarding"));
 const PatientDashboard = lazy(() => import("./dashboard/PatientDashboard"));
 const ProviderWorkspace = lazy(() => import("./staff/ProviderWorkspace"));
 const AdminProviders = lazy(() => import("./staff/AdminProviders"));
+const AdminHospitals = lazy(() => import("./staff/AdminHospitals"));
+const HospitalWorkspace = lazy(() => import("./staff/HospitalWorkspace"));
+const NotFoundPage = lazy(() => import("./app/NotFoundPage"));
 const EmergencyPublic = lazy(() => import("./app/EmergencyPage").then((m) => ({ default: m.EmergencyPublic })));
 const ModelsPublic = lazy(() => import("./app/ModelsPage").then((m) => ({ default: m.ModelsPublic })));
-// The doctor, hospital and admin workspaces (and every older screen) still live in App.tsx.
-// Loaded only when one of them is opened, so the landing page stays light.
-const LegacyApp = lazy(() => import("../App"));
 
 function Loading() {
   return <div className="ch grid min-h-screen place-items-center text-subtle">…</div>;
@@ -47,7 +47,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 /** A staff screen: signed in with exactly this role. The server enforces the same on every call. */
-function RequireRole({ role, children }: { role: "DOCTOR" | "ADMIN"; children: React.ReactNode }) {
+function RequireRole({ role, children }: { role: "DOCTOR" | "HOSPITAL" | "ADMIN"; children: React.ReactNode }) {
   const session = useSession();
   const { href, t } = useI18n();
   const location = useLocation();
@@ -89,14 +89,19 @@ export default function SiteRouter() {
                 <Route path={`/${l}/get-started`} element={<Onboarding />} />
                 <Route path={`/${l}/dashboard/*`} element={<RequireAuth><PatientDashboard /></RequireAuth>} />
                 <Route path={`/${l}/provider`} element={<RequireRole role="DOCTOR"><ProviderWorkspace /></RequireRole>} />
+                <Route path={`/${l}/hospital`} element={<RequireRole role="HOSPITAL"><HospitalWorkspace /></RequireRole>} />
                 <Route path={`/${l}/admin/providers`} element={<RequireRole role="ADMIN"><AdminProviders /></RequireRole>} />
+                <Route path={`/${l}/admin/hospitals`} element={<RequireRole role="ADMIN"><AdminHospitals /></RequireRole>} />
                 <Route path={`/${l}/emergency`} element={<EmergencyPublic />} />
                 <Route path={`/${l}/models`} element={<ModelsPublic />} />
                 <Route path={`/${l}/app/*`} element={<AppRedirect />} />
               </React.Fragment>
             ))}
             <Route path="/login" element={<Navigate to={`/${storedLocale()}/sign-in`} replace />} />
-            <Route path="*" element={<LegacyApp />} />
+            {/* The earlier workspace lived at /dashboard (no language prefix); old links land on the
+                dashboard, which sends staff accounts on to their own workspace. */}
+            <Route path="/dashboard" element={<Navigate to={`/${storedLocale()}/dashboard`} replace />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Suspense>
       </LocaleProvider>

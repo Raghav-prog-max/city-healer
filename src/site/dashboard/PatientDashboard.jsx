@@ -97,11 +97,9 @@ export default function PatientDashboard() {
 
   useEffect(() => {
     if (!session.user) { setAppointments([]); setApptError(""); return; }
-    // One appointment system: bookings are appointments with verified providers (Firestore,
-    // /api/v1/appointments). Appointments from the earlier store are still listed, read-only,
-    // so nothing a patient already had disappears; a failure there does not hide the rest.
-    Promise.all([request("/api/v1/appointments/mine"), request("/api/appointments").catch(() => [])])
-      .then(([current, earlier]) => { setAppointments([...(current.appointments || []).map(fromBooking), ...(earlier || [])]); setApptError(""); })
+    // One appointment system: bookings with verified providers (Firestore, /api/v1/appointments).
+    request("/api/v1/appointments/mine")
+      .then((current) => { setAppointments((current.appointments || []).map(fromBooking)); setApptError(""); })
       .catch((e) => { setAppointments([]); setApptError(e.message || "error"); });
   }, [session.user, active, apptTick]);
   useEffect(() => {

@@ -1,10 +1,9 @@
 /**
- * Frame for the staff screens of the new site (provider workspace, provider review): brand,
- * language, who is signed in, sign out, and a link to the earlier workspace (src/App.tsx),
- * which still holds the consultation tools until they move here.
+ * Frame for the staff screens of the site (provider workspace, hospital desk, admin pages):
+ * brand, language, who is signed in, sign out, and for administrators links between their pages.
  */
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { LogOut } from "lucide-react";
 import { useI18n } from "../i18n";
 import { useSession } from "../lib/session";
@@ -22,6 +21,13 @@ export default function StaffShell({ title, sub, children }: { title: string; su
       <header className="border-b border-line bg-white">
         <div className="mx-auto flex max-w-[1100px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <Link to={href("/")} aria-label={t.brand.name}><Logo /></Link>
+          {session.role === "ADMIN" && (
+            <nav className="flex gap-1 text-sm font-semibold" aria-label={t.staff.nav.providers + " / " + t.staff.nav.listings}>
+              {([["/admin/providers", t.staff.nav.providers], ["/admin/hospitals", t.staff.nav.listings]] as const).map(([path, label]) => (
+                <NavLink key={path} to={href(path)} className={({ isActive }) => `rounded-lg px-3 py-1.5 ${isActive ? "bg-ink text-paper" : "text-subtle hover:text-text"}`}>{label}</NavLink>
+              ))}
+            </nav>
+          )}
           <span className="ml-auto hidden text-sm text-subtle sm:inline">{who}</span>
           <LanguageSwitcher />
           <button onClick={signOut} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-sm font-semibold hover:border-care">
@@ -35,7 +41,6 @@ export default function StaffShell({ title, sub, children }: { title: string; su
           <p className="mt-1.5 max-w-[640px] text-subtle">{sub}</p>
         </div>
         {children}
-        <p className="pt-2 text-sm"><a href="/dashboard" className="font-semibold text-care-deep underline underline-offset-2">{t.staff.legacy}</a></p>
       </main>
     </div>
   );
