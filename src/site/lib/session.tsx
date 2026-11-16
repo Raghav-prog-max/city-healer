@@ -39,6 +39,10 @@ const Ctx = createContext<Session | null>(null);
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<MockUser | null>(auth.currentUser);
+  // Firebase restores a saved sign-in asynchronously after a page load. Until its first report,
+  // "no user" only means "not known yet": deciding then would send a signed-in person to the
+  // sign-in page on every refresh.
+  const [authKnown, setAuthKnown] = useState(false);
   const [role, setRole] = useState<Role | null>(null);
   const [name, setName] = useState("");
   const [profile, setProfile] = useState<any | null>(null);
@@ -52,7 +56,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const sessionKey = user ? `user:${user.uid}` : demo ? "demo" : "none";
   const [resolvedKey, setResolvedKey] = useState<string | null>(null);
 
-  useEffect(() => onAuthStateChanged(auth, (u) => setUser(u)), []);
+  useEffect(() => onAuthStateChanged(auth, (u) => { setUser(u); setAuthKnown(true); }), []);
 
   // A patient route answered 403 CONSENT_REQUIRED: read the account again, which routes the
   // person to the consent step.
@@ -117,7 +121,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [user, demo, tick]);
 
   const value: Session = {
-    ready: resolvedKey === sessionKey,
+    ready: authKnown && resolvedKey === sessionKey,
     user, role, name, profile, demo, needsOnboarding, needsConsentOnly, checkFailed,
     refresh: () => setTick((n) => n + 1),
     signOut: async () => {
