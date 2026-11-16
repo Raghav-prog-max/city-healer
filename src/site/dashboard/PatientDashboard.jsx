@@ -29,7 +29,7 @@ const ModelsPage = lazy(() => import("../app/ModelsPage"));
 const AssistantPage = lazy(() => import("../app/AssistantPage"));
 
 const copy = {
-  en: { overview: "Overview", find: "Find care", appointments: "Appointments", records: "Health wallet", family: "Family care", assistant: "AI companion", settings: "Settings", nutrition: "Nutrition", medicines: "Medicines", emergency: "Emergency", models: "AI models",
+  en: { apptLoadError: "Your appointments could not be loaded. Please try again.", overview: "Overview", find: "Find care", appointments: "Appointments", records: "Health wallet", family: "Family care", assistant: "AI companion", settings: "Settings", nutrition: "Nutrition", medicines: "Medicines", emergency: "Emergency", models: "AI models",
     morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening", headline: "Your health, connected.", sub: "A clearer view of your care, all in one place.", location: "Delhi NCR", nearYou: "Near you",
     search: "Search doctors, specialities, hospitals or services", book: "Find a doctor", lab: "Understand a lab report", meds: "Medicines", emergencyHelp: "Emergency help",
     bookSub: "Doctors & specialists", labSub: "Check values from your report", medsSub: "Uses, side effects, substitutes", emergencyQuickSub: "Call 112 · nearest hospitals",
@@ -48,7 +48,7 @@ const copy = {
     status: { PENDING: "Requested", CONFIRMED: "Confirmed", ACCEPTED: "Confirmed", COMPLETED: "Completed", CANCELLED: "Cancelled", REJECTED: "Declined" },
     familySoon: "Linking family members is not available yet. It will need the person's permission or appropriate legal authority.", noFamily: "No linked family members",
     email: "Email", phone: "Mobile", city: "City", doctorsTab: "Doctors", bookTab: "Book appointment", hospitalsTab: "Hospitals", name: "Name", language: "Language", workspace: "Workspace", patientAccount: "Patient account", demoAccount: "Demo session", video: "Video consultation", inPerson: "In-person visit", view: "View", menu: "Menu" },
-  hi: { overview: "होम", find: "देखभाल खोजें", appointments: "अपॉइंटमेंट", records: "हेल्थ वॉलेट", family: "परिवार की देखभाल", assistant: "AI सहायक", settings: "सेटिंग्स", nutrition: "पोषण", medicines: "दवाइयाँ", emergency: "आपातकाल", models: "AI मॉडल",
+  hi: { apptLoadError: "आपके अपॉइंटमेंट लोड नहीं हो सके। कृपया फिर कोशिश करें।", overview: "होम", find: "देखभाल खोजें", appointments: "अपॉइंटमेंट", records: "हेल्थ वॉलेट", family: "परिवार की देखभाल", assistant: "AI सहायक", settings: "सेटिंग्स", nutrition: "पोषण", medicines: "दवाइयाँ", emergency: "आपातकाल", models: "AI मॉडल",
     morning: "सुप्रभात", afternoon: "नमस्कार", evening: "शुभ संध्या", headline: "आपकी सेहत, एक साथ।", sub: "आपकी देखभाल की जानकारी, एक ही जगह।", location: "दिल्ली NCR", nearYou: "आपके पास",
     search: "डॉक्टर, विशेषज्ञता, अस्पताल या सेवा खोजें", book: "डॉक्टर खोजें", lab: "लैब रिपोर्ट समझें", meds: "दवाइयाँ", emergencyHelp: "आपातकालीन सहायता",
     bookSub: "डॉक्टर और विशेषज्ञ", labSub: "रिपोर्ट के आंकड़े जाँचें", medsSub: "उपयोग, दुष्प्रभाव, विकल्प", emergencyQuickSub: "112 पर कॉल · नज़दीकी अस्पताल",
@@ -88,15 +88,22 @@ export default function PatientDashboard() {
   const active = VIEWS.has(seg) ? seg : "overview";
   const [mobile, M] = useState(false), [query, Q] = useState(""), [modal, Modal] = useState(""), [profileOpen, PO] = useState(false);
   const [appointments, setAppointments] = useState(null);
+  const [apptError, setApptError] = useState("");
+  const [apptTick, setApptTick] = useState(0);
   const [records, setRecords] = useState(null);
   const [recordsTick, setRecordsTick] = useState(0);
 
   const go = (id, search = "") => { navigate(href(id === "overview" ? "/dashboard" : `/dashboard/${id}`) + search); M(false); PO(false); window.scrollTo(0, 0); };
 
   useEffect(() => {
-    if (!session.user) { setAppointments([]); return; }
-    request("/api/appointments").then(setAppointments).catch(() => setAppointments([]));
-  }, [session.user, active]);
+    if (!session.user) { setAppointments([]); setApptError(""); return; }
+    // One appointment system: bookings are appointments with verified providers (Firestore,
+    // /api/v1/appointments). Appointments from the earlier store are still listed, read-only,
+    // so nothing a patient already had disappears; a failure there does not hide the rest.
+    Promise.all([request("/api/v1/appointments/mine"), request("/api/appointments").catch(() => [])])
+      .then(([current, earlier]) => { setAppointments([...(current.appointments || []).map(fromBooking), ...(earlier || [])]); setApptError(""); })
+      .catch((e) => { setAppointments([]); setApptError(e.message || "error"); });
+  }, [session.user, active, apptTick]);
   useEffect(() => {
     if (!session.user) { setRecords([]); return; }
     request("/api/records").then(setRecords).catch(() => setRecords([]));
@@ -111,8 +118,9 @@ export default function PatientDashboard() {
   const cityLabel = coords ? t.nearYou : session.profile?.city || t.location;
 
   const todayISO = now.toISOString().slice(0, 10);
-  const sortedAppts = useMemo(() => (appointments || []).slice().sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)), [appointments]);
-  const nextAppt = sortedAppts.find((a) => a.date >= todayISO && !["CANCELLED", "REJECTED", "COMPLETED"].includes(a.status));
+  const when = (a) => a.at || `${a.date} ${a.time}`;
+  const sortedAppts = useMemo(() => (appointments || []).slice().sort((a, b) => when(a).localeCompare(when(b))), [appointments]);
+  const nextAppt = sortedAppts.find((a) => (a.at ? a.at > now.toISOString() : a.date >= todayISO) && !["CANCELLED", "REJECTED", "COMPLETED"].includes(a.status));
 
   // The latest lab values the patient entered in Health wallet (kept on this device).
   const labs = useMemo(() => { try { return JSON.parse(localStorage.getItem("ch_last_labs") || "null"); } catch { return null; } }, [active, recordsTick]);
@@ -162,7 +170,7 @@ export default function PatientDashboard() {
           </form>
           <section className="quick-grid">{service.map((s, i) => <button className="quick-card" key={i} onClick={() => go(s.id)}><span className={"quick-icon " + s.tint}><s.icon size={20} /></span><span className="quick-copy"><b>{s.name}</b><small>{s.sub}</small></span><ArrowUpRight size={15} className="quick-arrow" /></button>)}</section>
 
-          <div className="section-heading"><div><h2>{t.upcoming}</h2><p>{nextAppt ? (t.status[nextAppt.status] || nextAppt.status) : t.noUpcomingSub}</p></div><button className="text-btn" onClick={() => go("appointments")}>{t.viewAll}<ArrowRight size={14} /></button></div>
+          <div className="section-heading"><div><h2>{t.upcoming}</h2><p role={apptError ? "alert" : undefined}>{nextAppt ? (t.status[nextAppt.status] || nextAppt.status) : apptError ? t.apptLoadError : t.noUpcomingSub}</p></div><button className="text-btn" onClick={() => go("appointments")}>{t.viewAll}<ArrowRight size={14} /></button></div>
           {nextAppt ? <AppointmentCard a={nextAppt} t={t} lang={lang} onView={() => go("appointments")} /> : (
             <div className="appointment-card"><div className="appt-date"><b>—</b><span></span></div><div className="appt-info"><h3>{t.noUpcoming}</h3><p>{t.noUpcomingSub}</p></div><div className="appt-action"><button onClick={() => go("find", "?tab=doctors")}>{t.book}<ArrowRight size={14} /></button></div></div>
           )}
@@ -190,7 +198,7 @@ export default function PatientDashboard() {
         {active !== "overview" && <SectionView title={titles[active][0]} sub={titles[active][1]}>
           <Suspense fallback={<div className="empty-note"><Info size={17} />…</div>}>
             {active === "find" && <FindCareView t={t} />}
-            {active === "appointments" && <AppointmentsView list={sortedAppts} loading={appointments === null} t={t} lang={lang} onFind={() => go("find", "?tab=doctors")} />}
+            {active === "appointments" && <AppointmentsView list={sortedAppts} loading={appointments === null} error={apptError} onRetry={() => setApptTick((n) => n + 1)} t={t} lang={lang} onFind={() => go("find", "?tab=book")} />}
             {active === "records" && <>
               <Embed><WalletPage embedded onSaved={() => setRecordsTick((n) => n + 1)} /></Embed>
               <div className="section-heading" style={{ marginTop: 28 }}><div><h2>{t.wallet}</h2><p>{records?.length ? `${records.length} ${t.savedRecords}` : t.noRecordsSub}</p></div></div>
@@ -251,6 +259,18 @@ function FindCareView({ t }) {
 /** Dashboard-styled frame around the app's own pages; dashboard.css maps their colours to this design. */
 function Embed({ children }) { return <div className="ch ch-embed">{children}</div>; }
 
+/** A Firestore booking (server/firebase/booking.ts) in the shape the appointment card shows. */
+function fromBooking(b) {
+  const start = new Date(b.startsAt);
+  return {
+    id: b.id, at: b.startsAt, doctorName: b.doctorName, specialty: b.specialty,
+    date: start.toLocaleDateString("en-CA"), // YYYY-MM-DD in the patient's own time zone
+    time: start.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
+    type: b.consultationType === "online" ? "VIRTUAL" : "IN_PERSON",
+    status: String(b.status || "").toUpperCase(),
+  };
+}
+
 function AppointmentCard({ a, t, lang, onView }) {
   const d = new Date(`${a.date}T00:00:00`);
   return <div className="appointment-card"><div className="appt-date"><b>{d.getDate()}</b><span>{d.toLocaleDateString("en-IN", { month: "short" }).toUpperCase()}</span></div>
@@ -259,8 +279,10 @@ function AppointmentCard({ a, t, lang, onView }) {
     <div className="appt-action"><span className="demo-chip">{t.status[a.status] || a.status}</span>{onView && <button onClick={onView}>{t.view}<ArrowRight size={14} /></button>}</div></div>;
 }
 
-function AppointmentsView({ list, loading, t, lang, onFind }) {
+function AppointmentsView({ list, loading, error, onRetry, t, lang, onFind }) {
   if (loading) return <div className="empty-note"><Info size={17} />…</div>;
+  // A failed load is said so: an empty list would read as "you have no appointments".
+  if (error) return <div className="empty-note" role="alert"><Info size={17} />{t.apptLoadError} <button className="text-btn" onClick={onRetry}>↻</button></div>;
   if (!list.length) return <div className="record-empty"><span><CalendarDays size={27} /></span><h3>{t.noUpcoming}</h3><p>{t.noUpcomingSub}</p><button className="primary-btn" onClick={onFind}><Stethoscope size={15} />{t.book}</button></div>;
   return <>{list.map((a) => <AppointmentCard key={a.id} a={a} t={t} lang={lang} />)}</>;
 }

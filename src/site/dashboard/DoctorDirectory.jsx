@@ -15,6 +15,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, MapPin, ChevronDown, SlidersHorizontal, Video, Building2, ArrowRight, Check, ShieldCheck, ShieldAlert, Info, X, BriefcaseMedical, Stethoscope, Clock, Navigation } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useI18n } from "../i18n";
 import { useSession } from "../lib/session";
 import { request } from "../lib/api";
@@ -66,23 +67,20 @@ const COPY = {
   },
 };
 
-const SLOTS = ["09:30 AM", "10:00 AM", "10:30 AM", "11:30 AM", "12:00 PM", "02:30 PM", "04:00 PM", "05:30 PM"];
 const COLORS = ["mint", "blue", "rose", "sand", "lilac"];
 const initials = (name) => name.replace(/^Dr\.?\s*/i, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
-const todayISO = () => new Date().toISOString().slice(0, 10);
 
 export default function DoctorDirectory() {
   const { locale } = useI18n();
   const t = COPY[locale] || COPY.en;
   const session = useSession();
+  const navigate = useNavigate(), location = useLocation();
   const { coords } = useLocationConsent();
   const centre = coords || (session.profile?.city ? CITY_CENTRES[session.profile.city] : null);
 
   const [doctors, setDoctors] = useState(null), [loadError, setLoadError] = useState("");
   const [q, Q] = useState(""), [city, City] = useState(""), [spec, Spec] = useState(""), [mode, Mode] = useState("any"), [sort, Sort] = useState("recommended");
   const [selected, Selected] = useState(null), [booking, B] = useState(null);
-  const [date, D] = useState(todayISO()), [slot, S] = useState(""), [consult, C] = useState("VIRTUAL");
-  const [patient, P] = useState(""), [contact, Contact] = useState(""), [done, Done] = useState(false), [error, E] = useState(""), [busy, Busy] = useState(false), [booked, Booked] = useState([]);
 
   useEffect(() => {
     const qs = centre ? `?lat=${centre.lat}&lng=${centre.lng}` : "";
@@ -105,28 +103,11 @@ export default function DoctorDirectory() {
 
   const reset = () => { Q(""); City(""); Spec(""); Mode("any"); };
   const openProfile = (d) => { Selected(d); B({ profile: true }); };
-  const openBook = (d) => {
-    if (!d.verified) return openProfile(d);
-    Selected(d); B({ book: true }); D(todayISO()); S(""); C("VIRTUAL"); P(session.name || ""); Contact(session.profile?.phone || ""); Done(false); E("");
-  };
-  const close = () => { B(null); Selected(null); Done(false); E(""); };
+  // The directory is look-only. Appointments are booked with verified providers in the Book
+  // appointment tab (one appointment system, server/firebase/booking.ts).
+  const openBook = (d) => (d.verified ? navigate(`${location.pathname}?tab=book`) : openProfile(d));
+  const close = () => { B(null); Selected(null); };
 
-  // Times already taken for the chosen doctor and date (server-checked again on submit).
-  useEffect(() => {
-    if (!booking?.book || !selected) return;
-    request(`/api/doctors/${selected.id}/booked?date=${date}`).then((r) => Booked(r.booked || [])).catch(() => Booked([]));
-  }, [booking, selected, date]);
-
-  const submit = async () => {
-    E("");
-    if (!slot) { E(t.needSlot); return; }
-    Busy(true);
-    try {
-      await request("/api/appointments", { body: { doctorId: selected.id, patientName: patient.trim() || session.name, date, time: slot, type: consult, symptoms: "" } });
-      Done(true);
-    } catch (e) { E(e.message); } finally { Busy(false); }
-  };
-  const formatDate = (v) => new Date(v + "T12:00:00").toLocaleDateString(locale === "hi" ? "hi-IN" : "en-IN", { weekday: "long", day: "numeric", month: "long" });
   const verifiedCount = (doctors || []).filter((d) => d.verified).length;
 
   return <div className="chb chb">
@@ -179,25 +160,7 @@ export default function DoctorDirectory() {
         {selected.verified
           ? <button className="primary full" onClick={() => openBook(selected)}>{t.book}<ArrowRight /></button>
           : <div className="modal-disclaimer" style={{ marginTop: 12 }}><ShieldAlert size={14} />{t.bookingOff}</div>}
-      </> : done ? <div className="success">
-        <button className="x" onClick={close} aria-label="Close"><X /></button>
-        <span className="success-icon"><Check /></span><h2>{t.sent}</h2><p>{t.sentSub}</p>
-        <div className="confirmation"><span>{t.doctor}<b>{selected.name}</b></span><span>{t.consultation}<b>{consult === "VIRTUAL" ? "Online" : t.inPerson}</b></span><span>{t.dateTime}<b>{formatDate(date)} · {slot}</b></span><span>{t.patient}<b>{patient || session.name}</b></span></div>
-        <button className="primary full" onClick={close}>{t.done}<Check /></button>
-      </div> : <>
-        <button className="x" onClick={close} aria-label="Close"><X /></button>
-        <div className="eyebrow">{t.requestTag}</div><h2>{t.chooseConsultation}</h2><p className="modal-sub">{t.requestSub}</p>
-        <div className="selected-doctor"><div className={"doctor-avatar small " + COLORS[0]}>{initials(selected.name)}</div><div><b>{selected.name}</b><small>{selected.specialty} · {selected.city}</small></div><span>{t.feeNotListed}</span></div>
-        <div className="field-title">{t.consultationType}</div>
-        <div className="mode-options"><button className={consult === "VIRTUAL" ? "picked" : ""} onClick={() => C("VIRTUAL")}><Video />Online</button><button className={consult === "IN_PERSON" ? "picked" : ""} onClick={() => C("IN_PERSON")}><Building2 />{t.inPerson}</button></div>
-        <label className="field">{t.chooseDate}<input type="date" min={todayISO()} value={date} onChange={(e) => { D(e.target.value); S(""); }} /></label>
-        <div className="field-title">{t.times}</div>
-        <div className="slot-grid">{SLOTS.map((x) => <button className={slot === x ? "picked" : ""} key={x} disabled={booked.includes(x)} style={booked.includes(x) ? { opacity: .4, cursor: "not-allowed" } : undefined} onClick={() => S(x)}>{x}</button>)}</div>
-        <div className="field-row"><label className="field">{t.patientName}<input value={patient} onChange={(e) => P(e.target.value)} /></label><label className="field">{t.contact}<input value={contact} onChange={(e) => Contact(e.target.value)} placeholder="+91 98765 43210" /></label></div>
-        {error && <p className="error" role="alert">{error}</p>}
-        <div className="modal-disclaimer"><Info size={14} />{t.disclaimer}</div>
-        <button className="primary full" onClick={submit} disabled={busy}>{busy ? t.sending : t.send}<ArrowRight /></button>
-      </>}
+      </> : null}
     </motion.div></div>}</AnimatePresence>
   </div>;
 }

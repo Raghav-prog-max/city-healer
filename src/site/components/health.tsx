@@ -110,8 +110,13 @@ function ReportProblem({ hospitalId }: { hospitalId: string }) {
   );
 }
 
-export function DoctorCard({ d, onBook, booking }: { d: any; onBook?: (d: any) => void; booking?: boolean }) {
-  const { t } = useI18n();
+/**
+ * A doctor in a copilot, triage or directory result. Only a verified provider (`d.bookable`, from
+ * the Firestore repository) can be booked, and that happens in Find care > Book appointment,
+ * where the doctor's open times are. Directory doctors are look-only.
+ */
+export function DoctorCard({ d }: { d: any }) {
+  const { t, href } = useI18n();
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-start gap-3">
@@ -120,17 +125,19 @@ export function DoctorCard({ d, onBook, booking }: { d: any; onBook?: (d: any) =
           <p className="font-semibold leading-snug">{d.name}</p>
           <p className="text-sm text-subtle">{d.specialty}{d.hospitalName ? ` · ${d.hospitalName}` : ""}</p>
         </div>
-        <Badge tone={d.online ? "health" : "neutral"}>{d.online ? t.care2.online : t.care2.offline}</Badge>
+        {d.bookable
+          ? <Badge tone="health">{t.care2.verifiedDoctor}</Badge>
+          : <Badge tone={d.online ? "health" : "neutral"}>{d.online ? t.care2.online : t.care2.offline}</Badge>}
       </div>
-      {!d.verified && <p className="mt-2 text-xs font-semibold text-amber-800">{t.care2.notVerifiedDoctor}</p>}
+      {!d.bookable && <p className="mt-2 text-xs font-semibold text-amber-800">{d.verified ? t.care2.directoryDoctor : t.care2.notVerifiedDoctor}</p>}
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
         {d.rating ? <Badge><Star className="h-3.5 w-3.5" aria-hidden="true" />{Number(d.rating).toFixed(1)}</Badge> : null}
         {d.experience ? <Badge>{d.experience} yrs</Badge> : null}
         {d.waitTimeMin ? <Badge><Clock className="h-3.5 w-3.5" aria-hidden="true" />{d.waitTimeMin} min {t.care2.wait}</Badge> : null}
         {typeof d.distanceKm === "number" && <Badge><MapPin className="h-3.5 w-3.5" aria-hidden="true" />{d.distanceKm} {t.care2.km}</Badge>}
       </div>
-      {onBook && d.verified && (
-        <button onClick={() => onBook(d)} disabled={booking} className="mt-4 h-10 rounded-xl bg-care text-sm font-semibold text-white hover:bg-care-deep disabled:opacity-50">{t.care2.book}</button>
+      {d.bookable && (
+        <Link to={`${href("/dashboard/find")}?tab=book`} className="mt-4 grid h-10 place-items-center rounded-xl bg-care text-sm font-semibold text-white hover:bg-care-deep">{t.care2.book}</Link>
       )}
     </Card>
   );

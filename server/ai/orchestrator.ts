@@ -214,9 +214,15 @@ export async function orchestrate(message: string, ctx: OrchestratorContext): Pr
       const doctors = await timed("answer", "doctor-ranking", () => ctx.findDoctors(category, ctx.lat, ctx.lng), (r) => `${r.length} ${category}s`);
       return done({
         intent: "appointment", confidence: intent.confidence,
-        reply: doctors.length
-          ? t(lang, `${category}s available now, nearest and online first:`, `अभी उपलब्ध ${category}, नज़दीकी और ऑनलाइन पहले:`)
-          : t(lang, "No doctor of that kind is listed yet.", "इस तरह के डॉक्टर अभी सूची में नहीं हैं।"),
+        // Only verified providers can be booked; directory doctors are information only, and
+        // the reply must not suggest otherwise.
+        reply: !doctors.length
+          ? t(lang, "No doctor of that kind is listed yet.", "इस तरह के डॉक्टर अभी सूची में नहीं हैं।")
+          : doctors.every((d: any) => d.bookable)
+            ? t(lang, `Verified ${category}s you can book:`, `सत्यापित ${category}, जिन्हें आप बुक कर सकते हैं:`)
+            : doctors.some((d: any) => d.bookable)
+              ? t(lang, `Verified ${category}s you can book come first. The others are directory listings for information only, not verified by City Healer.`, `पहले सत्यापित ${category} हैं, जिन्हें आप बुक कर सकते हैं। बाकी केवल जानकारी के लिए डायरेक्टरी सूची हैं, City Healer द्वारा सत्यापित नहीं।`)
+              : t(lang, `No verified ${category} can be booked on City Healer yet. These are directory listings for information only:`, `City Healer पर अभी कोई सत्यापित ${category} बुक नहीं किया जा सकता। ये केवल जानकारी के लिए डायरेक्टरी सूची हैं:`),
         card: { type: "doctors", data: doctors },
         action: { label: t(lang, "Open Consultations", "परामर्श खोलें"), tab: "consultation" },
       });

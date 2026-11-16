@@ -176,6 +176,45 @@ describe("booking", () => {
     assert.ok(!bobs.body.appointments.some((x: any) => x.id === aliceAppt && x.status === "confirmed"));
   });
 
+  test("the doctor sees the bookings made with their own profile, and only those", async () => {
+    const own = await api("GET", "/api/v1/appointments/doctor", a.doctor.token);
+    assert.equal(own.status, 200);
+    const appt = own.body.appointments.find((x: any) => x.id === aliceAppt);
+    assert.ok(appt, "the doctor's list includes Alice's booking");
+    assert.equal(appt.patientName, "Alice Patient");
+    assert.equal(appt.status, "confirmed");
+    assert.deepEqual(Object.keys(appt).sort(), ["consultationType", "endsAt", "id", "patientName", "reason", "startsAt", "status"], "nothing else about the patient is sent");
+
+    const other = await api("GET", "/api/v1/appointments/doctor", a.otherDoctor.token);
+    assert.equal(other.status, 200);
+    assert.deepEqual(other.body.appointments, [], "another doctor sees none of them");
+
+    assert.equal((await api("GET", "/api/v1/appointments/doctor", a.alice.token)).status, 403);
+    assert.equal((await api("GET", "/api/v1/appointments/doctor", a.admin.token)).status, 403);
+    assert.equal((await api("GET", "/api/v1/appointments/doctor")).status, 401);
+  });
+
+  test("triage and the copilot recommend the verified provider first, and only it is bookable", async () => {
+    // "General Physician" is the provider's specialty and the category for a plain fever.
+    const triage = await api("POST", "/api/symptoms/check", a.alice.token, { symptoms: "fever and body ache since yesterday", lang: "en" });
+    assert.equal(triage.status, 200);
+    assert.equal(triage.body.doctorSpecialty, "General Physician", "this test assumes a plain fever is routed to a general physician");
+    const docs = triage.body.recommendedDoctors;
+    assert.equal(docs[0].id, a.doctor.uid);
+    assert.equal(docs[0].name, application.fullName);
+    assert.equal(docs[0].bookable, true);
+    assert.equal(docs[0].registrationNumber, undefined, "registration number is never sent");
+    assert.ok(docs.length > 1, "directory doctors fill the remaining places");
+    assert.ok(docs.slice(1).every((d: any) => d.bookable === false && d.source === "directory"), "directory doctors are never bookable");
+
+    const chat = await api("POST", "/api/ai/copilot", a.alice.token, { message: "I want to book a general physician appointment" });
+    assert.equal(chat.status, 200);
+    if (chat.body.card?.type === "doctors") {
+      assert.equal(chat.body.card.data[0].id, a.doctor.uid);
+      assert.match(chat.body.reply, /information only/, "the reply says the directory listings cannot be booked");
+    }
+  });
+
   test("another patient cannot cancel or reschedule it", async () => {
     assert.equal((await api("POST", `/api/v1/appointments/${aliceAppt}/cancel`, a.bob.token)).status, 404);
     assert.equal((await api("POST", `/api/v1/appointments/${aliceAppt}/reschedule`, a.bob.token, { newSlotId: slots[1].id })).status, 404);
@@ -205,6 +244,13 @@ describe("booking", () => {
     assert.equal(res.status, 409);
     assert.equal(res.body.code, "DOCTOR_NOT_BOOKABLE");
     assert.ok(!(await api("GET", "/api/v1/doctors")).body.doctors.some((d: any) => d.id === a.doctor.uid));
+  });
+
+  test("a rejected doctor is no longer recommended, at once", async () => {
+    const triage = await api("POST", "/api/symptoms/check", a.alice.token, { symptoms: "fever and body ache since yesterday", lang: "en" });
+    assert.ok(triage.body.recommendedDoctors.length > 0);
+    assert.ok(triage.body.recommendedDoctors.every((d: any) => d.bookable === false), "with no verified provider, nothing recommended is bookable");
+    assert.ok(!triage.body.recommendedDoctors.some((d: any) => d.id === a.doctor.uid));
   });
 });
 

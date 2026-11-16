@@ -45,7 +45,7 @@ First boot creates the SQLite schema and seeds 52 hospitals, 80 doctors and 31 m
 | `npm run set-role` | Grants a role (Firebase custom claims), links doctors and hospital staff |
 | `npm run set-password` | Sets a new password on an email account |
 | `npm run migrate-users` | Moves accounts from the old SQLite `users` table into Firebase |
-| `npm run verify-doctor` | Marks a directory doctor verified (bookable) after their registration is checked |
+| `npm run verify-doctor` | Marks a directory doctor's registration as checked. The directory stays look-only: appointments are booked only with verified providers (`npm run review-providers`) |
 | `npm run review-providers` | Lists doctor applications for online booking; `--verify <uid> --council "..."` or `--reject <uid>` |
 | `python scripts/fetch-osm-hospitals.py` | Downloads the OpenStreetMap hospital export for India (HDX, ODbL) |
 | `npm run import-hospitals` | Imports Delhi NCR hospitals from it (`--dry-run` first) |
