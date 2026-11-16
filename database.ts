@@ -4,8 +4,6 @@ import {
   hospitals as seedHospitals, 
   doctors as seedDoctors, 
   medicineProducts as seedMedicines,
-  appointments as seedAppointments,
-  queueTokens as seedQueueTokens,
   medicalRecords as seedMedicalRecords
 } from "./seedData";
 
@@ -384,45 +382,8 @@ export async function initializeDatabase() {
       console.log(`[SQLite Seeding] Seeded ${seedMedicines.length} medicines.`);
     }
 
-    // Seed default appointments for baseline display if empty
-    const apptCount = await dbGet<{ count: number }>("SELECT COUNT(*) as count FROM appointments");
-    if (apptCount && apptCount.count === 0 && seedAppointments && seedAppointments.length > 0) {
-      console.log("[SQLite Seeding] Seeding appointments...");
-      await dbExec("BEGIN TRANSACTION");
-      for (const a of seedAppointments) {
-        await dbRun(`
-          INSERT INTO appointments (
-            id, patientId, patientName, doctorId, doctorName, specialty, 
-            date, time, status, symptoms, type, prescriptionJson
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          a.id, a.patientId, a.patientName, a.doctorId, a.doctorName, a.specialty,
-          a.date, a.time, a.status, a.symptoms, a.type, a.prescriptionJson ? JSON.stringify(a.prescriptionJson) : null
-        ]);
-      }
-      await dbExec("COMMIT");
-      console.log(`[SQLite Seeding] Seeded ${seedAppointments.length} appointments.`);
-    }
-
-    // Seed default queue tokens if empty
-    const qCount = await dbGet<{ count: number }>("SELECT COUNT(*) as count FROM queue_tokens");
-    if (qCount && qCount.count === 0 && seedQueueTokens && seedQueueTokens.length > 0) {
-      console.log("[SQLite Seeding] Seeding queue tokens...");
-      await dbExec("BEGIN TRANSACTION");
-      for (const q of seedQueueTokens) {
-        await dbRun(`
-          INSERT INTO queue_tokens (
-            id, tokenNumber, patientId, patientName, doctorId, doctorName, 
-            estimatedWaitTimeMin, status, checkpointTime
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          q.id, q.tokenNumber, q.patientId, q.patientName, q.doctorId, q.doctorName,
-          q.estimatedWaitTimeMin, q.status, q.checkpointTime
-        ]);
-      }
-      await dbExec("COMMIT");
-      console.log(`[SQLite Seeding] Seeded ${seedQueueTokens.length} queue tokens.`);
-    }
+    // Appointments, OPD queue tokens and chat are no longer seeded: bookings live in Firestore
+    // (server/firebase/booking.ts). The old SQLite tables are left in place, unused.
 
     // Seed medical records if empty
     const recsCount = await dbGet<{ count: number }>("SELECT COUNT(*) as count FROM medical_records");

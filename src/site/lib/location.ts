@@ -1,7 +1,7 @@
 /**
  * Location, only with consent. The browser prompt is shown only after the user presses a
- * "Share location" button that says what it is for; the choice is remembered (same key as
- * the older screens), and nothing is invented when it is refused.
+ * "Share location" button that says what it is for; the choice is remembered on this
+ * device, and nothing is invented when it is refused.
  */
 import { useCallback, useEffect, useState } from "react";
 
