@@ -60,7 +60,13 @@ function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<voi
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true); setError("");
-    try { await fn(); setMode(""); await onChanged(); } catch (e: any) { setError(message(e)); } finally { setBusy(false); }
+    try { await fn(); setMode(""); await onChanged(); }
+    catch (e: any) {
+      setError(message(e));
+      // A refusal usually means the booking changed underneath (the patient cancelled or moved
+      // it, or it was handled in another tab): show its current state, not the stale one.
+      try { await onChanged(); } catch { /* the error above is what matters */ }
+    } finally { setBusy(false); }
   };
   const show = async (what: "rx" | "records") => {
     if (mode === what) { setMode(""); return; }
@@ -72,7 +78,9 @@ function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<voi
     } catch (e: any) { setError(message(e)); }
   };
   const setMed = (i: number, patch: Partial<Medicine>) => setMedicines((list) => list.map((m, j) => (j === i ? { ...m, ...patch } : m)));
-  const filled = medicines.filter((m) => m.name.trim() || m.dosage.trim());
+  // A row with anything typed in it counts, so a medicine missing its name or dosage blocks
+  // issuing instead of being dropped from a prescription that cannot be changed afterwards.
+  const filled = medicines.filter((m) => m.name.trim() || m.dosage.trim() || m.frequency.trim() || m.duration.trim());
   const canIssue = diagnosis.trim().length >= 2 && filled.every((m) => m.name.trim() && m.dosage.trim());
   const issue = () => run(() => request(`${route}/prescription`, {
     body: {
@@ -113,7 +121,7 @@ function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<voi
             <input className={input} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
           </label>
           <div className="mt-2 flex gap-2">
-            <Button size="sm" variant="danger" loading={busy} disabled={reason.trim().length < 3} onClick={() => run(() => request(`${route}/doctor-cancel`, { body: { reason: reason.trim() } }))}>{p.confirmCancel}</Button>
+            <Button size="sm" variant="danger" loading={busy} disabled={reason.trim().length < 3} onClick={() => run(() => request(`${route}/doctor-cancel`, { body: { reason: reason.trim(), startsAt: b.startsAt } }))}>{p.confirmCancel}</Button>
             <Button size="sm" variant="secondary" onClick={() => setMode("")}>{p.keep}</Button>
           </div>
         </div>
@@ -148,7 +156,7 @@ function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<voi
         </div>
       )}
 
-      {mode === "rx" && rx && (
+      {mode === "rx" && rx && b.status !== "cancelled" && (
         <div className="mt-3 rounded-lg border border-line bg-mist p-3">
           <p><strong>{p.diagnosis}:</strong> {rx.diagnosis}</p>
           {rx.medicines.length > 0 && <ul className="mt-1.5 list-disc pl-5">{rx.medicines.map((m, i) => <li key={i}>{[m.name, m.dosage, m.frequency, m.duration].filter(Boolean).join(" · ")}</li>)}</ul>}
@@ -157,7 +165,8 @@ function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<voi
         </div>
       )}
 
-      {mode === "records" && records && (
+      {/* Not for a cancelled booking: the server no longer gives access, so the screen does not keep showing them. */}
+      {mode === "records" && records && b.status !== "cancelled" && (
         <div className="mt-3 rounded-lg border border-line bg-mist p-3">
           {records.length === 0 ? <p className="text-subtle">{p.noRecords}</p> : (
             <ul className="space-y-2">{records.map((r) => (

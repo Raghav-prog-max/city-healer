@@ -13,6 +13,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import { createActor, requireEmulators, firebaseAdmin, type Actor } from "./helpers/firebaseAccounts";
+import { TERMS_VERSION, PRIVACY_VERSION } from "../shared/consent";
 
 const PORT = Number(process.env.TEST_PORT) || 3805;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -20,9 +21,11 @@ const TEST_DB = "city_healer.consultations.test.db";
 const TEST_DB_PATH = path.resolve(process.cwd(), TEST_DB);
 let server: ChildProcessWithoutNullStreams;
 const a: Record<string, Actor> = {};
-// Alice: one appointment to complete, one the doctor cancels, one that gets a prescription.
-// Bob: one that stays in the future.
+// Alice: one appointment to complete, one the doctor cancels, one that gets a prescription, one
+// that starts while still confirmed ("late"), and a spare. Bob: one that stays in the future.
 const appt: Record<string, string> = {};
+/** An open time nobody books, published in the tests that need somewhere to reschedule to. */
+let spareSlot = "";
 
 async function api(method: string, route: string, token?: string, body?: unknown) {
   const res = await fetch(`${BASE}${route}`, {
@@ -46,11 +49,14 @@ const rx = {
   instructions: "Rest and fluids. Return if the fever lasts beyond three days.",
 };
 
-/** Appointments are booked in the future; move one's start into the past, as time passing would. */
-async function startNow(id: string) {
+/** Appointments are booked in the future; move one's times, as time passing would. */
+async function setTimes(id: string, startHours: number, endHours: number) {
   const { firestore } = await firebaseAdmin();
-  await firestore.collection("appointments").doc(id).update({ startsAt: inHours(-0.5), endsAt: inHours(0) });
+  await firestore.collection("appointments").doc(id).update({ startsAt: inHours(startHours), endsAt: inHours(endHours) });
 }
+const startNow = (id: string) => setTimes(id, -0.5, 0);
+const appointmentDoc = async (id: string) => (await (await firebaseAdmin()).firestore.collection("appointments").doc(id).get()).data()!;
+const slotDoc = async (id: string) => (await (await firebaseAdmin()).firestore.collection("doctorSlots").doc(id).get()).data()!;
 
 before(async () => {
   requireEmulators();
@@ -93,6 +99,8 @@ before(async () => {
   appt.cancel = await book(a.alice, 26);
   appt.prescribe = await book(a.alice, 28);
   appt.bob = await book(a.bob, 30);
+  appt.late = await book(a.alice, 32);
+  appt.spare = await book(a.alice, 34);
 
   // Health-wallet records each patient saved themselves.
   assert.equal((await api("POST", "/api/records", a.alice.token, { title: "ALICE lab report", doctorName: "Self", diagnoseSummary: "alice private" })).status, 200);
@@ -134,7 +142,25 @@ describe("completing an appointment", () => {
   });
 
   test("a completed appointment cannot be cancelled or rescheduled by the patient", async () => {
-    assert.equal((await api("POST", `/api/v1/appointments/${appt.complete}/cancel`, a.alice.token)).status, 409);
+    const slot = await api("POST", `/api/v1/doctors/${a.dev.uid}/slots`, a.dev.token, { startsAt: inHours(40), endsAt: inHours(40.5), consultationType: "online" });
+    assert.equal(slot.status, 201);
+    spareSlot = slot.body.slotId;
+
+    const cancel = await api("POST", `/api/v1/appointments/${appt.complete}/cancel`, a.alice.token);
+    assert.equal(cancel.status, 409);
+    assert.equal(cancel.body.code, "APPOINTMENT_NOT_CANCELLABLE");
+    const move = await api("POST", `/api/v1/appointments/${appt.complete}/reschedule`, a.alice.token, { newSlotId: spareSlot });
+    assert.equal(move.status, 409);
+    assert.equal(move.body.code, "APPOINTMENT_NOT_RESCHEDULABLE");
+    assert.equal((await mine(a.alice, appt.complete)).status, "completed");
+    assert.equal((await slotDoc(spareSlot)).status, "open", "the time it was aimed at is untouched");
+  });
+
+  test("the doctor cannot cancel an appointment that is already completed", async () => {
+    const r = await api("POST", `/api/v1/appointments/${appt.complete}/doctor-cancel`, a.dev.token, { reason: "Changed my mind" });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.code, "APPOINTMENT_NOT_OPEN");
+    assert.equal((await mine(a.alice, appt.complete)).status, "completed");
   });
 });
 
@@ -150,15 +176,29 @@ describe("the doctor cancels", () => {
     assert.equal((await mine(a.alice, appt.cancel)).status, "confirmed");
   });
 
+  test("a cancellation aimed at a time the appointment no longer has is refused", async () => {
+    // As if the patient rescheduled while the doctor still had the old time on screen.
+    const r = await cancel(a.dev.token, { reason: "Not available then", startsAt: inHours(99) });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.code, "APPOINTMENT_CHANGED");
+    assert.equal((await mine(a.alice, appt.cancel)).status, "confirmed");
+    assert.equal((await cancel(a.dev.token, { reason: "Not available then", startsAt: "tomorrow" })).status, 400);
+  });
+
   test("the patient sees the cancellation and its reason, and the time is not offered again", async () => {
     const before = (await api("GET", `/api/v1/doctors/${a.dev.uid}/slots`)).body.slots.length;
-    assert.equal((await cancel(a.dev.token, { reason: "Called away to an emergency" })).status, 200);
+    const { slotId, startsAt } = await appointmentDoc(appt.cancel);
+    assert.equal((await slotDoc(slotId)).status, "booked");
+    assert.equal((await cancel(a.dev.token, { reason: "Called away to an emergency", startsAt })).status, 200);
+    const slot = await slotDoc(slotId);
+    assert.equal(slot.status, "withdrawn", "the doctor's time is withdrawn, not left booked and not reopened");
+    assert.equal(slot.appointmentId, undefined);
+    assert.ok(!(await api("GET", "/api/v1/provider/slots", a.dev.token)).body.slots.some((s: any) => s.id === slotId), "and is gone from the doctor's own list");
     const seen = await mine(a.alice, appt.cancel);
     assert.equal(seen.status, "cancelled");
     assert.equal(seen.cancelledBy, "doctor");
     assert.equal(seen.cancelReason, "Called away to an emergency");
-    assert.equal((await api("GET", `/api/v1/doctors/${a.dev.uid}/slots`)).body.slots.length, before, "the doctor's time is withdrawn, not reopened");
-    assert.ok(!(await api("GET", "/api/v1/provider/slots", a.dev.token)).body.slots.some((s: any) => s.status !== "booked"), "no open time appeared");
+    assert.equal((await api("GET", `/api/v1/doctors/${a.dev.uid}/slots`)).body.slots.length, before, "no open time appeared for patients");
 
     const { firestore } = await firebaseAdmin();
     const outbox = await firestore.collection("notificationOutbox").where("appointmentId", "==", appt.cancel).get();
@@ -269,6 +309,16 @@ describe("writing a prescription", () => {
 });
 
 describe("reading a patient's records", () => {
+  test("records do not open at booking: only from a day before the appointment", async () => {
+    const early = await api("GET", `/api/v1/appointments/${appt.bob}/records`, a.dev.token);
+    assert.equal(early.status, 409);
+    assert.equal(early.body.code, "RECORDS_NOT_YET_AVAILABLE");
+    assert.equal(early.body.records, undefined);
+    await setTimes(appt.bob, 25, 25.5);
+    assert.equal((await api("GET", `/api/v1/appointments/${appt.bob}/records`, a.dev.token)).status, 409, "still more than a day away");
+    await setTimes(appt.bob, 2, 2.5);
+  });
+
   test("the doctor sees the records of the patient on their appointment, and only that patient's", async () => {
     const r = await api("GET", `/api/v1/appointments/${appt.bob}/records`, a.dev.token);
     assert.equal(r.status, 200);
@@ -286,6 +336,30 @@ describe("reading a patient's records", () => {
     assert.equal((await api("GET", route)).status, 401);
   });
 
+  test("access ends two weeks after the appointment", async () => {
+    const route = `/api/v1/appointments/${appt.complete}/records`;
+    assert.equal((await api("GET", route, a.dev.token)).status, 200, "a recently completed appointment still gives access");
+    await setTimes(appt.complete, -13 * 24 - 1, -13 * 24);
+    assert.equal((await api("GET", route, a.dev.token)).status, 200, "13 days on");
+    await setTimes(appt.complete, -15 * 24 - 1, -15 * 24);
+    const late = await api("GET", route, a.dev.token);
+    assert.equal(late.status, 409);
+    assert.equal(late.body.code, "RECORDS_ACCESS_ENDED");
+    assert.equal(late.body.records, undefined);
+  });
+
+  test("when the patient withdraws consent, the doctor's access to their records ends at once", async () => {
+    const route = `/api/v1/appointments/${appt.prescribe}/records`;
+    assert.equal((await api("POST", "/api/v1/me/consents/withdraw", a.alice.token)).status, 201);
+    const r = await api("GET", route, a.dev.token);
+    assert.equal(r.status, 409);
+    assert.equal(r.body.code, "PATIENT_CONSENT_REQUIRED");
+    assert.equal(r.body.records, undefined);
+    const grant = await api("POST", "/api/v1/me/consents", a.alice.token, { termsAccepted: true, termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION, marketingOptIn: false });
+    assert.equal(grant.status, 201);
+    assert.equal((await api("GET", route, a.dev.token)).status, 200, "and returns when consent is given again");
+  });
+
   test("a cancelled booking gives no access to records", async () => {
     const r = await api("GET", `/api/v1/appointments/${appt.cancel}/records`, a.dev.token);
     assert.equal(r.status, 409);
@@ -297,11 +371,95 @@ describe("reading a patient's records", () => {
     assert.equal((await api("GET", `/api/v1/appointments/${appt.bob}/records`, a.dev.token)).status, 409);
   });
 
+  test("refused reads are not recorded as views", async () => {
+    const { firestore } = await firebaseAdmin();
+    const count = async () => (await firestore.collection("auditLogs").where("actorUid", "==", a.dev.uid).get()).docs.filter((d) => d.get("action") === "patient.records.viewed").length;
+    const before = await count();
+    assert.equal((await api("GET", `/api/v1/appointments/${appt.cancel}/records`, a.dev.token)).status, 409);
+    assert.equal(await count(), before);
+  });
+
   test("each read of a patient's records is audited", async () => {
     const { firestore } = await firebaseAdmin();
     const audit = await firestore.collection("auditLogs").where("actorUid", "==", a.dev.uid).get();
     const views = audit.docs.filter((d) => d.get("action") === "patient.records.viewed").map((d) => d.get("resourceId"));
     assert.ok(views.includes(a.bob.uid));
     assert.ok(views.includes(a.alice.uid));
+  });
+});
+
+describe("once an appointment has started it is the doctor's to close", () => {
+  test("the patient can no longer cancel or move it", async () => {
+    await startNow(appt.late);
+    const cancel = await api("POST", `/api/v1/appointments/${appt.late}/cancel`, a.alice.token);
+    assert.equal(cancel.status, 409);
+    assert.equal(cancel.body.code, "APPOINTMENT_STARTED");
+    const move = await api("POST", `/api/v1/appointments/${appt.late}/reschedule`, a.alice.token, { newSlotId: spareSlot });
+    assert.equal(move.status, 409);
+    assert.equal(move.body.code, "APPOINTMENT_STARTED");
+    assert.equal((await mine(a.alice, appt.late)).status, "confirmed");
+    assert.equal((await slotDoc(spareSlot)).status, "open");
+  });
+
+  test("so the doctor can still complete it", async () => {
+    assert.equal((await api("POST", `/api/v1/appointments/${appt.late}/complete`, a.dev.token)).status, 200);
+  });
+
+  test("an appointment with a prescription cannot be cancelled by the doctor", async () => {
+    const r = await api("POST", `/api/v1/appointments/${appt.prescribe}/doctor-cancel`, a.dev.token, { reason: "Changed my mind" });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.code, "APPOINTMENT_NOT_OPEN");
+    assert.equal((await mine(a.alice, appt.prescribe)).status, "completed");
+    assert.equal((await api("GET", `/api/v1/appointments/${appt.prescribe}/prescription`, a.alice.token)).status, 200);
+  });
+});
+
+describe("a doctor who is no longer verified", () => {
+  const refusedEverywhere = async (why: string) => {
+    for (const [method, route, body] of [
+      ["POST", `/api/v1/appointments/${appt.spare}/complete`, undefined],
+      ["POST", `/api/v1/appointments/${appt.late}/prescription`, rx],
+      ["GET", `/api/v1/appointments/${appt.prescribe}/records`, undefined],
+    ] as const) {
+      const r = await api(method, route, a.dev.token, body);
+      assert.equal(r.status, 403, `${why}: ${method} ${route}`);
+      assert.equal(r.body.code, "DOCTOR_NOT_VERIFIED");
+      assert.equal(r.body.records, undefined);
+    }
+  };
+
+  test("while verified, the doctor can read records on a completed appointment", async () => {
+    assert.equal((await api("GET", `/api/v1/appointments/${appt.prescribe}/records`, a.dev.token)).status, 200);
+  });
+
+  test("after a refusal they cannot complete, prescribe or read records, though they keep the doctor role", async () => {
+    const reject = await api("PATCH", `/api/v1/doctors/${a.dev.uid}/verification`, a.admin.token, { verificationStatus: "rejected", listingStatus: "hidden", reviewNote: "Registration could not be confirmed" });
+    assert.equal(reject.status, 200);
+    assert.equal((await api("GET", "/api/v1/provider/me", a.dev.token)).status, 200, "still a doctor account");
+    await refusedEverywhere("rejected");
+    assert.equal((await api("GET", `/api/v1/appointments/${appt.late}/prescription`, a.alice.token)).status, 404, "no prescription was written");
+  });
+
+  test("nor while a new application is pending", async () => {
+    assert.equal((await api("POST", "/api/v1/doctors/applications", a.dev.token, application)).status, 202);
+    await refusedEverywhere("pending");
+  });
+
+  test("they can still cancel, which releases the patient", async () => {
+    const { startsAt } = await appointmentDoc(appt.spare);
+    const r = await api("POST", `/api/v1/appointments/${appt.spare}/doctor-cancel`, a.dev.token, { reason: "No longer practising on City Healer", startsAt });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal((await mine(a.alice, appt.spare)).status, "cancelled");
+  });
+
+  test("a doctor account with no profile at all is refused too", async () => {
+    // "other" has the doctor role but never applied; give it an appointment as if one existed.
+    const { firestore } = await firebaseAdmin();
+    const ref = firestore.collection("appointments").doc();
+    await ref.set({ patientUid: a.bob.uid, doctorId: a.other.uid, doctorName: "Dr Other", specialty: "General Physician", slotId: "none", consultationType: "online", startsAt: inHours(-1), endsAt: inHours(-0.5), status: "confirmed" });
+    for (const [method, route, body] of [["POST", `/api/v1/appointments/${ref.id}/complete`, undefined], ["POST", `/api/v1/appointments/${ref.id}/prescription`, rx], ["GET", `/api/v1/appointments/${ref.id}/records`, undefined]] as const) {
+      assert.equal((await api(method, route, a.other.token, body)).status, 403, `${method} ${route}`);
+    }
+    await ref.delete();
   });
 });

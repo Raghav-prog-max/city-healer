@@ -106,12 +106,13 @@ export default function PatientDashboard() {
   }, [session.user, active, apptTick]);
   useEffect(() => {
     if (!session.user) { setRecords([]); return; }
-    // Saved records, then the prescriptions doctors have written (oldest first: the list shows
-    // the last entry first). A failure to load prescriptions does not hide the records.
-    Promise.all([request("/api/records"), request("/api/v1/prescriptions/mine").catch(() => ({ prescriptions: [] }))])
-      .then(([saved, rx]) => setRecords([...saved, ...(rx.prescriptions || []).slice().reverse().map((p) => fromPrescription(p, t))]))
-      .catch(() => setRecords([]));
-  }, [session.user, recordsTick]);
+    // Saved records and the prescriptions doctors have written, oldest first (the list shows
+    // the last entry first). Each is loaded on its own, so one failing does not hide the other.
+    Promise.all([request("/api/records").catch(() => []), request("/api/v1/prescriptions/mine").catch(() => ({ prescriptions: [] }))])
+      .then(([saved, rx]) => setRecords(
+        [...saved, ...(rx.prescriptions || []).map((p) => fromPrescription(p, t))]
+          .sort((a, b) => String(a.at || a.date).localeCompare(String(b.at || b.date)))));
+  }, [session.user, recordsTick, lang]);
 
   const name = session.name || (session.demo ? t.demoAccount : "");
   const firstName = (name.split(" ")[0] || "").toUpperCase();
@@ -280,7 +281,7 @@ function fromBooking(b) {
 function fromPrescription(p, t) {
   const medicines = (p.medicines || []).map((m) => [m.name, m.dosage, m.frequency, m.duration].filter(Boolean).join(", ")).join("; ");
   return {
-    id: `rx-${p.id}`, title: `${t.prescription}: ${p.diagnosis}`, date: String(p.issuedAt || "").slice(0, 10), doctorName: p.doctorName,
+    id: `rx-${p.id}`, title: `${t.prescription}: ${p.diagnosis}`, date: String(p.issuedAt || "").slice(0, 10), at: p.issuedAt, doctorName: p.doctorName,
     diagnoseSummary: [medicines, p.instructions ? `${t.rxInstructions}: ${p.instructions}` : ""].filter(Boolean).join(". "),
   };
 }

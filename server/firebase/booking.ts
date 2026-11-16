@@ -123,6 +123,7 @@ const KNOWN: Record<string, [number, string]> = {
   APPOINTMENT_NOT_FOUND: [404, "Appointment not found."],
   APPOINTMENT_NOT_CANCELLABLE: [409, "Appointment cannot be cancelled."],
   APPOINTMENT_NOT_RESCHEDULABLE: [409, "Appointment cannot be rescheduled."],
+  APPOINTMENT_STARTED: [409, "This appointment has already started, so it can no longer be cancelled or moved here."],
   DOCTOR_MISMATCH: [409, "Choose another slot with the same doctor."],
 };
 
@@ -163,6 +164,9 @@ export async function cancelAppointment(uid: string, id: string) {
     const snap = await tx.get(a);
     if (!snap.exists || snap.get("patientUid") !== uid) throw Error("APPOINTMENT_NOT_FOUND");
     if (snap.get("status") !== "confirmed") throw Error("APPOINTMENT_NOT_CANCELLABLE");
+    // From the start time on, the appointment is the doctor's to complete, prescribe for or
+    // cancel: a patient cancelling a visit that took place would block all three.
+    if (snap.get("startsAt") <= nowIso()) throw Error("APPOINTMENT_STARTED");
     const s = slotsCol().doc(snap.get("slotId"));
     const ss = await tx.get(s);
     tx.update(a, { status: "cancelled", updatedAt: FieldValue.serverTimestamp() });
@@ -179,6 +183,7 @@ export async function rescheduleAppointment(uid: string, id: string, newSlotId: 
     const as = await tx.get(a);
     if (!as.exists || as.get("patientUid") !== uid) throw Error("APPOINTMENT_NOT_FOUND");
     if (as.get("status") !== "confirmed") throw Error("APPOINTMENT_NOT_RESCHEDULABLE");
+    if (as.get("startsAt") <= nowIso()) throw Error("APPOINTMENT_STARTED");
     const os = slotsCol().doc(as.get("slotId"));
     const [n, o] = await Promise.all([tx.get(ns), tx.get(os)]);
     if (!n.exists || n.get("status") !== "open") throw Error("SLOT_UNAVAILABLE");
