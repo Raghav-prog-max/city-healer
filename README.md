@@ -77,6 +77,22 @@ hospital staff can change only the facility in `hospitalId`. An unlinked doctor 
 account sees and changes nothing. Add `--emulators` to run these against `npm run dev`. See
 [FIREBASE_SETUP.md](FIREBASE_SETUP.md).
 
+### Doctors who take bookings
+
+No command line is needed to onboard a provider:
+
+1. The doctor signs up like any patient.
+2. An administrator opens **Provider review** (`/en/admin/providers`) and gives that account the
+   doctor role by its email address or phone number. The doctor is signed out.
+3. The doctor signs in again, lands in the **Provider workspace** (`/en/provider`) and submits
+   their registration details.
+4. The administrator checks the registration with the medical council, then verifies (with a
+   note saying where it was checked) or refuses (with a reason the doctor sees).
+5. A verified doctor publishes and withdraws times and sees who has booked.
+
+Hospital desks, and the consultation tools for doctors and admins, are still in the earlier
+workspace at `/dashboard`.
+
 ## Security
 
 There are no passwords or session secrets in this server: Firebase holds credentials and

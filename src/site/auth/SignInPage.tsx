@@ -7,7 +7,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Lock, Phone, Mail } from "lucide-react";
 import { useI18n } from "../i18n";
-import { useSession } from "../lib/session";
+import { useSession, staffHome } from "../lib/session";
 import { auth, signInWithEmailAndPassword, sendPasswordResetEmail, requestPhoneOtp, confirmPhoneOtp, usingFirebaseEmulators } from "../../firebase";
 import { Logo, Button, LanguageSwitcher } from "../components/ui";
 import { request } from "../lib/api";
@@ -36,7 +36,7 @@ export default function SignInPage() {
   // Once signed in: staff to their workspace, unfinished profiles to onboarding, others onward.
   useEffect(() => {
     if (!session.ready || !session.user || !session.role) return;
-    if (session.role !== "PATIENT") navigate("/dashboard", { replace: true });
+    if (session.role !== "PATIENT") navigate(staffHome(session.role, href), { replace: true });
     else if (session.needsOnboarding) navigate(href("/get-started"), { replace: true });
     else navigate(next, { replace: true });
   }, [session.ready, session.user, session.role, session.needsOnboarding]); // eslint-disable-line react-hooks/exhaustive-deps

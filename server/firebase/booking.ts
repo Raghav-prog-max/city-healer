@@ -267,7 +267,9 @@ export function providerDoctorsRouter() {
   });
 
   r.patch("/:doctorId/verification", allowRoles("ADMIN"), notDemo, async (req, res) => {
-    const p = z.object({ verificationStatus: z.enum(["verified", "rejected"]), listingStatus: z.enum(["active", "hidden"]) }).strict()
+    // reviewNote: where the registration was checked (verify) or why it was refused (reject).
+    // The rejection note is shown to the doctor.
+    const p = z.object({ verificationStatus: z.enum(["verified", "rejected"]), listingStatus: z.enum(["active", "hidden"]), reviewNote: z.string().trim().max(300).optional() }).strict()
       .refine((v) => (v.verificationStatus === "verified" && v.listingStatus === "active") || (v.verificationStatus === "rejected" && v.listingStatus === "hidden"))
       .safeParse(req.body);
     if (!p.success) return res.status(400).json({ error: "Invalid decision." });
@@ -277,7 +279,7 @@ export function providerDoctorsRouter() {
       await ref.update({ ...p.data, reviewedBy: user(req)!.uid, reviewedAt: nowIso() });
       forgetProviders();
       await writeAuditEvent({ actorUid: user(req)!.uid, action: `doctor.${p.data.verificationStatus}`, resourceType: "doctor", resourceId: ref.id });
-      res.json({ doctorId: ref.id, ...p.data });
+      res.json({ doctorId: ref.id, verificationStatus: p.data.verificationStatus, listingStatus: p.data.listingStatus });
     } catch (e) { fail(res, e); }
   });
 
