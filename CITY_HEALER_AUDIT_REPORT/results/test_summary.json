@@ -1,0 +1,41 @@
+{
+  "run_date": "2026-11-16",
+  "environment": { "os": "Windows 11 (MINGW64 shell)", "node": "v25.2.1", "npm": "11.7.0", "python": "3.13.1", "java_for_emulators": "portable JDK 21 (FIREBASE_JAVA_HOME)", "cpu": "Intel Core Ultra 9 185H, 22 logical CPUs", "ram_gb": 34 },
+  "existing_suites": [
+    { "name": "typecheck", "command": "npx tsc --noEmit -p .", "result": "PASS", "exit_code": 0, "duration_s": 29.3 },
+    { "name": "unit", "command": "npm run test:unit", "tests": 109, "suites": 25, "passed": 109, "failed": 0, "skipped": 0, "duration_s": 3.6, "result": "PASS" },
+    { "name": "server (Firebase emulators)", "command": "npm run test:server", "tests": 128, "suites": 25, "passed": 128, "failed": 0, "skipped": 0, "duration_s": 66.5, "result": "PASS" },
+    { "name": "production build", "command": "npm run build", "result": "PASS", "warnings": ["chunks larger than 500 kB (App-*.js 1.61 MB, index-*.js 762 kB)"] }
+  ],
+  "unit_coverage_node_builtin": {
+    "command": "npx tsx --test --experimental-test-coverage (unit test files)",
+    "scope": "only modules the unit tests import: shared/*, server/ai/*, server/medicineIndex.ts, server/dietRecommender.ts",
+    "all_files_line_pct": 97.06, "branch_pct": 86.75, "function_pct": 95.41,
+    "selected": { "server/ai/orchestrator.ts": { "line": 66.9, "branch": 67.69 }, "server/ai/documents.ts": { "line": 86.92, "branch": 70.37 }, "shared/labModels.ts": { "line": 89.49, "branch": 76.92 }, "shared/forecast.ts": { "line": 100, "branch": 94.87 } },
+    "not_measured": ["server.ts", "server/firebase/*.ts (booking, patients, identity)", "database.ts", "all frontend code (src/**)"],
+    "caveat": "The 97% figure includes JSON model files counted as 100% and excludes the server and the frontend. It is not a whole-project coverage number."
+  },
+  "audit_created_scripts": [
+    { "name": "AI/ML evaluation", "file": "CITY_HEALER_AUDIT_REPORT/audit_scripts/eval_ai.ts", "result_file": "results/ai_ml_evaluation.json", "result": "RAN" },
+    { "name": "Backend security, Firestore rules, concurrency and load", "file": "CITY_HEALER_AUDIT_REPORT/audit_scripts/backend_audit.ts", "result_file": "results/backend_audit.json", "security_checks": 23, "passed": 19, "failed": 4 },
+    { "name": "Intent model reproducibility (retrained in a temp copy)", "result": "bit-identical terms, classes and coefficients" }
+  ],
+  "browser_checks": [
+    { "name": "landing en/hi render, language switch", "result": "PASS" },
+    { "name": "dashboard without session redirects to sign-in", "result": "PASS" },
+    { "name": "onboarding phone validation, wrong OTP, real emulator OTP", "result": "PASS (validation and OTP); see BUG-004 for the consent bypass observed" },
+    { "name": "unknown URL", "result": "FAIL: renders the legacy app's own sign-in form instead of a not-found page (BUG-012)" },
+    { "name": "console errors on production build pages visited", "result": "none" },
+    { "name": "Book appointment tab, book + reschedule (earlier in this session, dev server)", "result": "PASS" },
+    { "name": "Health wallet report upload (TXT)", "result": "PASS" }
+  ],
+  "not_run": [
+    { "name": "Playwright end-to-end suite", "reason": "Playwright is not installed and no E2E suite exists; installing packages is outside audit scope (an earlier package install was blocked by the permission system)." },
+    { "name": "Lighthouse", "reason": "Not installed; paint metrics taken with the Performance API instead." },
+    { "name": "Zip's own pytest suite (Intelligence Platform)", "reason": "The Python FastAPI service is not part of the repository; it was ported to TypeScript. Its tests were ported to tests/platform.test.ts and pass." },
+    { "name": "Real Firebase project tests", "reason": "No real project is configured (only emulators); never run against production." },
+    { "name": "PDF extraction", "reason": "pdfjs-dist not installed; every PDF returns dependency_missing." },
+    { "name": "Voice (speech-to-text / text-to-speech)", "reason": "Uses the browser Web Speech API; needs a microphone and a real browser session; no automated test possible here." },
+    { "name": "INP", "reason": "Requires interaction tracing tooling not available." }
+  ]
+}

@@ -15,6 +15,7 @@
  *   3. Below it, the rules answer, and they say "not assessed" rather than guess.
  */
 import model from "./triage-model.json";
+import { createTextClassifier, type TextModelJson } from "./textClassifier";
 import { triageWithoutAI, detectLang, type Lang, type OfflineTriage } from "./triage";
 
 type Urgency = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
@@ -40,52 +41,10 @@ const MIN_KNOWN_TERMS = 3;
 /** Shown in the UI and on /api/health. */
 export const TRIAGE_MODEL_LABEL = `City Healer triage model v${model.version} (TF-IDF + logistic regression)`;
 
-const termIndex = new Map<string, number>(model.terms.map((t: string, i: number) => [t, i]));
-
-/**
- * Latin letters, digits and Devanagari, two or more in a row. Must stay identical to
- * TOKEN_PATTERN in ml/train.py, or the model sees different words than it was trained on.
- */
-function tokenize(text: string): string[] {
-  return String(text).toLowerCase().match(/[a-z0-9ऀ-ॣ०-ॿ]{2,}/g) || [];
-}
+const classify = createTextClassifier(model as TextModelJson);
 
 export function predictCondition(text: string): ModelPrediction {
-  const tokens = tokenize(text);
-  const counts = new Map<number, number>();
-  const add = (term: string) => {
-    const i = termIndex.get(term);
-    if (i !== undefined) counts.set(i, (counts.get(i) || 0) + 1);
-  };
-  tokens.forEach((t, i) => {
-    add(t);
-    if (i + 1 < tokens.length) add(`${t} ${tokens[i + 1]}`);
-  });
-
-  // Sublinear tf * idf, then L2 normalisation.
-  const weights = new Map<number, number>();
-  let norm = 0;
-  for (const [i, tf] of counts) {
-    const w = (1 + Math.log(tf)) * model.idf[i];
-    weights.set(i, w);
-    norm += w * w;
-  }
-  norm = Math.sqrt(norm) || 1;
-
-  const scores = model.classes.map((_: string, c: number) => {
-    let s = model.intercept[c];
-    const row = model.coef[c];
-    for (const [i, w] of weights) s += row[i] * (w / norm);
-    return s;
-  });
-  const max = Math.max(...scores);
-  const exps = scores.map((s: number) => Math.exp(s - max));
-  const sum = exps.reduce((a: number, b: number) => a + b, 0);
-  const top = model.classes
-    .map((label: string, c: number) => ({ label, confidence: exps[c] / sum }))
-    .sort((a, b) => b.confidence - a.confidence);
-
-  return { label: top[0].label, confidence: top[0].confidence, knownTerms: counts.size, top: top.slice(0, 3) };
+  return classify(text);
 }
 
 interface ConditionCopy {
@@ -234,6 +193,7 @@ export function triage(symptomsText: string, lang?: Lang): TriageResult {
       suspectedCondition: c.condition,
       explanation: c.explanation,
       specialistType: c.specialist,
+      specialistEn: info.en.specialist,
       urgencyLevel: info.urgency,
       recommendations: c.recommendations,
       flagUrgentSOS: false,

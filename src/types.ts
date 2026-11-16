@@ -5,6 +5,8 @@
 export type Role = "PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN";
 
 export interface Hospital {
+  /** Kilometres from the user, when a location is known. */
+  distanceKm?: number | null;
   id: string;
   name: string;
   address: string;
@@ -37,6 +39,8 @@ export interface RecommendedHospital extends Hospital {
 }
 
 export interface Doctor {
+  /** Kilometres from the user to this doctor's hospital, when known. */
+  distanceKm?: number | null;
   id: string;
   name: string;
   specialty: string;

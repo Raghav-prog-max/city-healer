@@ -1,0 +1,29 @@
+{
+  "measured_at": "2026-11-16",
+  "target": "production build (npm run build) served by `node dist/server.cjs` with NODE_ENV=production on http://localhost:3920, throwaway Firebase emulators, copy of the local SQLite database",
+  "tooling": "Browser pane (Chromium) Performance API: navigation timing, paint timing, largest-contentful-paint and layout-shift PerformanceObservers. Lighthouse and Playwright are NOT installed; no CPU or network throttling was applied.",
+  "caveat": "Localhost, no throttling, fast workstation (Intel Core Ultra 9 185H). These are best-case numbers, not representative of a mid-range phone on 4G. Only the first desktop run was a cold cache; mobile and 1440px runs were warm-cache.",
+  "landing_page_en_cold_cache_679x725": {
+    "ttfb_ms": 44, "fcp_ms": 516, "lcp_ms": 528, "lcp_element": "IMG (Unsplash hero image)", "cls": 0,
+    "dom_content_loaded_ms": 323, "load_event_ms": 325, "requests": 9,
+    "transfer_kb": 952, "decoded_kb": 1387,
+    "largest_resources_kb": { "/assets/index-*.js": 745, "/assets/index-*.css": 204, "unsplash photo 1": 113, "unsplash photo 2": 105, "unsplash photo 3": 83, "unsplash photo 4": 57 },
+    "api_calls_on_load": 0, "broken_images": 0, "console_errors": 0
+  },
+  "landing_page_mobile_375x812_warm_cache": { "ttfb_ms": 21, "fcp_ms": 100, "lcp_ms": 1156, "cls": 0, "load_event_ms": 51, "horizontal_overflow": false },
+  "landing_page_desktop_1440x900_warm_cache": { "ttfb_ms": 16, "fcp_ms": 132, "lcp_ms": 180, "cls": 0, "load_event_ms": 48, "horizontal_overflow": false },
+  "inp": "NOT MEASURED (needs real user interaction tracing; no tool available)",
+  "http": {
+    "compression": "none: /assets/index-*.js served with Content-Length 762308 and no Content-Encoding although the client sent Accept-Encoding: gzip, br",
+    "cache_control_on_hashed_assets": "public, max-age=0",
+    "api_hospitals_payload_bytes_uncompressed": 940261
+  },
+  "bundle": {
+    "dist_assets_total": "3.2 MB, 44 files",
+    "entry_index_js": { "raw_kb": 762.31, "gzip_kb": 213.15, "contents": "React 19, react-router, Firebase Auth/Firestore client SDK, landing page" },
+    "legacy_App_js": { "raw_kb": 1610.68, "gzip_kb": 456.69, "loaded_when": "any URL no route matches (SiteRouter catch-all)" },
+    "html2canvas_js_kb": 202.38, "index_es_js_kb": 160.07,
+    "BookingPage_js_kb": 23.4, "PatientDashboard_js_kb": 34.81, "DoctorDirectory_js_kb": 18.76, "Onboarding_js_kb": 18.75,
+    "server_bundle": { "dist/server.cjs_bytes": 6231364, "sourcemap_bytes": 9563594 }
+  }
+}

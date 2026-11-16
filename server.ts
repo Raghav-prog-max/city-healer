@@ -6,12 +6,26 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dns from "dns";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import crypto from "crypto";
 import { dbRun, dbGet, dbAll, initializeDatabase } from "./database";
-import { hasAny, detectLang } from "./shared/triage";
+import { detectLang } from "./shared/triage";
 import { triage, TRIAGE_MODEL_LABEL } from "./shared/triageModel";
+import { haversineKm, parseLatLng, sortByDistance, DELHI_CENTRE } from "./shared/geo";
+import { matchDepartmentWithSource, doctorCategoryFor } from "./shared/specialties";
+import { isUnconfirmedListing } from "./shared/hospitalData";
+import { analyseLabReport, PANEL_FIELDS, type Panel } from "./shared/labModels";
+import { orchestrate } from "./server/ai/orchestrator";
+import { MODEL_CARDS } from "./server/ai/registry";
+import { PLATFORM_MODULES, DISCLAIMER as PLATFORM_DISCLAIMER, copilotRoute, analyseText, rankProviders } from "./server/ai/platform";
+import { extractDocument, MAX_DOCUMENT_BYTES } from "./server/ai/documents";
+import { forecastCounts, dailySeries, MIN_DAYS } from "./shared/forecast";
+import { firestore } from "./server/firebase/admin";
+import { monitor } from "./server/ai/monitor";
+import { lookupMedicine, searchMedicines, substitutesFor, MEDICINE_SOURCE, MEDICINE_COUNT } from "./server/medicineIndex";
+import { recommendDiet, DIET_CONDITIONS, FOOD_SOURCE } from "./server/dietRecommender";
+import { adminAuth, usingEmulators, firebaseConfigProblem, firebaseProjectId } from "./server/firebase/admin";
+import { verifyFirebaseToken, ROLE_TO_CLAIM, type AuthUser, type Role } from "./server/firebase/identity";
+import { providerDoctorsRouter, appointmentsRouter } from "./server/firebase/booking";
+import { patientRouter, getPatientProfile, savePatientProfile, legacyUserShape, patientProfileUpdateSchema, writeAuditEvent } from "./server/firebase/patients";
 
 // Fix node localhost resolution issues
 dns.setDefaultResultOrder("ipv4first");
@@ -27,32 +41,18 @@ if (DEMO_MODE) {
 }
 
 /**
- * Resolve the JWT signing secret.
- *
- * There is deliberately no hardcoded fallback. This repository is public, so any
- * literal committed here would let anyone mint a validly-signed token for any uid
- * and role, defeating every downstream guard. When no secret is configured outside
- * production we generate a random one per process instead: sessions do not survive
- * a restart, but nothing forgeable is ever written to source.
+ * Sign-in is Firebase Authentication (phone OTP and email/password); this server only
+ * verifies Firebase ID tokens. Without a Firebase project or the local emulators nobody
+ * could sign in, so refuse to start rather than run half-working.
  */
-function resolveJwtSecret(): string {
-  const fromEnv = process.env.JWT_SECRET;
-  if (fromEnv) {
-    if (fromEnv.length < 32) {
-      console.error("[FATAL] JWT_SECRET must be at least 32 characters. Refusing to start.");
-      process.exit(1);
-    }
-    return fromEnv;
-  }
-  if (IS_PROD) {
-    console.error("[FATAL] JWT_SECRET environment variable must be set in production. Refusing to start.");
-    process.exit(1);
-  }
-  const ephemeral = crypto.randomBytes(32).toString("hex");
-  console.warn("[Security] JWT_SECRET not set — generated a random ephemeral secret for this process only. Existing sessions are invalidated on restart. Set JWT_SECRET for stable local sessions.");
-  return ephemeral;
+const FIREBASE_PROBLEM = firebaseConfigProblem();
+if (FIREBASE_PROBLEM) {
+  console.error(`[FATAL] ${FIREBASE_PROBLEM}`);
+  process.exit(1);
 }
-const JWT_SECRET = resolveJwtSecret();
+console.log(usingEmulators
+  ? `[Firebase] Using the local emulators (project ${firebaseProjectId}). No real accounts or SMS.`
+  : `[Firebase] Using project ${firebaseProjectId}.`);
 
 // Railway (and any PaaS) terminates TLS at a proxy, so without this every request
 // reports the proxy's address as req.ip and the per-IP auth limiter becomes a single
@@ -67,49 +67,11 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
+  // Voice input needs the microphone and the pill checker needs the camera. Both are
+  // allowed for this origin only; embedded third-party frames get neither.
+  res.setHeader("Permissions-Policy", "camera=(self), microphone=(self), geolocation=(self)");
   next();
 });
-
-// Lightweight fixed-window rate limiter for credential endpoints (per IP)
-const authRateWindow = new Map<string, { count: number; windowStart: number }>();
-const AUTH_RATE_LIMIT = 20;
-const AUTH_RATE_WINDOW_MS = 10 * 60 * 1000;
-app.use("/api/auth", (req, res, next) => {
-  const ip = req.ip || req.socket.remoteAddress || "unknown";
-  const now = Date.now();
-  const entry = authRateWindow.get(ip);
-  if (!entry || now - entry.windowStart > AUTH_RATE_WINDOW_MS) {
-    authRateWindow.set(ip, { count: 1, windowStart: now });
-    return next();
-  }
-  entry.count += 1;
-  if (entry.count > AUTH_RATE_LIMIT) {
-    return res.status(429).json({ error: "Too many authentication attempts. Please try again later." });
-  }
-  next();
-});
-
-/**
- * Surface DOCTOR accounts that have not been linked to a `doctors` row. Record access
- * is scoped through that link, so an unlinked account silently sees zero patients —
- * which is safe, but looks like a bug unless it is visible at boot.
- */
-async function warnAboutUnlinkedDoctors() {
-  try {
-    const unlinked = await dbAll(
-      "SELECT uid, name, email FROM users WHERE role = 'DOCTOR' AND (doctorId IS NULL OR doctorId = '')"
-    );
-    if (unlinked.length === 0) return;
-    console.warn(`[Provisioning] ${unlinked.length} DOCTOR account(s) are not linked to a doctor record and will see no patients:`);
-    for (const d of unlinked) {
-      console.warn(`  - ${d.name} <${d.email}>  uid=${d.uid}`);
-    }
-    console.warn('[Provisioning] Link them with: npm run link-doctor -- --uid <uid> --doctorId <doc-id>');
-  } catch (err: any) {
-    console.warn("[Provisioning] Could not check doctor linkage:", err.message);
-  }
-}
 
 /**
  * Schema creation and baseline seeding, kept as a promise so the bootstrap can
@@ -121,7 +83,6 @@ async function warnAboutUnlinkedDoctors() {
 const databaseReady = initializeDatabase()
   .then(async () => {
     console.log("[SQLite] Database schema initialized and seeded successfully.");
-    await warnAboutUnlinkedDoctors();
   })
   .catch((err) => {
     console.error("[SQLite Error] Database initialization failed:", err);
@@ -132,13 +93,6 @@ const databaseReady = initializeDatabase()
 // Authentication & Authorization
 // ----------------------------------------------------------------
 
-export type Role = "PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN";
-interface AuthUser {
-  uid: string;
-  email: string;
-  role: Role;
-  isDemo?: boolean;
-}
 
 // The synthetic identity used only when DEMO_MODE=true. Its uid matches no real
 // patient, so ownership-scoped queries return nothing belonging to a real person.
@@ -151,11 +105,15 @@ const DEMO_USER: AuthUser = {
 
 // Routes that carry no patient data and are reachable without a session.
 const PUBLIC_ROUTES: Array<{ method: string; pattern: RegExp }> = [
-  { method: "POST", pattern: /^\/api\/auth\/(register|login)$/ },
   { method: "GET", pattern: /^\/api\/health$/ },
   { method: "GET", pattern: /^\/api\/hospitals$/ },
   { method: "GET", pattern: /^\/api\/doctors$/ },
-  { method: "GET", pattern: /^\/api\/medicines$/ }
+  { method: "GET", pattern: /^\/api\/medicines$/ },
+  // Verified-provider directory and open slots (server/firebase/booking.ts).
+  { method: "GET", pattern: /^\/api\/v1\/doctors(\/[A-Za-z0-9_-]{1,128}(\/slots)?)?$/ },
+  // Intelligence Platform inventory and model cards (no patient data).
+  { method: "GET", pattern: /^\/api\/v1\/platform\/modules$/ },
+  { method: "GET", pattern: /^\/api\/v1\/models$/ }
 ];
 
 const isPublicRoute = (method: string, path: string) =>
@@ -178,28 +136,27 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-    if (!decoded?.uid || !decoded?.role) {
-      return res.status(401).json({ error: "Malformed session token." });
-    }
-
-    // The token's role is a stale snapshot from issue time. Re-read the account so a
-    // deleted user is rejected immediately and a role change takes effect at once,
-    // rather than persisting for the remaining lifetime of an already-issued token.
-    const account = await dbGet("SELECT uid, email, role FROM users WHERE uid = ?", [decoded.uid]);
-    if (!account) {
-      return res.status(401).json({ error: "Session no longer valid." });
-    }
-
-    (req as any).user = { uid: account.uid, email: account.email, role: account.role } as AuthUser;
+    // A Firebase ID token: signature, expiry, audience and revocation are all checked, so
+    // a deleted or disabled account, or one whose role was just changed (set-role revokes
+    // its sessions), is refused at once. Role and facility links are custom claims.
+    (req as any).user = await verifyFirebaseToken(token);
     return next();
   } catch (error: any) {
+    // A rejected token (bad signature, expired, revoked, disabled or deleted account) has an
+    // auth/... code. Anything else means Firebase could not be reached to check it: that is
+    // a 503, not "your session is invalid", or an outage would sign everyone out.
+    const code = String(error?.code || error?.errorInfo?.code || "");
+    if (!code.startsWith("auth/") || code === "auth/internal-error" || code === "auth/network-request-failed") {
+      console.error("[Auth] Could not verify a session token:", code || error?.message);
+      return res.status(503).json({ error: "Sign-in could not be checked right now. Please try again." });
+    }
     // No guest fallback. An unverifiable token is rejected in every environment;
     // DEMO_MODE downgrades to the synthetic sandbox identity, never to real data.
     if (DEMO_MODE) {
       (req as any).user = DEMO_USER;
       return next();
     }
+    if (process.env.LOG_AUTH_REJECTIONS === "true") console.warn(`[Auth] Token rejected: ${code}`);
     return res.status(401).json({ error: "Invalid or expired session token." });
   }
 };
@@ -226,7 +183,9 @@ const requireRole = (...roles: Role[]) =>
  * uid rather than IP, so one account cannot burn the budget from many addresses, and
  * so the shared DEMO_MODE identity has a single collective bucket.
  */
-const AI_RATE_LIMIT = Number(process.env.AI_RATE_LIMIT) || 30;
+// Per user per hour. The models run in this process in milliseconds, so the cap guards
+// against abuse rather than cost (it was 30 when every call went to a paid API).
+const AI_RATE_LIMIT = Number(process.env.AI_RATE_LIMIT) || 300;
 const AI_RATE_WINDOW_MS = 60 * 60 * 1000;
 const aiRateWindow = new Map<string, { count: number; windowStart: number }>();
 
@@ -275,14 +234,24 @@ const aiRateLimit = (req: express.Request, res: express.Response, next: express.
  * is not linked, which callers must treat as "linked to no patients" (fail closed).
  */
 async function resolveDoctorId(uid: string): Promise<string | null> {
-  const row = await dbGet("SELECT doctorId FROM users WHERE uid = ?", [uid]);
-  return row?.doctorId || null;
+  // Firebase custom claim `doctorId`, set by an administrator (npm run set-role).
+  try {
+    const claims = (await adminAuth.getUser(uid)).customClaims || {};
+    return typeof claims.doctorId === "string" && claims.doctorId ? claims.doctorId : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Resolve the hospitals.id a HOSPITAL account administers. Null when unprovisioned. */
 async function resolveHospitalId(uid: string): Promise<string | null> {
-  const row = await dbGet("SELECT hospitalId FROM users WHERE uid = ?", [uid]);
-  return row?.hospitalId || null;
+  // Firebase custom claim `hospitalId`, set by an administrator (npm run set-role).
+  try {
+    const claims = (await adminAuth.getUser(uid)).customClaims || {};
+    return typeof claims.hospitalId === "string" && claims.hospitalId ? claims.hospitalId : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -333,15 +302,48 @@ async function doctorTreatsPatient(doctorUid: string, patientId: string): Promis
 }
 
 // Shared metric scoring matcher helper
+/** Highest score a hospital can reach: specialty 50 + reported free bed 10 + reported ICU 20 + distance 40. */
+const MAX_HOSPITAL_SCORE = 120;
+
+/**
+ * Up to three doctors of the given category: those online first, then the nearest
+ * (by their hospital), then the best rated.
+ */
+async function recommendDoctors(doctorSpecialty: string, userLat?: number, userLng?: number) {
+  try {
+    const doctors = await dbAll("SELECT * FROM doctors WHERE specialty = ?", [doctorSpecialty]);
+    const hospitals = await dbAll("SELECT name, lat, lng FROM hospitals");
+    const byName = new Map(hospitals.map((h) => [h.name, h]));
+    const origin = parseLatLng(userLat, userLng);
+    return doctors
+      .map((d) => {
+        const h = byName.get(d.hospitalName);
+        return { ...d, online: !!d.online, distanceKm: origin && h ? Number(haversineKm(origin, h).toFixed(1)) : null };
+      })
+      .sort((a, b) =>
+        Number(b.online) - Number(a.online) ||
+        (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity) ||
+        (b.rating || 0) - (a.rating || 0))
+      .slice(0, 3);
+  } catch (err) {
+    console.error("[recommendDoctors Error]", err);
+    return [];
+  }
+}
+
 async function recommendHospitals(specialistType: string, urgencyLevel: string, userLat?: number, userLng?: number) {
-  const specLower = (specialistType || "").toLowerCase();
   
   try {
-    const list = await dbAll("SELECT * FROM hospitals");
+    const list = await dbAll("SELECT * FROM hospitals WHERE COALESCE(listingStatus, 'active') != 'hidden'");
     const hospitalsFromDb = list.map((h) => ({
       ...h,
+      departmentSources: h.departmentSources ? JSON.parse(h.departmentSources) : null,
       specialties: h.specialties ? JSON.parse(h.specialties) : [],
       categories: h.categories ? JSON.parse(h.categories) : [],
+      empanelment: h.empanelment ? JSON.parse(h.empanelment) : [],
+      inRegistry: !!h.registryId,
+      nabhAccredited: !!h.nabhAccredited,
+      unconfirmed: isUnconfirmedListing(h),
       hasAmbulanceSupport: !!h.hasAmbulanceSupport,
       isGovernment: !!h.isGovernment,
       hasTelemedicine: !!h.hasTelemedicine,
@@ -351,16 +353,17 @@ async function recommendHospitals(specialistType: string, urgencyLevel: string, 
     const scored = hospitalsFromDb.map((h) => {
       let score = 0;
       
-      // 1. Specialty matching
-      let matchesSpecialty = false;
-      if (h.specialties) {
-        h.specialties.forEach((spec: string) => {
-          if (specLower.includes(spec.toLowerCase()) || spec.toLowerCase().includes(specLower)) {
-            matchesSpecialty = true;
-          }
-        });
-      }
-      if (matchesSpecialty) score += 50;
+      // 1. Department for the specialist, by how well it is known (shared/hospitalData.ts):
+      //    listed or in the name 50; expected under IPHS for the facility type 30; a large
+      //    general hospital whose departments are not listed 15.
+      const match = matchDepartmentWithSource(specialistType, h.specialties, h.departmentSources);
+      const department = match?.department ?? null;
+      const matchesSpecialty = department !== null;
+      if (match) score += match.source === "standard" ? 30 : 50;
+      else if (h.generalCare) score += 15;
+      // A listing nothing confirms and whose name the facility classifier doubts is a
+      // hospital (shared/hospitalData.ts isUnconfirmedListing) goes below the others.
+      if (h.unconfirmed) score -= 40;
       
       // 2. Bed & ICU score
       if (h.availableBeds > 0) score += 10;
@@ -368,30 +371,34 @@ async function recommendHospitals(specialistType: string, urgencyLevel: string, 
         if (h.icuAvailable > 0) score += 20;
       }
       
-      // 3. Rating score
-      score += (h.rating || 4.2) * 5;
+      // 3. (No rating score: hospital ratings in this data are unverified, and imported
+      //    hospitals have none, so they would only tilt the ranking towards the seeded ones.)
       
-      // 4. Distance score (simulate centered at Connaught Place if no coords)
-      const latRef = userLat || 28.6139;
-      const lngRef = userLng || 77.2090;
-      const distDeg = Math.sqrt(Math.pow(h.lat - latRef, 2) + Math.pow(h.lng - lngRef, 2));
-      const distKM = distDeg * 111;
+      // 4. Distance score, from the patient's position (central Delhi if not shared)
+      const distKM = haversineKm(parseLatLng(userLat, userLng) || DELHI_CENTRE, h);
       const distScore = Math.max(0, 40 - distKM);
       score += distScore;
       
-      // 5. Traffic simulation
-      const baseTravelTimeMin = distKM * 2;
-      const trafficFactor = 1.0 + (Math.random() * 0.8);
-      const travelTimeMin = Math.round(baseTravelTimeMin * trafficFactor);
+      // 5. Travel time: an estimate, not live traffic. Straight-line distance at an average
+      // Delhi road speed of about 22 km/h, plus 5 minutes to get going. (This used to be
+      // multiplied by a random "traffic factor", so the same hospital showed a different
+      // time on every request.)
+      const travelTimeMin = Math.round(5 + (distKM / 22) * 60);
       
       return {
         hospital: h,
         score,
         distanceKM: Number(distKM.toFixed(1)),
         travelTimeMin,
-        matchReason: matchesSpecialty 
-          ? `Department specialized in ${h.specialties[0]}`
-          : `${h.categories ? h.categories[0] : 'Partner Clinic'} with active bed availability`
+        matchReason: match
+          ? match.source === "standard"
+            ? `Usually has ${department} (${h.facilityType || "public hospital"} standard) - call to confirm`
+            : match.source === "empanelled"
+              ? `${department} - empanelled under ${h.empanelment.map((e: any) => e.scheme).filter((s: string, i: number, a: string[]) => a.indexOf(s) === i).join(" / ") || "CGHS / DGEHS"}`
+              : `${department} department`
+          : h.generalCare
+            ? "Large general hospital - departments not listed, call to confirm"
+            : "Nearby hospital - departments not listed"
       };
     });
     
@@ -401,7 +408,8 @@ async function recommendHospitals(specialistType: string, urgencyLevel: string, 
       ...item.hospital,
       distanceKM: item.distanceKM,
       travelTimeMin: item.travelTimeMin,
-      recommendationScore: Math.round(item.score),
+      // As a percentage of the best possible score, so the UI can show "Match: 87%".
+      recommendationScore: Math.max(0, Math.round((item.score / MAX_HOSPITAL_SCORE) * 100)),
       matchReason: item.matchReason
     }));
   } catch (err) {
@@ -414,181 +422,79 @@ async function recommendHospitals(specialistType: string, urgencyLevel: string, 
 // Authentication Routes (Dedicated Backend replacement for Firebase Auth)
 // ----------------------------------------------------------------
 
-// Register a new user profile
-app.post("/api/auth/register", async (req, res) => {
-  const { email, password, name, phone, role } = req.body;
-  if (!email || !password || !name) {
-    return res.status(400).json({ error: "Email, password, and name are required." });
-  }
-  if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return res.status(400).json({ error: "A valid email address is required." });
-  }
-  if (typeof password !== "string" || password.length < 8) {
-    return res.status(400).json({ error: "Password must be at least 8 characters long." });
-  }
-  const ALLOWED_ROLES = ["PATIENT", "DOCTOR", "HOSPITAL", "ADMIN"];
-  if (role && !ALLOWED_ROLES.includes(role)) {
-    return res.status(400).json({ error: "Invalid role." });
-  }
-  // Privileged roles cannot be self-assigned at public registration in production
-  if (IS_PROD && (role === "ADMIN" || role === "HOSPITAL")) {
-    return res.status(403).json({ error: "Privileged roles must be provisioned by an administrator." });
-  }
+// ----------------------------------------------------------------
+// Accounts: Firebase Authentication + Firestore patient profiles
+// ----------------------------------------------------------------
+// Sign-up, sign-in and password changes happen in the browser with the Firebase SDK
+// (phone OTP or email/password). There are no /api/auth routes any more.
+app.use("/api/v1/me", patientRouter());
+// Verified providers, slots and Firestore-transaction booking (City_Healer_Integrated_Doctor_Booking).
+app.use("/api/v1/doctors", providerDoctorsRouter());
+app.use("/api/v1/appointments", appointmentsRouter());
 
-  try {
-    const existing = await dbGet("SELECT * FROM users WHERE email = ?", [email.toLowerCase().trim()]);
-    if (existing) {
-      return res.status(400).json({ error: "Email already registered." });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
-    const uid = "user-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
-    const userRole = role || "PATIENT";
-    
-    const tempPolicy = `CH-POL-${Math.floor(10000 + Math.random() * 90000)}`;
-    const now = new Date().toISOString();
-
-    await dbRun(`
-      INSERT INTO users (uid, name, email, passwordHash, phone, role, age, gender, bloodGroup, policyNo, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, 34, 'Male', 'O+', ?, ?, ?)
-    `, [uid, name, email.toLowerCase().trim(), passwordHash, phone || "", userRole, tempPolicy, now, now]);
-
-    console.log(`[Auth Register] Registered new user ${uid} with role ${userRole}`);
-    res.json({ success: true, user: { uid, name, email, role: userRole } });
-  } catch (err: any) {
-    console.error("[Auth Register Error]", err);
-    res.status(500).json({ error: "Registration failed", message: err.message });
-  }
-});
-
-// Login and fetch JWT session token
-app.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: "Email and password are required." });
-  }
-
-  try {
-    const user = await dbGet("SELECT * FROM users WHERE email = ?", [email.toLowerCase().trim()]);
-    if (!user) {
-      return res.status(400).json({ error: "Invalid email or password." });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!isMatch) {
-      return res.status(400).json({ error: "Invalid email or password." });
-    }
-
-    const token = jwt.sign(
-      { uid: user.uid, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    console.log(`[Auth Login] Login successful for uid: ${user.uid}`);
-    res.json({
-      success: true,
-      token,
-      user: {
-        uid: user.uid,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        age: user.age,
-        gender: user.gender,
-        bloodGroup: user.bloodGroup,
-        policyNo: user.policyNo
-      }
-    });
-  } catch (err: any) {
-    console.error("[Auth Login Error]", err);
-    res.status(500).json({ error: "Login failed", message: err.message });
-  }
-});
-
-// Get User profile
+// The older screens read and write profiles here; it serves the Firestore profile.
 app.get("/api/users/:uid", async (req, res) => {
   const { uid } = req.params;
   const caller = getAuthUser(req)!;
-
-  // A profile is readable by its owner and by ADMIN. No cross-user reads.
   if (caller.uid !== uid && caller.role !== "ADMIN") {
     return res.status(403).json({ error: "You may only access your own profile." });
   }
-
   try {
-    const user = await dbGet("SELECT * FROM users WHERE uid = ?", [uid]);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
+    if (caller.isDemo) {
+      return res.json(legacyUserShape(caller, null));
     }
-    res.json({
-      uid: user.uid,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      age: user.age,
-      gender: user.gender,
-      bloodGroup: user.bloodGroup,
-      policyNo: user.policyNo,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    });
+    const subject = caller.uid === uid ? caller : await adminAuth.getUser(uid).then((u) => ({
+      uid: u.uid, email: u.email || "", phone: u.phoneNumber || "",
+      role: ({ doctor: "DOCTOR", hospital: "HOSPITAL", admin: "ADMIN" } as Record<string, Role>)[String(u.customClaims?.role)] || "PATIENT",
+    }));
+    res.json(legacyUserShape(subject as any, await getPatientProfile(uid)));
   } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch user profile", message: err.message });
+    if (err?.code === "auth/user-not-found") return res.status(404).json({ error: "User not found" });
+    res.status(500).json({ error: "Failed to fetch user profile" });
   }
 });
 
-// Update User profile
 app.put("/api/users/:uid", async (req, res) => {
   const { uid } = req.params;
-  const { name, phone, age, gender, bloodGroup, policyNo, role } = req.body;
   const caller = getAuthUser(req)!;
-
-  // A profile is writable by its owner and by ADMIN. No cross-user writes.
+  const { name, gender, city, locality, role } = req.body || {};
   if (caller.uid !== uid && caller.role !== "ADMIN") {
     return res.status(403).json({ error: "You may only modify your own profile." });
   }
-  // Privilege escalation guard: role is assignable by ADMIN only, never by self-service.
+  // Privilege escalation guard: roles are Firebase custom claims, set by ADMIN only.
   if (role !== undefined && caller.role !== "ADMIN") {
     return res.status(403).json({ error: "Role changes require an administrator." });
   }
-  const ALLOWED_ROLES = ["PATIENT", "DOCTOR", "HOSPITAL", "ADMIN"];
-  if (role !== undefined && !ALLOWED_ROLES.includes(role)) {
-    return res.status(400).json({ error: "Invalid role." });
+  if (caller.isDemo) {
+    return res.status(403).json({ error: "The demo sandbox has no profile to save." });
   }
-
   try {
-    const user = await dbGet("SELECT * FROM users WHERE uid = ?", [uid]);
-    if (!user) {
-      return res.status(404).json({ error: "User profile not found." });
+    if (role !== undefined) {
+      if (!(role in ROLE_TO_CLAIM)) return res.status(400).json({ error: "Invalid role." });
+      const current = (await adminAuth.getUser(uid)).customClaims || {};
+      const claim = ROLE_TO_CLAIM[role as Role];
+      // Only an actual change revokes the account's sessions (so the new role applies at once);
+      // re-saving the same role must not sign the person out.
+      if ((current.role || "patient") !== claim) {
+        await adminAuth.setCustomUserClaims(uid, { ...current, role: claim });
+        await adminAuth.revokeRefreshTokens(uid);
+        await writeAuditEvent({ actorUid: caller.uid, action: "user.role.set", resourceType: "user", resourceId: uid });
+      }
     }
-
-    const updates: string[] = [];
-    const params: any[] = [];
-
-    if (name !== undefined) { updates.push("name = ?"); params.push(name); }
-    if (phone !== undefined) { updates.push("phone = ?"); params.push(phone); }
-    if (age !== undefined) { updates.push("age = ?"); params.push(Number(age)); }
-    if (gender !== undefined) { updates.push("gender = ?"); params.push(gender); }
-    if (bloodGroup !== undefined) { updates.push("bloodGroup = ?"); params.push(bloodGroup); }
-    if (policyNo !== undefined) { updates.push("policyNo = ?"); params.push(policyNo); }
-    if (role !== undefined) { updates.push("role = ?"); params.push(role); }
-
-    updates.push("updatedAt = ?");
-    params.push(new Date().toISOString());
-
-    params.push(uid);
-
-    await dbRun(`UPDATE users SET ${updates.join(", ")} WHERE uid = ?`, params);
-
-    const updatedUser = await dbGet("SELECT * FROM users WHERE uid = ?", [uid]);
-    res.json({ success: true, user: updatedUser });
+    const update: Record<string, unknown> = {};
+    if (name !== undefined) update.fullName = name;
+    if (gender !== undefined) update.gender = gender;
+    if (city !== undefined) update.city = city;
+    if (locality !== undefined) update.locality = locality;
+    if (Object.keys(update).length) {
+      const parsed = patientProfileUpdateSchema.safeParse(update);
+      if (!parsed.success) return res.status(400).json({ error: "Some profile details are not valid." });
+      await savePatientProfile(uid, parsed.data, caller.uid);
+    }
+    res.json({ success: true, user: legacyUserShape({ uid, email: "", role: (role as Role) || caller.role }, await getPatientProfile(uid)) });
   } catch (err: any) {
-    console.error("[Profile Update Error]", err);
-    res.status(500).json({ error: "Failed to update profile", message: err.message });
+    console.error("[Update Profile Error]", err?.message);
+    res.status(500).json({ error: "Failed to update profile" });
   }
 });
 
@@ -597,39 +503,98 @@ app.put("/api/users/:uid", async (req, res) => {
 // ----------------------------------------------------------------
 
 // Health route
+const SERVER_STARTED_AT = new Date().toISOString();
+
 app.get("/api/health", (req, res) => {
   // aiModel is reported so the UI can label triage results with what produced them.
   res.json({
     status: "ok",
     time: new Date(),
     aiEnabled: true,
-    aiModel: TRIAGE_MODEL_LABEL
+    aiModel: TRIAGE_MODEL_LABEL,
+    aiModels: MODEL_CARDS.map((m) => ({ id: m.id, name: m.name, version: m.version, status: m.status })),
+    // Lets the sign-in screen offer the sandbox only where the server allows it.
+    demoMode: DEMO_MODE,
+    // Which Firebase the browser should talk to (emulators locally, a project in production).
+    auth: { provider: "firebase", emulators: usingEmulators, projectId: firebaseProjectId }
   });
 });
 
 // GET list of hospitals
 app.get("/api/hospitals", async (req, res) => {
   try {
-    const list = await dbAll("SELECT * FROM hospitals");
+    const list = await dbAll("SELECT * FROM hospitals WHERE COALESCE(listingStatus, 'active') != 'hidden'");
     const result = list.map((h) => ({
       ...h,
       specialties: h.specialties ? JSON.parse(h.specialties) : [],
       categories: h.categories ? JSON.parse(h.categories) : [],
+      bedsReported: !!h.bedsReportedAt,
+      departmentSources: h.departmentSources ? JSON.parse(h.departmentSources) : null,
+      inRegistry: !!h.registryId,
+      empanelment: h.empanelment ? JSON.parse(h.empanelment) : [],
+      nabhAccredited: !!h.nabhAccredited,
+      generalCare: !!h.generalCare,
+      unconfirmed: isUnconfirmedListing(h),
       hasAmbulanceSupport: !!h.hasAmbulanceSupport,
       isGovernment: !!h.isGovernment,
       hasTelemedicine: !!h.hasTelemedicine,
       hasOpdBooking: !!h.hasOpdBooking
     }));
-    res.json(result);
+    // With ?lat=&lng= each hospital carries its distance and the list is nearest first.
+    const origin = parseLatLng(req.query.lat, req.query.lng);
+    if (!origin) return res.json(result);
+    res.json(sortByDistance(result.map((h) => ({ ...h, distanceKm: Number(haversineKm(origin, h).toFixed(1)) }))));
   } catch (err: any) {
     res.status(500).json({ error: "Failed to fetch hospitals", message: err.message });
   }
 });
 
-// Update hospital bed metrics (Administrative simulation)
+// Anyone signed in can report a problem with a listing; administrators review them.
+const REPORT_REASONS = ["not_a_hospital", "closed", "wrong_location", "wrong_details", "animal_hospital"];
+app.post("/api/hospitals/:id/report", async (req, res) => {
+  const caller = getAuthUser(req)!;
+  if (caller.isDemo) return res.status(403).json({ error: "Sign in to report a problem." });
+  const { reason, note } = req.body || {};
+  if (!REPORT_REASONS.includes(reason)) return res.status(400).json({ error: `reason must be one of ${REPORT_REASONS.join(", ")}.` });
+  const hosp = await dbGet("SELECT id FROM hospitals WHERE id = ?", [req.params.id]);
+  if (!hosp) return res.status(404).json({ error: "Hospital not found" });
+  try {
+    await dbRun(
+      "INSERT INTO hospital_reports (id, hospitalId, uid, reason, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)",
+      [`rep-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, hosp.id, caller.uid, reason, typeof note === "string" ? note.slice(0, 300) : null, new Date().toISOString()]);
+    res.status(201).json({ success: true });
+  } catch (err: any) {
+    if (/UNIQUE/.test(err?.message || "")) return res.status(409).json({ error: "You have already reported this listing. Thank you." });
+    res.status(500).json({ error: "Could not save the report." });
+  }
+});
+
+app.get("/api/hospital-reports", requireRole("ADMIN"), async (_req, res) => {
+  const rows = await dbAll(`
+    SELECT r.hospitalId, h.name, h.address, h.listingStatus, r.reason, COUNT(*) AS reports, MAX(r.createdAt) AS lastAt
+    FROM hospital_reports r JOIN hospitals h ON h.id = r.hospitalId
+    WHERE r.status = 'open' GROUP BY r.hospitalId, r.reason ORDER BY reports DESC, lastAt DESC`);
+  res.json(rows);
+});
+
+// Hide a wrong listing (or restore it). ADMIN only; the reason is kept with the listing.
+app.put("/api/hospitals/:id/listing", requireRole("ADMIN"), async (req, res) => {
+  const { status, reason } = req.body || {};
+  if (status !== "hidden" && status !== "active") return res.status(400).json({ error: "status must be hidden or active." });
+  const hosp = await dbGet("SELECT id FROM hospitals WHERE id = ?", [req.params.id]);
+  if (!hosp) return res.status(404).json({ error: "Hospital not found" });
+  // A restored listing is "active-reviewed", so a later enrich run does not hide it again.
+  await dbRun("UPDATE hospitals SET listingStatus = ?, hiddenReason = ?, confirmation = CASE WHEN ? = 'hidden' THEN confirmation ELSE COALESCE(confirmation, 'reviewed') END WHERE id = ?", [status === "hidden" ? "hidden" : "active-reviewed", status === "hidden" ? String(reason || "reviewed by an administrator").slice(0, 200) : null, status === "hidden" ? "hidden" : "active", hosp.id]);
+  await dbRun("UPDATE hospital_reports SET status = 'resolved' WHERE hospitalId = ?", [hosp.id]);
+  res.json({ success: true });
+});
+
+// Hospital staff report their beds. Totals may be reported too; available counts are capped
+// at the total only when a total is known. Every report is timestamped (bedsReportedAt), and
+// only reported numbers are ever shown or used for routing.
 app.put("/api/hospitals/:id/beds", requireRole("HOSPITAL", "ADMIN"), async (req, res) => {
   const { id } = req.params;
-  const { availableBeds, icuAvailable, emergencyOccupancy } = req.body;
+  const { availableBeds, icuAvailable, emergencyOccupancy, totalBeds, icuBeds } = req.body;
 
   try {
     if (!(await callerAdministersHospital(req, id))) {
@@ -644,14 +609,19 @@ app.put("/api/hospitals/:id/beds", requireRole("HOSPITAL", "ADMIN"), async (req,
     const params: any[] = [];
     const updatedValues: any = {};
 
+    const total = typeof totalBeds === "number" && totalBeds > 0 ? Math.round(totalBeds) : hosp.totalBeds;
+    const icuTotal = typeof icuBeds === "number" && icuBeds >= 0 ? Math.round(icuBeds) : hosp.icuBeds;
+    if (total !== hosp.totalBeds) { updates.push("totalBeds = ?"); params.push(total); updatedValues.totalBeds = total; }
+    if (icuTotal !== hosp.icuBeds) { updates.push("icuBeds = ?"); params.push(icuTotal); updatedValues.icuBeds = icuTotal; }
+    const cap = (v: number, max: number | null) => Math.max(0, max === null || max === undefined ? Math.round(v) : Math.min(max, Math.round(v)));
     if (typeof availableBeds === "number") {
-      const val = Math.max(0, Math.min(hosp.totalBeds, availableBeds));
+      const val = cap(availableBeds, total);
       updates.push("availableBeds = ?");
       params.push(val);
       updatedValues.availableBeds = val;
     }
     if (typeof icuAvailable === "number") {
-      const val = Math.max(0, Math.min(hosp.icuBeds, icuAvailable));
+      const val = cap(icuAvailable, icuTotal);
       updates.push("icuAvailable = ?");
       params.push(val);
       updatedValues.icuAvailable = val;
@@ -664,7 +634,9 @@ app.put("/api/hospitals/:id/beds", requireRole("HOSPITAL", "ADMIN"), async (req,
     }
 
     if (updates.length > 0) {
-      params.push(id);
+      updates.push("bedsReportedAt = ?");
+      updatedValues.bedsReportedAt = new Date().toISOString();
+      params.push(updatedValues.bedsReportedAt, id);
       await dbRun(`UPDATE hospitals SET ${updates.join(", ")} WHERE id = ?`, params);
     }
 
@@ -879,14 +851,39 @@ app.post("/api/hospitals/:id/doctors", requireRole("HOSPITAL", "ADMIN"), async (
 });
 
 // GET list of active Doctors
+/** The Delhi NCR city in a hospital address, for filtering doctors by city. */
+const NCR_CITY_PATTERNS: Array<[string, RegExp]> = [
+  ["Greater Noida", /greater noida/i], ["Noida", /noida/i], ["Gurugram", /gurugram|gurgaon/i],
+  ["Ghaziabad", /ghaziabad/i], ["Faridabad", /faridabad/i], ["Delhi", /delhi/i],
+];
+const cityFromAddress = (address: string) => NCR_CITY_PATTERNS.find(([, re]) => re.test(address || ""))?.[0] || null;
+/** "Okhla Road, Sukhdev Vihar, New Delhi, Delhi 110025" -> "Sukhdev Vihar". */
+const localityFromAddress = (address: string) => {
+  const parts = String(address || "").split(",").map((p) => p.trim()).filter(Boolean);
+  return parts.length >= 3 ? parts[parts.length - 3] : parts[0] || null;
+};
+
 app.get("/api/doctors", async (req, res) => {
   try {
-    const list = await dbAll("SELECT * FROM doctors");
+    const list = await dbAll(`
+      SELECT d.*, h.id AS hospitalId, h.address AS hospitalAddress
+      FROM doctors d LEFT JOIN hospitals h ON h.name = d.hospitalName`);
     const result = list.map(d => ({
       ...d,
-      online: !!d.online
+      online: !!d.online,
+      verified: !!d.verified,
+      city: cityFromAddress(d.hospitalAddress),
+      locality: localityFromAddress(d.hospitalAddress),
     }));
-    res.json(result);
+    // With ?lat=&lng= each doctor carries the distance to their hospital, nearest first.
+    const origin = parseLatLng(req.query.lat, req.query.lng);
+    if (!origin) return res.json(result);
+    const hospitals = await dbAll("SELECT name, lat, lng FROM hospitals");
+    const byName = new Map(hospitals.map((h) => [h.name, h]));
+    res.json(sortByDistance(result.map((d) => {
+      const h = byName.get(d.hospitalName);
+      return { ...d, distanceKm: h ? Number(haversineKm(origin, h).toFixed(1)) : null };
+    })));
   } catch (err: any) {
     res.status(500).json({ error: "Failed to fetch doctors", message: err.message });
   }
@@ -955,6 +952,23 @@ app.post("/api/appointments", async (req, res) => {
     if (!docInfo) {
       return res.status(404).json({ error: "Doctor not found" });
     }
+    // Look-only until verified: the directory names real practitioners whose details City
+    // Healer has not verified, so no screen may book them.
+    if (!docInfo.verified) {
+      return res.status(409).json({ error: "This doctor is not verified on City Healer yet, so booking is unavailable.", code: "DOCTOR_NOT_VERIFIED" });
+    }
+    const today = new Date().toISOString().split("T")[0];
+    if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || String(date) < today)) {
+      return res.status(400).json({ error: "Choose today or a future date." });
+    }
+    if (date && time) {
+      const taken = await dbGet(
+        "SELECT id FROM appointments WHERE doctorId = ? AND date = ? AND time = ? AND status NOT IN ('CANCELLED', 'REJECTED')",
+        [doctorId, date, time]);
+      if (taken) {
+        return res.status(409).json({ error: "That time has just been taken. Choose another.", code: "SLOT_TAKEN" });
+      }
+    }
 
     // Ownership always comes from the verified token, never from the request body.
     const caller = getAuthUser(req)!;
@@ -990,6 +1004,16 @@ app.post("/api/appointments", async (req, res) => {
     console.error("[Appointment Create Error]", err);
     res.status(500).json({ error: "Failed to create appointment", message: err.message });
   }
+});
+
+// Times already booked with a doctor on a date (no patient details), for the booking screen.
+app.get("/api/doctors/:id/booked", async (req, res) => {
+  const date = String(req.query.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date=YYYY-MM-DD is required." });
+  const rows = await dbAll(
+    "SELECT time FROM appointments WHERE doctorId = ? AND date = ? AND status NOT IN ('CANCELLED', 'REJECTED')",
+    [req.params.id, date]);
+  res.json({ date, booked: rows.map((r) => r.time) });
 });
 
 // Update Appointment Status
@@ -1172,6 +1196,9 @@ app.post("/api/queue/take", async (req, res) => {
     if (!docInfo) {
       return res.status(404).json({ error: "Doctor not found" });
     }
+    if (!docInfo.verified) {
+      return res.status(409).json({ error: "This doctor is not verified on City Healer yet, so OPD tokens are unavailable.", code: "DOCTOR_NOT_VERIFIED" });
+    }
 
     const caller = getAuthUser(req)!;
     const patientId = caller.uid;
@@ -1274,12 +1301,11 @@ app.post("/api/medicines/search-nationwide", aiRateLimit, async (req, res) => {
       m.description.toLowerCase().includes(query.toLowerCase())
     ).map(m => ({ ...m, requiresPrescription: !!m.requiresPrescription }));
 
-    if (matched.length > 0) {
-      return res.json({ matches: matched, source: "local-sqlite-db" });
-    }
-
-    // Nothing in the catalogue, and there is no external register to widen the search to.
-    res.json({ matches: [], source: "local-sqlite-db" });
+    // Orderable products from the pharmacy catalogue, plus matches from the medicine
+    // retrieval model (11,498 medicines), which are information only, not for sale here.
+    const reference = searchMedicines(String(query), 8);
+    monitor.record("medicine-retrieval", { confidence: reference[0]?.score ?? 0, abstained: reference.length === 0, label: "search" });
+    res.json({ matches: matched, reference, source: matched.length ? "catalogue+retrieval-model" : "retrieval-model", referenceSource: MEDICINE_SOURCE });
   } catch (err: any) {
     console.error("[Search Medicines Error]", err);
     res.status(500).json({ error: "Medicine search failed", message: err.message });
@@ -1411,7 +1437,7 @@ app.post("/api/emergency/sos", async (req, res) => {
     let nearestHospital = hospitalsList[0];
     let minDistance = Infinity;
     hospitalsList.forEach(h => {
-      const dist = Math.sqrt(Math.pow(h.lat - tLat, 2) + Math.pow(h.lng - tLng, 2));
+      const dist = haversineKm({ lat: tLat, lng: tLng }, h);
       if (dist < minDistance) {
         minDistance = dist;
         nearestHospital = h;
@@ -1568,7 +1594,13 @@ app.post("/api/chat/:appointmentId", aiRateLimit, async (req, res) => {
       if (docInfo && (!docInfo.online || docInfo.id.startsWith("doc-"))) {
         const autoMsgId = "msg-ai-" + Date.now();
         
-        const replyText = `Hello, I am ${appt.doctorName}. I have reviewed your symptom note ("${appt.symptoms || ''}"). Please continue taking warm water. Let's discuss in our next virtual session.`;
+        // The doctor is offline, so City Healer's assistant answers - as itself, never in
+        // the doctor's name - using the same orchestrator as the Health Copilot.
+        const ai = await orchestrate(text, {
+          findHospitals: recommendHospitals,
+          findDoctors: recommendDoctors,
+        });
+        const replyText = `[City Healer assistant - ${appt.doctorName} is offline and will read this later] ${ai.reply} ${ai.disclaimer}`;
 
         // Insert the automated reply after a short delay
         await new Promise(resolve => setTimeout(resolve, 800));
@@ -1602,220 +1634,257 @@ app.post("/api/symptoms/check", aiRateLimit, async (req, res) => {
 
   // Safety rules first, then the trained model, then the rules again: see shared/triageModel.ts.
   const result: any = triage(String(symptoms), language);
-  result.recommendedHospitals = await recommendHospitals(result.specialistType, result.urgencyLevel, userLat, userLng);
+  // Route on the English specialist: the displayed one may be in Hindi.
+  const specialist = result.specialistEn || result.specialistType;
+  result.recommendedHospitals = await recommendHospitals(specialist, result.urgencyLevel, userLat, userLng);
+  result.doctorSpecialty = doctorCategoryFor(specialist);
+  result.recommendedDoctors = await recommendDoctors(result.doctorSpecialty, userLat, userLng);
   res.json(result);
 });
 
-// Lab reports OCR analyzer
-app.post("/api/records/analyze", aiRateLimit, async (req, res) => {
-  const { templateId } = req.body;
+// Lab Report Analyzer: reference ranges + trained risk models (shared/labModels.ts)
+const SAMPLE_REPORTS: Record<string, { panel: Panel; values: Record<string, number> }> = {
+  blood_cbc: { panel: "cbc", values: { haemoglobin: 11.2, wbc: 11800, platelets: 185000, rbc: 4.1, mcv: 74, male: 1 } },
+  lipid_profile: { panel: "heart", values: { age: 52, male: 1, chestPainType: 4, restingBp: 138, cholesterol: 248, ldl: 168, hdl: 35, triglycerides: 220, fastingSugarHigh: 0, maxHeartRate: 150, exerciseAngina: 0 } },
+  thyroid_panel: { panel: "thyroid", values: { tsh: 6.9, ft4: 0.85, ft3: 2.4 } },
+  liver_panel: { panel: "liver", values: { age: 45, male: 1, totalBilirubin: 1.8, directBilirubin: 0.6, alkalinePhosphatase: 210, alt: 96, ast: 88, totalProtein: 6.4, albumin: 3.2, agRatio: 0.9 } },
+  diabetes_panel: { panel: "diabetes", values: { glucose: 138, hba1c: 6.8, diastolicBp: 84, bmi: 27.5, age: 48 } },
+};
 
-  if (!templateId) {
-    return res.status(400).json({ error: "Report Template spec ID is required." });
-  }
-
-  const fallbackReports: Record<string, any> = {
-    blood_cbc: {
-      reportType: "Complete Blood Count (CBC) with Haemoglobin scan",
-      patientProfile: "Adesh Kumar, 34 yr, Male (Delhi NCR Central Registry)",
-      biomarkers: [
-        { name: "Haemoglobin", value: "11.2 g/dL", status: "LOW", referenceRange: "13.0 - 17.0 g/dL" },
-        { name: "Total WBC Count", value: "11,800 /uL", status: "HIGH", referenceRange: "4,000 - 11,000 /uL" },
-        { name: "Platelet Count", value: "1,85,000 /uL", status: "NORMAL", referenceRange: "1,50,000 - 4,50,000 /uL" },
-        { name: "RBC Count", value: "4.1 Million/uL", status: "LOW", referenceRange: "4.5 - 5.5 Million/uL" },
-      ],
-      aiInterpretation: "Mild Microcytic Hypochromic Anemia with reactive Neutrophilic Leukocytosis. This likely represents an early nutritional iron deficit combined with a mild reactive inflammation or sub-clinical respiratory congestion.",
-      doctorAlerts: "Borderline low Haemoglobin. Air smog exposure might worsen respiratory fatigue. Carry inhaler if sensitive.",
-      urgencyRating: "LOW",
-      recommendedSpecialist: "General Physician / Clinical Haematologist",
-      actions: [
-        "Include therapeutic iron intake (Spinach, Ragi, Pomegranates, Beetroot)",
-        "Repeat CBC Haemoglobin assay in 3 weeks to measure stability",
-        "Avoid intense outdoor cardio triggers during high PM 2.5 times in Delhi"
-      ]
-    },
-    lipid_profile: {
-      reportType: "Lipid Profile Cardiovascular Biomarkers",
-      patientProfile: "Adesh Kumar, 34 yr, Male (Delhi NCR Central Registry)",
-      biomarkers: [
-        { name: "Total Cholesterol", value: "248 mg/dL", status: "HIGH", referenceRange: "< 200 mg/dL" },
-        { name: "LDL 'Bad' Cholesterol", value: "168 mg/dL", status: "HIGH", referenceRange: "< 100 mg/dL" },
-        { name: "HDL 'Good' Cholesterol", value: "35 mg/dL", status: "LOW", referenceRange: "> 40 mg/dL" },
-        { name: "Triglycerides", value: "220 mg/dL", status: "HIGH", referenceRange: "< 150 mg/dL" },
-      ],
-      aiInterpretation: "Hyperlipidemia & Metabolic Cardiovascular Stress. Markedly elevated LDL with critically low HDL increases coronary artery plaque risk. Prompt anti-lipid dietary control and cardiovascular tracking are indicated.",
-      doctorAlerts: "LDL is significantly above optimal values. Ensure regular physical exercise and cardiovascular screening.",
-      urgencyRating: "MEDIUM",
-      recommendedSpecialist: "Cardiologist / General Physician",
-      actions: [
-        "Incorporate Omega-3 rich foods (Flaxseeds, Walnuts) and limit fried foods completely",
-        "Start 30 mins of active brisk walking early mornings or indoors",
-        "Consider clinical discussion for lipid-lowering medical support"
-      ]
-    },
-    thyroid_panel: {
-      reportType: "Thyroid Stimulating Hormone Assay (TSH)",
-      patientProfile: "Adesh Kumar, 34 yr, Male (Delhi NCR Central Registry)",
-      biomarkers: [
-        { name: "Serum TSH", value: "6.9 uIU/mL", status: "HIGH", referenceRange: "0.45 - 4.50 uIU/mL" },
-        { name: "Free Triiodothyronine (FT3)", value: "2.4 pg/mL", status: "NORMAL", referenceRange: "2.0 - 4.4 pg/mL" },
-        { name: "Free Thyroxine (FT4)", value: "0.85 ng/dL", status: "LOW", referenceRange: "0.90 - 1.70 ng/dL" },
-      ],
-      aiInterpretation: "Subclinical Hypothyroidism. Elevated TSH accompanied by borderline low Free T4 indices points to early thyroid gland fatigue and metabolic decelerations.",
-      doctorAlerts: "Mild Hypothyroid indicators. Check family thyroid history and check iodine intake status.",
-      urgencyRating: "MEDIUM",
-      recommendedSpecialist: "Endocrinologist",
-      actions: [
-        "Review selenium and iodine-sufficient nutritional options (ensure double-fortified iodized salt)",
-        "Check fasting morning weight trends and energy output indices",
-        "Avoid triggers like soy products or raw cruciferous greens in excess"
-      ]
-    }
-  };
-
-  res.json(fallbackReports[templateId] || fallbackReports.blood_cbc);
+app.get("/api/records/analyze/panels", (_req, res) => {
+  res.json({ panels: PANEL_FIELDS, samples: SAMPLE_REPORTS });
 });
 
-// Medicine guide route
-app.post("/api/medicines/guide", aiRateLimit, async (req, res) => {
-  const { name } = req.body;
+app.post("/api/records/analyze", aiRateLimit, async (req, res) => {
+  const { templateId, panel, values } = req.body || {};
+  const sample = templateId ? SAMPLE_REPORTS[templateId] : null;
+  const chosen: Panel | undefined = panel || sample?.panel;
+  if (!chosen || !(chosen in PANEL_FIELDS)) {
+    return res.status(400).json({ error: `Choose a panel: ${Object.keys(PANEL_FIELDS).join(", ")}.` });
+  }
+  const input = values && typeof values === "object" ? values : sample?.values || {};
+  const t0 = performance.now();
+  const analysis = analyseLabReport(chosen, input);
+  if (analysis.risk) monitor.record(`${chosen}-risk-model`, { confidence: Math.abs(analysis.risk.probability - 0.5) * 2, abstained: false, label: analysis.risk.level, ms: performance.now() - t0 });
+  res.json({ ...analysis, isSample: !values && !!sample });
+});
 
-  if (!name) {
+// Medicine Guide: the medicine retrieval model (server/medicineIndex.ts)
+app.post("/api/medicines/guide", aiRateLimit, async (req, res) => {
+  const { name } = req.body || {};
+  if (!name || typeof name !== "string") {
     return res.status(400).json({ error: "Medicine name is required." });
   }
-
-  // Pre-determined local guides
-  const matchedFallback = {
-    name: name,
-    purpose: "General pharmaceutical treatment using authorized clinical compounds",
-    dosage: {
-      standard: "As directed by your healthcare specialist.",
-      maximum: "Locate dosage limit boundaries on your specific packaging sleeve."
-    },
-    instructions: [
-      "Take with warm water at regular consistent times daily.",
-      "Do not crush, split, or chew tablets unless suggested by a clinical pharmacist."
-    ],
-    localFoodInteractions: [
-      {
-        item: "Alcoholic or fermented beverages",
-        risk: "High",
-        explanation: "Increases risk of drug-solvent interactive side-effects and speeds or slows drug absorption."
-      },
-      {
-        item: "Sweet Citrus / Mosambi Juice",
-        risk: "Moderate",
-        explanation: "Concentrated citrus enzymes can inhibit liver enzymes, altering standard dosage effectiveness."
-      }
-    ],
-    safetyPrecautions: [
-      "Store in a cool dry cupboard away from direct sunlight & children.",
-      "Always complete the entire prescribed dose course even if you feel completely recovered."
-    ]
-  };
-
-  res.json(matchedFallback);
+  const t0 = performance.now();
+  const found = lookupMedicine(name);
+  monitor.record("medicine-retrieval", { confidence: found.similarity, abstained: !found.match || found.similarity < 0.5, label: found.match?.name || "none", ms: performance.now() - t0 });
+  if (!found.match || found.similarity < 0.35) {
+    return res.json({ found: false, query: name, suggestions: searchMedicines(name, 5), source: MEDICINE_SOURCE });
+  }
+  res.json({
+    found: true,
+    query: name,
+    exactMatch: found.similarity >= 0.75,
+    similarity: Number(found.similarity.toFixed(3)),
+    matchedIngredient: found.ingredient,
+    medicine: found.match,
+    substitutes: substitutesFor(found.match.name, 5),
+    source: MEDICINE_SOURCE,
+    catalogueSize: MEDICINE_COUNT,
+  });
 });
 
-// Diet recommendations planner
+// Diet Planner: content-based recommender over Indian foods (server/dietRecommender.ts)
+app.get("/api/diet/conditions", (_req, res) => res.json({ conditions: DIET_CONDITIONS, source: FOOD_SOURCE }));
+
 app.post("/api/diet/recommend", aiRateLimit, async (req, res) => {
-  const { condition, preference } = req.body;
-
-  if (!condition || !preference) {
-    return res.status(400).json({ error: "Medical condition and diet preference are required variables." });
+  const { condition, preference, seed } = req.body || {};
+  if (!condition) {
+    return res.status(400).json({ error: "Choose a health condition." });
   }
-
-  const fallbackDietPlans: Record<string, any> = {
-    "Diabetes-Veg": {
-      condition: "Type-2 Diabetes mellitus",
-      dietOption: "Pure Vegetarian Indian Diet Plan",
-      energyProfile: "1,550 kCal - Balanced Glycemic Control",
-      ayurvedicElement: "Methi Seeds & Amla (Bitter-Astringent therapeutic nodes)",
-      schedule: [
-        { meal: "Early Morning (06:30 AM)", items: "1 glass lukewarm water with 1 tsp soaked fenugreek (Methi) seeds + 5 soaked almonds", benefit: "Helps stabilize blood glucose spike on waking" },
-        { meal: "Breakfast (08:30 AM)", items: "2 steamed Ragi (Finger millet) Idlis with tomato-onion mint chutney + 1 cup boiled chana sprouts salad", benefit: "High fiber slow sustained carb release" },
-        { meal: "Mid-Morning (11:00 AM)", items: "1 glass fresh thinned buttermilk with a pinch of roasted cumin (Jeera) and fresh coriander", benefit: "Promotes healthy hydration and gut microflora" },
-        { meal: "Lunch (01:15 PM)", items: "2 multigrain wheat-barley-chana chapattis + 1 bowl yellow moong dal + 1 cup stir-cooked Bittergourd (Karela) or Okra sabzi", benefit: "Active peptide bitter compounds supporting islet function" },
-        { meal: "Evening Snack (04:30 PM)", items: "1 cup green tea or black ginger tea (no sugar) + 1 small handful of dry-roasted chickpeas (Chana)", benefit: "Prevents evening hypoglycemia safely" },
-        { meal: "Dinner (08:00 PM)", items: "1 big bowl of home-cooked Mixed Vegetable Lentil Soup or boiled Paneer tikka with green salad (cucumber, lettuce, tomato)", benefit: "Low carbohydrate, high protein to prevent high fasting glucose" }
-      ],
-      medicinalTip: "Consume 1 tsp of home-pressed Amla and Turmeric juice on an empty fasting stomach."
-    }
-  };
-
-  const matchedPlan = fallbackDietPlans[`${condition}-${preference}`] || fallbackDietPlans["Diabetes-Veg"];
-
-  res.json(matchedPlan);
+  const t0 = performance.now();
+  const plan = recommendDiet(String(condition), String(preference || "veg"), Number(seed) || 1);
+  monitor.record("diet-recommender", { confidence: 1, abstained: false, label: plan.conditionKey, ms: performance.now() - t0 });
+  res.json(plan);
 });
 
-// Developer Sandbox Route - local pipeline
-/**
- * Intent -> plan -> retrieve -> answer, run entirely on this server. Intent comes
- * from keyword rules, so its confidence is reported as modest rather than certain,
- * and the answer is built from rows actually found in the database.
- */
-async function runLocalPipeline(prompt: string) {
-  const text = String(prompt).toLowerCase();
-  const logs: string[] = [`[Initiating Pipeline] Received query: "${prompt}"`];
+// ----------------------------------------------------------------
+// City Healer AI: orchestrator, model registry and monitoring
+// ----------------------------------------------------------------
+const aiContext = (req: express.Request) => {
+  const { lang, userLat, userLng } = req.body || {};
+  return {
+    lang: lang === "hi" || lang === "en" ? lang : undefined,
+    lat: parseLatLng(userLat, userLng)?.lat,
+    lng: parseLatLng(userLat, userLng)?.lng,
+    findHospitals: recommendHospitals,
+    findDoctors: recommendDoctors,
+  };
+};
 
-  let intent = "GENERAL_INFO";
-  if (hasAny(text, ["sos", "emergency", "ambulance", "icu"])) intent = "SOS_EMERGENCY";
-  else if (hasAny(text, ["diet", "eat", "nutrition", "food"])) intent = "DIET_RECO";
-  else if (hasAny(text, ["doctor", "appointment", "counsel", "opd"])) intent = "OPD_SCHEDULING";
-  else if (hasAny(text, ["medicine", "pharmacy", "drug", "tablet"])) intent = "MEDICINE_LOOKUP";
-  const matched = intent !== "GENERAL_INFO";
-  logs.push(`Step 1: Intent recognised by keyword rules: ${intent}`);
-
-  const plan = [
-    `Detect intent: ${intent}`,
-    "Retrieve matching rows from the local database",
-    "Compose the answer from those rows"
-  ];
-  logs.push(`Step 2: Plan: ${JSON.stringify(plan)}`);
-
-  const words = text.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 3);
-  const mentions = (...fields: (string | null | undefined)[]) =>
-    words.some((w) => fields.some((f) => String(f || "").toLowerCase().includes(w)));
-
-  let result: string;
-  if (intent === "MEDICINE_LOOKUP") {
-    const medicines = await dbAll("SELECT * FROM medicines");
-    const hits = medicines.filter((m) => mentions(m.name, m.category)).slice(0, 3);
-    logs.push(`Step 3: [DB] medicines matched: ${hits.length}`);
-    result = hits.length
-      ? `In the catalogue: ${hits.map((m) => `${m.name} (₹${m.price}, stock ${m.stock})`).join("; ")}.`
-      : "No medicine in the catalogue matches that query. Try the medicine's name or category.";
-  } else if (intent === "OPD_SCHEDULING") {
-    const doctors = await dbAll("SELECT * FROM doctors");
-    const hits = doctors.filter((d) => mentions(d.name, d.specialty)).slice(0, 3);
-    const shown = hits.length ? hits : doctors.filter((d) => d.online).slice(0, 3);
-    logs.push(`Step 3: [DB] doctors matched: ${hits.length}`);
-    result = `${hits.length ? "Matching doctors" : "Doctors online now"}: ${shown.map((d) => `${d.name} (${d.specialty}, about ${d.waitTimeMin} min wait)`).join("; ")}.`;
-  } else if (intent === "SOS_EMERGENCY") {
-    const hospitals = await dbAll("SELECT * FROM hospitals WHERE icuAvailable > 0 ORDER BY icuAvailable DESC LIMIT 3");
-    logs.push(`Step 3: [DB] hospitals with free ICU beds: ${hospitals.length}`);
-    result = `For an emergency use the SOS button or call 112. Free ICU beds now: ${hospitals.map((h) => `${h.name} (${h.icuAvailable})`).join("; ")}.`;
-  } else if (intent === "DIET_RECO") {
-    logs.push("Step 3: No database lookup needed for diet guidance");
-    result = "Open the Diet Planner and choose your condition and food preference for a full day's Indian meal plan.";
-  } else {
-    logs.push("Step 3: No specific intent; nothing retrieved");
-    result = "Ask about doctors and appointments, medicines, diet plans, or emergency beds and SOS.";
+// Health Copilot: every message goes through the orchestrator.
+app.post("/api/ai/copilot", aiRateLimit, async (req, res) => {
+  const { message } = req.body || {};
+  if (!message || typeof message !== "string" || !message.trim()) {
+    return res.status(400).json({ error: "Type a message." });
   }
-  logs.push("Step 4: Answer composed from retrieved rows");
+  if (message.length > 2000) {
+    return res.status(400).json({ error: "Message is too long (2000 characters maximum)." });
+  }
+  try {
+    res.json(await orchestrate(message.trim(), aiContext(req)));
+  } catch (err: any) {
+    console.error("[Copilot Error]", err);
+    res.status(500).json({ error: "The assistant could not answer. For an emergency call 112." });
+  }
+});
 
-  return { intent, confidence: matched ? 0.5 : 0.2, plan, executionLogs: logs, result, source: "local-pipeline" };
-}
+// Model registry and model cards.
+app.get("/api/ai/models", (_req, res) => res.json({ models: MODEL_CARDS }));
 
+// ---------------------------------------------------------------------------------------------
+// Intelligence Platform (City_Healer_Intelligence_Platform_Seven_Modules.zip), ported from its
+// FastAPI service into this server: the same routes under /api/v1, behind Firebase identity
+// instead of a shared API key, using this app's trained models. See server/ai/platform.ts.
+
+app.get("/api/v1/platform/modules", (_req, res) => res.json({ modules: PLATFORM_MODULES }));
+app.get("/api/v1/models", (_req, res) => res.json({ models: MODEL_CARDS }));
+
+// Module 1: the copilot in the zip's response shape (answer, disclaimer, intent, safety, route).
+app.post("/api/v1/copilot/chat", aiRateLimit, async (req, res) => {
+  const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+  if (!message || message.length > 2000) return res.status(400).json({ error: "message must be 1 to 2000 characters." });
+  const language = ["auto", "en", "hi", "hinglish"].includes(req.body?.language) ? req.body.language : "auto";
+  try {
+    const ctx = aiContext(req);
+    if (language === "hi") ctx.lang = "hi";
+    else if (language === "en" || language === "hinglish") ctx.lang = "en";
+    const reply = await orchestrate(message, ctx);
+    const route = copilotRoute(reply);
+    res.json({
+      answer: reply.reply,
+      disclaimer: `${reply.disclaimer} ${PLATFORM_DISCLAIMER}`,
+      intent: { intent: reply.intent, confidence: reply.confidence },
+      safetyFlags: route === "urgent_human_care" ? ["possible_urgent_symptom_language"] : [],
+      route,
+      card: reply.card ?? null,
+      model: { id: "city-healer-orchestrator", models: [...new Set(reply.trace.map((t) => t.model))] },
+    });
+  } catch (err) {
+    console.error("[Copilot v1 Error]", err);
+    res.status(500).json({ error: "The assistant could not answer. For an emergency call 112." });
+  }
+});
+
+// Module 2: intent (trained), language and entity candidates.
+app.post("/api/v1/nlp/analyze", aiRateLimit, (req, res) => {
+  const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+  if (!text || text.length > 2000) return res.status(400).json({ error: "text must be 1 to 2000 characters." });
+  res.json(analyseText(text));
+});
+
+// Module 3: a report file as the raw request body (text/plain or application/pdf), its name in
+// ?filename=. Read in memory, never stored or logged.
+app.post("/api/v1/documents/extract", aiRateLimit,
+  express.raw({ type: ["application/pdf", "text/plain", "text/csv", "application/octet-stream"], limit: MAX_DOCUMENT_BYTES }),
+  async (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "Send the file as the request body (Content-Type application/pdf or text/plain)." });
+    const filename = String(req.query.filename || "").slice(0, 200);
+    try {
+      res.json(await extractDocument(filename, new Uint8Array(req.body)));
+    } catch (err) {
+      console.error("[Document extract Error]", (err as Error)?.message);
+      res.status(500).json({ error: "The document could not be read." });
+    }
+  });
+
+// Module 4: demand forecast from counts supplied by staff, or from this app's own daily totals.
+app.post("/api/v1/ml/demand-forecast", requireRole("HOSPITAL", "ADMIN"), (req, res) => {
+  const counts = req.body?.dailyCounts ?? req.body?.daily_counts;
+  const horizon = Number(req.body?.horizonDays ?? req.body?.horizon_days ?? 7);
+  if (!Array.isArray(counts) || counts.length > 365) return res.status(400).json({ error: `dailyCounts must be a list of ${MIN_DAYS} to 365 daily counts.` });
+  try { res.json(forecastCounts(counts.map(Number), horizon)); }
+  catch (err) { res.status(400).json({ error: (err as Error).message }); }
+});
+
+app.get("/api/v1/ml/demand-forecast", requireRole("ADMIN"), async (req, res) => {
+  const series = String(req.query.series || "appointments");
+  const days = Math.min(365, Math.max(MIN_DAYS, Number(req.query.days) || 90));
+  const horizon = Math.min(30, Math.max(1, Number(req.query.horizon) || 7));
+  try {
+    let dates: string[] = [];
+    if (series === "appointments") {
+      dates = (await dbAll("SELECT date FROM appointments")).map((r) => r.date);
+      // Bookings with verified providers live in Firestore; count them by start date.
+      try {
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+        const snap = await firestore.collection("appointments").where("startsAt", ">=", since).get();
+        dates.push(...snap.docs.map((d) => String(d.get("startsAt"))));
+      } catch (e) { console.warn("[forecast] Firestore appointments unavailable:", (e as Error).message); }
+    } else if (series === "emergencies") {
+      dates = (await dbAll("SELECT timestamp FROM emergency_alerts")).map((r) => r.timestamp);
+    } else {
+      return res.status(400).json({ error: "series must be appointments or emergencies." });
+    }
+    const { start, counts } = dailySeries(dates, days);
+    const active = counts.filter((c) => c > 0).length;
+    if (active < 3) {
+      return res.json({ series, start, counts, forecast: null, message: `Too little activity to forecast: ${active} of the last ${days} days had any ${series}.` });
+    }
+    res.json({ series, start, counts, ...forecastCounts(counts, horizon) });
+  } catch (err) {
+    console.error("[forecast]", err);
+    res.status(500).json({ error: "Forecast failed." });
+  }
+});
+
+// Module 5: rank verified providers for a request. Provider records come only from the server's
+// own Firestore; nothing the browser sends can make a provider eligible.
+app.post("/api/v1/discovery/rank", aiRateLimit, async (req, res) => {
+  const b = req.body || {};
+  const ok = typeof b.specialty === "string" && b.specialty.length >= 2 && b.specialty.length <= 100
+    && typeof b.city === "string" && b.city.length >= 2 && b.city.length <= 50;
+  if (!ok) return res.status(400).json({ error: "specialty and city are required." });
+  const ct = b.consultationType ?? b.consultation_type, pl = b.preferredLanguage ?? b.preferred_language;
+  const consultationType = ["online", "in_person"].includes(ct) ? ct : null;
+  const preferredLanguage = ["en", "hi", "hinglish"].includes(pl) ? pl : null;
+  try {
+    const snap = await firestore.collection("doctors").where("verificationStatus", "==", "verified").where("listingStatus", "==", "active").limit(500).get();
+    const ranked = rankProviders(snap.docs.map((d) => ({ id: d.id, ...d.data() })), { specialty: b.specialty, city: b.city, consultationType, preferredLanguage });
+    res.json({
+      results: ranked.slice(0, 20).map(({ provider: p, score, reasons }) => ({
+        doctor: { id: p.id, fullName: p.fullName, specialty: p.specialty, city: p.city, locality: p.locality, consultationTypes: p.consultationTypes, languages: p.languages, consultationFee: p.consultationFee },
+        score, reasons,
+      })),
+      method: "explainable weighted rules: specialty 50, city 30, consultation type 10, language 5; verified and active only",
+    });
+  } catch (err) {
+    console.error("[discovery rank]", err);
+    res.status(500).json({ error: "Ranking failed." });
+  }
+});
+
+
+// Live monitoring: calls, abstentions, confidence, latency, unknown-input rate per model.
+app.get("/api/ai/monitoring", requireRole("ADMIN"), (_req, res) => res.json({ since: SERVER_STARTED_AT, models: monitor.snapshot() }));
+
+// Developer console: the same orchestrator, with its step-by-step trace.
 app.post("/api/developer/ai-pipeline", aiRateLimit, async (req, res) => {
-  const { prompt } = req.body;
-
+  const { prompt } = req.body || {};
   if (!prompt) {
     return res.status(400).json({ error: "Prompt query is required." });
   }
-
   try {
-    res.json(await runLocalPipeline(prompt));
+    const r = await orchestrate(String(prompt), aiContext(req));
+    res.json({
+      intent: r.intent,
+      confidence: r.confidence,
+      plan: r.trace.map((s) => `${s.step}: ${s.model}`),
+      executionLogs: [`[Orchestrator] "${prompt}"`, ...r.trace.map((s) => `${s.step} -> ${s.model}: ${s.detail} (${s.ms} ms)`)],
+      result: r.reply,
+      card: r.card,
+      source: "city-healer-orchestrator",
+    });
   } catch (err: any) {
     console.error("[Developer Pipeline Error]", err);
     res.status(500).json({ error: "Pipeline failed", message: err.message });

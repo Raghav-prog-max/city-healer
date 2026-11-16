@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -16,6 +16,25 @@
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
   --color-border-primary: var(--border-primary);
+
+  /* City Healer brand tokens (landing page specification, section 2) */
+  --color-ink: #0E0F0C;
+  --color-care: #0EA5E9;
+  --color-care-deep: #0369A1;
+  --color-health: #22C55E;
+  --color-health-deep: #15803D;
+  --color-paper: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-mist: #F1F5F9;
+  --color-text: #0F172A;
+  --color-subtle: #64748B;
+  --color-line: #E2E8F0;
+  --color-warn: #D97706;
+  --color-danger: #DC2626;
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-ui: "DM Sans", "Noto Sans Devanagari", ui-sans-serif, system-ui, sans-serif;
+  --font-deva: "Noto Sans Devanagari", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --ease-calm: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :root {
@@ -167,3 +186,29 @@ select option {
   color: var(--text-primary) !important;
 }
 
+
+/* ---------------- City Healer site (src/site) ---------------- */
+.ch {
+  font-family: var(--font-ui);
+  color: var(--color-text);
+  background: var(--color-mist);
+  -webkit-font-smoothing: antialiased;
+  cursor: auto;
+}
+.ch * { cursor: inherit; }
+.ch a, .ch button, .ch [role="button"], .ch label[for], .ch select { cursor: pointer; }
+.ch input, .ch textarea { cursor: text; }
+/* Cormorant has no Devanagari: Hindi display text uses Noto Sans Devanagari instead (spec 2). */
+.ch .font-display { font-family: var(--font-display); letter-spacing: -0.01em; }
+:root[data-locale="hi"] .ch { font-family: var(--font-deva); line-height: 1.7; }
+:root[data-locale="hi"] .ch .font-display { font-family: var(--font-deva); font-weight: 600; letter-spacing: 0; line-height: 1.35; }
+.ch :focus-visible { outline: 3px solid var(--color-care); outline-offset: 2px; border-radius: 6px; }
+.ch-grid-bg {
+  background-image:
+    linear-gradient(rgba(248,250,252,0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(248,250,252,0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ch *, .ch *::before, .ch *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Hospital as HospitalIcon,
@@ -91,6 +91,8 @@ import {
   ReferenceLine 
 } from "recharts";
 import { api, setDemoSession, getDemoSessionRole } from "./utils/api";
+import { parseVoiceCommand, VOICE_HELP } from "./utils/voiceCommands";
+import { haversineKm, sortByDistance, DELHI_CENTRE } from "../shared/geo";
 import { getTranslation, LanguageCode, translations } from "./utils/i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import { 
@@ -99,6 +101,7 @@ import {
   signInWithPopup, 
   GoogleAuthProvider, 
   signInWithEmailAndPassword, 
+  registerAccount,
   createUserWithEmailAndPassword, 
   sendPasswordResetEmail, 
   signOut, 
@@ -313,14 +316,29 @@ export default function App() {
   const [authOtpSent, setAuthOtpSent] = useState<string>("");
   const [authOtpInput, setAuthOtpInput] = useState("");
   const [authRoleSelection, setAuthRoleSelection] = useState<"PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN">("PATIENT");
-  const [authPasscode, setAuthPasscode] = useState<string>("CityHealerPass123!");
+  const [authPasscode, setAuthPasscode] = useState<string>("");
   const [jwtToken, setJwtToken] = useState<string>("");
+  /** The signed-in account's role as the server holds it; null in the demo sandbox. */
+  const [sessionRole, setSessionRole] = useState<"PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN" | null>(null);
+  /** Whether to offer the sandbox: true when the server enables it, or cannot be reached at all. */
+  const [demoAvailable, setDemoAvailable] = useState<boolean>(false);
+  const [authPasscodeConfirm, setAuthPasscodeConfirm] = useState<string>("");
   const [rememberMe, setRememberMe] = useState<boolean>(true);
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
   const [lockoutTimer, setLockoutTimer] = useState<number>(0);
   const [lastActivity, setLastActivity] = useState<number>(Date.now());
   const [showTimeoutWarning, setShowTimeoutWarning] = useState<boolean>(false);
   const isResendingVerificationRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/health")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((info) => { if (!cancelled) setDemoAvailable(!!info.demoMode); })
+      // No server at all (static hosting): the in-browser sandbox is the only way in.
+      .catch(() => { if (!cancelled) setDemoAvailable(true); });
+    return () => { cancelled = true; };
+  }, []);
 
   const authNameRef = useRef(authName);
   const authPhoneRef = useRef(authPhone);
@@ -559,16 +577,24 @@ export default function App() {
   // User Real-Time Geolocation States
   const [userLocationCoords, setUserLocationCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [isLocatingUser, setIsLocatingUser] = useState<boolean>(false);
-  const [userLocationName, setUserLocationName] = useState<string>("Your Device Position (Awaiting Permission)");
+  const [userLocationName, setUserLocationName] = useState<string>("Location not shared");
+  /** The user's answer to "may we use your location?": asked once, then remembered. */
+  const [locationChoice, setLocationChoice] = useState<"unknown" | "granted" | "declined">(() => {
+    try {
+      const saved = localStorage.getItem("city_healer_location_choice");
+      return saved === "granted" || saved === "declined" ? saved : "unknown";
+    } catch { return "unknown"; }
+  });
+  const rememberLocationChoice = (choice: "granted" | "declined") => {
+    setLocationChoice(choice);
+    try { localStorage.setItem("city_healer_location_choice", choice); } catch { /* private window */ }
+  };
   const [locationStatusMessage, setLocationStatusMessage] = useState<string>("");
   const [isMapCenteredOnUser, setIsMapCenteredOnUser] = useState<boolean>(false);
   const [distanceFilter, setDistanceFilter] = useState<number>(30); // in km (max 30 matches all baseline hospitals nicely)
 
   const getDistanceToUser = (h: { lat: number; lng: number }) => {
-    const currentCoords = userLocationCoords || { lat: 28.6139, lng: 77.2090 };
-    const dx = h.lat - currentCoords.lat;
-    const dy = h.lng - currentCoords.lng;
-    return Math.sqrt(dx * dx + dy * dy) * 111.32;
+    return haversineKm(userLocationCoords || DELHI_CENTRE, h);
   };
 
   const handleFindNearestHospital = () => {
@@ -585,6 +611,7 @@ export default function App() {
       (position) => {
         const { latitude, longitude } = position.coords;
         setUserLocationCoords({ lat: latitude, lng: longitude });
+        rememberLocationChoice("granted");
         setIsLocatingUser(false);
         setUserLocationName(`Live Coord (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
         setLocationStatusMessage(`Coordinates acquired: ${latitude.toFixed(4)}°N, ${longitude.toFixed(4)}°E`);
@@ -598,8 +625,8 @@ export default function App() {
         // Fallback coordinates (Delhi Connaught Place) so user gets a great experience even if browser blocks permission in iframe!
         const fallbackLat = 28.6139;
         const fallbackLng = 77.2090;
-        showToast("⚠️ GPS access blocked by browser sandboxing. Using baseline coordinates.");
-        setUserLocationCoords({ lat: fallbackLat, lng: fallbackLng });
+        if (error.code === error.PERMISSION_DENIED) rememberLocationChoice("declined");
+        showToast("Location not available, so this is the nearest hospital to central Delhi.");
         
         // Find nearest hospital with available beds using fallback
         findAndHighlightClosest(fallbackLat, fallbackLng);
@@ -614,12 +641,10 @@ export default function App() {
       return;
     }
 
-    // Filter hospitals with available beds > 0
-    const availableHospitals = hospitals.filter(h => h.availableBeds > 0);
-    if (availableHospitals.length === 0) {
-      showToast("⚠️ No hospitals currently report available emergency beds.");
-      return;
-    }
+    // Hospitals that reported free beds; if none reported, the nearest hospital of any kind
+    // (bed numbers are unknown, and the message says so).
+    const reporting = hospitals.filter(h => h.availableBeds > 0);
+    const availableHospitals = reporting.length ? reporting : hospitals;
 
     // Calculate closest using Euclidean distance from coordinates
     let closestHosp = availableHospitals[0];
@@ -639,7 +664,9 @@ export default function App() {
     handleSelectHospitalMap(closestHosp);
 
     // Zoom and highlight the closest hospital
-    showToast(`🏥 Found closest available: ${closestHosp.name} (${closestHosp.availableBeds} beds available)`);
+    showToast(reporting.length
+      ? `🏥 Found closest available: ${closestHosp.name} (${closestHosp.availableBeds} beds available)`
+      : `🏥 Closest hospital: ${closestHosp.name}. Bed availability has not been reported — call ahead or dial 112.`);
   };
 
   const getUserRealTimeLocation = () => {
@@ -651,34 +678,34 @@ export default function App() {
     
     setIsLocatingUser(true);
     setLocationStatusMessage("Contacting GPS satellites...");
-    showToast("📡 Retrieving your real-time GPS coordinates...");
     
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
         setUserLocationCoords({ lat: latitude, lng: longitude });
+        rememberLocationChoice("granted");
         setIsLocatingUser(false);
         setLocationStatusMessage(`Coordinates acquired: ${latitude.toFixed(4)}°N, ${longitude.toFixed(4)}°E`);
-        showToast("✅ Real-time location detected successfully!");
+        showToast("Location found. Hospitals and doctors are now listed nearest first.");
         setUserLocationName(`Live Coord (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
       },
       (error) => {
         setIsLocatingUser(false);
         let errorMsg = "Unable to retrieve location";
         if (error.code === error.PERMISSION_DENIED) {
-          errorMsg = "Location permission denied or iframe blocked.";
+          errorMsg = "Location permission was not given.";
+          rememberLocationChoice("declined");
         } else if (error.code === error.POSITION_UNAVAILABLE) {
           errorMsg = "GPS signal lost or position unavailable.";
         } else if (error.code === error.TIMEOUT) {
           errorMsg = "Location request timed out.";
         }
-        // Fall back to baseline coordinates (Connaught Place, Delhi) so
-        // distance-based features keep working when GPS is unavailable
-        setUserLocationCoords({ lat: 28.6139, lng: 77.2090 });
-        setUserLocationName("Baseline (Connaught Place, Delhi)");
-        setLocationStatusMessage(`${errorMsg} Using baseline Delhi coordinates.`);
-        showToast(`⚠️ ${errorMsg} Using baseline coordinates.`);
-        console.warn(`[Geolocation] ${errorMsg} (code ${error.code}) — falling back to baseline coordinates.`);
+        // No position is invented. Distances are measured from central Delhi and
+        // labelled as such until the user shares a real location.
+        setUserLocationCoords(null);
+        setUserLocationName("Location not shared");
+        setLocationStatusMessage(`${errorMsg} Distances are measured from central Delhi.`);
+        showToast(`${errorMsg} Distances are measured from central Delhi.`);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
@@ -1224,8 +1251,22 @@ export default function App() {
   const [ratingReviewMsg, setRatingReviewMsg] = useState("");
 
   // Dynamic state stores
-  const [hospitals, setHospitals] = useState<Hospital[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [hospitalsRaw, setHospitals] = useState<Hospital[]>([]);
+  const [doctorsRaw, setDoctors] = useState<Doctor[]>([]);
+  // Every screen reads these two lists, so ordering them here orders the whole app:
+  // nearest first once the user has shared a location, server order otherwise.
+  const hospitals = useMemo<Hospital[]>(() => {
+    if (!userLocationCoords) return hospitalsRaw;
+    return sortByDistance(hospitalsRaw.map((h) => ({ ...h, distanceKm: haversineKm(userLocationCoords, h) })));
+  }, [hospitalsRaw, userLocationCoords]);
+  const doctors = useMemo<Doctor[]>(() => {
+    if (!userLocationCoords) return doctorsRaw;
+    const byName = new Map(hospitalsRaw.map((h) => [h.name, h]));
+    return sortByDistance(doctorsRaw.map((d) => {
+      const h = byName.get(d.hospitalName);
+      return { ...d, distanceKm: h ? haversineKm(userLocationCoords, h) : null };
+    }));
+  }, [doctorsRaw, hospitalsRaw, userLocationCoords]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [queueTokens, setQueueTokens] = useState<QueueToken[]>([]);
   const [records, setRecords] = useState<MedicalRecord[]>([]);
@@ -1273,6 +1314,9 @@ export default function App() {
     suspectedCondition: string;
     explanation: string;
     specialistType: string;
+    /** The doctor category that treats this, as doctors are listed (e.g. "Pulmonologist"). */
+    doctorSpecialty?: string;
+    recommendedDoctors?: Doctor[];
     urgencyLevel: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
     recommendations: string[];
     flagUrgentSOS: boolean;
@@ -1581,7 +1625,8 @@ export default function App() {
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        if (!firebaseUser.emailVerified && !isResendingVerificationRef.current) {
+        // A phone account has no email to verify: its number was verified by the SMS code.
+        if (!firebaseUser.emailVerified && !firebaseUser.phoneNumber && !isResendingVerificationRef.current) {
           await signOut(auth);
           setIsAuthenticated(false);
           setJwtToken("");
@@ -1601,6 +1646,7 @@ export default function App() {
             setAuthPhone(profileData.phone || firebaseUser.phoneNumber || "");
             const userRole = profileData.role || "PATIENT";
             setActiveRole(userRole);
+            setSessionRole(userRole);
 
             // Route by role only from entry pages — never yank a restored session
             // off a deep link like /dashboard or /pharmacy on reload.
@@ -1632,6 +1678,7 @@ export default function App() {
             await setDoc(userRef, profileData);
             const userRole = profileData.role;
             setActiveRole(userRole);
+            setSessionRole(userRole);
             setAuthName(profileData.name);
             setAuthEmail(profileData.email);
             setAuthPhone(profileData.phone);
@@ -1689,6 +1736,7 @@ export default function App() {
         if (demoRole) {
           setIsAuthenticated(true);
           setActiveRole(demoRole as "PATIENT" | "DOCTOR" | "HOSPITAL" | "ADMIN");
+          setSessionRole(null);
           setJwtToken("mock-jwt-token-simulated");
           loadData();
         } else {
@@ -1699,7 +1747,7 @@ export default function App() {
       setAuthLoading(false);
     });
 
-    getUserRealTimeLocation();
+    if (locationChoice === "granted") getUserRealTimeLocation();
 
     // Minor poll loop to keep live hospital metrics synced
     const interval = setInterval(async () => {
@@ -1736,6 +1784,7 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
   const recognitionRef = useRef<any>(null);
+  const handleLogoutRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const SpeechRecognition =
@@ -1762,9 +1811,11 @@ export default function App() {
       console.error("Speech recognition error:", event.error);
       setIsListening(false);
       if (event.error === "not-allowed") {
-        showToast("Microphone permission denied. Please allow microphone access.");
+        showToast("Microphone access is blocked. Allow the microphone for this site in your browser, then try again.");
       } else if (event.error === "network") {
         showToast("Network error occurred during speech recognition.");
+      } else if (event.error === "no-speech" || event.error === "aborted") {
+        // Silence, or we stopped it ourselves: not worth interrupting the user for.
       } else {
         showToast(`Speech recognition error: ${event.error}`);
       }
@@ -1772,57 +1823,59 @@ export default function App() {
 
     rec.onresult = (event: any) => {
       const latestResultIndex = event.results.length - 1;
-      const transcript = event.results[latestResultIndex][0].transcript;
-      if (transcript) {
-        if (activeTab === "symptoms") {
-          const lowerText = transcript.trim().toLowerCase();
-          if (
-            lowerText === "clear symptoms" || 
-            lowerText === "clear" || 
-            lowerText === "reset" || 
-            lowerText === "reset symptoms" ||
-            lowerText === "symptoms clear" ||
-            lowerText === "सिट सिम्टम्स मिटाओ" || 
-            lowerText === "सिट" || 
-            lowerText === "मिटाओ" || 
-            lowerText === "क्लियर"
-          ) {
+      const transcript = String(event.results[latestResultIndex][0].transcript || "").trim();
+      if (!transcript) return;
+
+      // A spoken command wins over dictation, on every screen.
+      const command = parseVoiceCommand(transcript);
+      if (command) {
+        if (command.kind === "navigate") {
+          setActiveTab(command.tab);
+          showToast(
+            command.tab === "sos"
+              ? "Opened Emergency SOS. Press the SOS button to send the alert."
+              : `Opened ${command.label}.`
+          );
+        } else if (command.kind === "help") {
+          showToast(VOICE_HELP[appLanguage === "hi" ? "hi" : "en"]);
+        } else if (command.kind === "stop") {
+          try { rec.stop(); } catch (e) {}
+          showToast("Voice input stopped.");
+        } else if (command.kind === "logout") {
+          try { rec.stop(); } catch (e) {}
+          handleLogoutRef.current?.();
+        } else if (command.kind === "clear") {
+          if (activeTab === "symptoms") {
             setAiSymptoms("");
-            showToast("Symptoms field cleared via voice command.");
-          } else if (
-            lowerText === "run diagnosis" || 
-            lowerText === "diagnose" || 
-            lowerText === "submit" || 
-            lowerText === "run triage" || 
-            lowerText === "एनालाइज" || 
-            lowerText === "जांच करो" || 
-            lowerText === "प्रेडिक्ट"
-          ) {
-            showToast("Submitting symptoms diagnosis via voice command...");
-            try { rec.stop(); } catch(e){}
-            setTimeout(() => {
-              const triggerBtn = document.getElementById("ai-triage-submit-btn");
-              if (triggerBtn) {
-                triggerBtn.click();
-              }
-            }, 300);
+            showToast("Symptoms cleared.");
           } else {
-            setAiSymptoms((prev) => {
-              const trimmed = prev.trim();
-              return trimmed ? `${trimmed} ${transcript.trim()}` : transcript.trim();
-            });
+            showToast("\"Clear\" works on the Symptom Checker screen.");
           }
-        } else if (activeTab === "super-app" && superActiveSubTab === "copilot") {
-          setCopilotInputText((prev) => {
-            const trimmed = prev.trim();
-            return trimmed ? `${trimmed} ${transcript.trim()}` : transcript.trim();
-          });
-        } else {
-          setChatInput((prev) => {
-            const trimmed = prev.trim();
-            return trimmed ? `${trimmed} ${transcript.trim()}` : transcript.trim();
-          });
+        } else if (command.kind === "submit") {
+          if (activeTab === "symptoms") {
+            showToast("Running the symptom check...");
+            try { rec.stop(); } catch (e) {}
+            setTimeout(() => document.getElementById("ai-triage-submit-btn")?.click(), 300);
+          } else {
+            showToast("\"Submit\" works on the Symptom Checker screen.");
+          }
         }
+        return;
+      }
+
+      // Otherwise it is dictation, where the current screen has somewhere to put it.
+      const append = (prev: string) => {
+        const trimmed = prev.trim();
+        return trimmed ? `${trimmed} ${transcript}` : transcript;
+      };
+      if (activeTab === "symptoms") {
+        setAiSymptoms(append);
+      } else if (activeTab === "super-app" && superActiveSubTab === "copilot") {
+        setCopilotInputText(append);
+      } else if (activeTab === "consultation") {
+        setChatInput(append);
+      } else {
+        showToast(`Heard "${transcript}". Say "help" for voice commands.`);
       }
     };
 
@@ -2454,30 +2507,62 @@ export default function App() {
   // --- ADDITIONAL CUSTOM LOGIC FOR CITY HEALER ---
   
   // 1. Genuine Firebase Authentication & Session Verification Flow
-  const handleGoogleLogin = async () => {
+  const handleEmailSignIn = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setAuthError(null);
+    const email = authEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthError({ code: "auth/invalid-email", message: "Enter a valid email address." });
+      return;
+    }
+    if (!authPasscode) {
+      setAuthError({ code: "auth/missing-passcode", message: "Enter your password." });
+      return;
+    }
     try {
-      setAuthError(null);
       setAuthLoading(true);
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider, {
-        email: authEmail,
-        name: authName,
-        role: authRoleSelection
-      });
-      
-      // Fast route adjustments to showcase views on login based on selected role
-      if (authRoleSelection === "ADMIN" || authRoleSelection === "HOSPITAL") {
-        setActiveTab("admin");
-      } else if (authRoleSelection === "DOCTOR") {
-        setActiveTab("consultation");
-      } else {
-        setActiveTab("overview");
-      }
-      
-      showToast(`⚡ Fully Authenticated as ${result.user.displayName || result.user.email}! Welcome.`);
+      const result = await signInWithEmailAndPassword(auth, email, authPasscode);
+      setAuthPasscode("");
+      showToast(`Signed in as ${result.user.displayName || result.user.email}.`);
     } catch (err: any) {
-      console.error("Google Sign-In failed:", err.message);
-      setAuthError({ code: err.code || "auth/google-sign-in-failed", message: err.message || "Google sign-in was cancelled or failed." });
+      setAuthError({ code: err.code || "auth/sign-in-failed", message: err.message || "Sign-in failed." });
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleEmailSignUp = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setAuthError(null);
+    const name = authName.trim();
+    const email = authEmail.trim().toLowerCase();
+    if (name.length < 2) {
+      setAuthError({ code: "auth/missing-name", message: "Enter your full name." });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthError({ code: "auth/invalid-email", message: "Enter a valid email address." });
+      return;
+    }
+    if (authPasscode.length < 8) {
+      setAuthError({ code: "auth/weak-password", message: "Password must be at least 8 characters." });
+      return;
+    }
+    if (authPasscode !== authPasscodeConfirm) {
+      setAuthError({ code: "auth/password-mismatch", message: "The two passwords do not match." });
+      return;
+    }
+    try {
+      setAuthLoading(true);
+      // Only patient and doctor accounts can be self-registered. Hospital and
+      // admin accounts are granted by an administrator (npm run set-role).
+      const role = authRoleSelection === "DOCTOR" ? "DOCTOR" : "PATIENT";
+      const result = await registerAccount(auth, { name, email, password: authPasscode, role });
+      setAuthPasscode("");
+      setAuthPasscodeConfirm("");
+      showToast(`Account created. Welcome, ${result.user.displayName || name}.`);
+    } catch (err: any) {
+      setAuthError({ code: err.code || "auth/registration-failed", message: err.message || "Could not create the account." });
     } finally {
       setAuthLoading(false);
     }
@@ -2633,6 +2718,7 @@ export default function App() {
   const handleOfflineBypass = () => {
     setIsAuthenticated(true);
     setActiveRole(authRoleSelection);
+    setSessionRole(null);
     const emailVal = getUserEmailFromInput() || "simulated@cityhealer.com";
     const nameVal = authName.trim() || "City Healer User";
     const phoneVal = authPhone.trim() || "";
@@ -2671,8 +2757,10 @@ export default function App() {
       await signOut(auth);
       safeStorage.removeItem("simulated_auth_profile");
       setDemoSession(null);
+      setSessionRole(null);
       setIsAuthenticated(false);
       setAuthMode("LOGIN");
+      setAuthPasscode("");
       setAuthOtpInput("");
       setAuthOtpSent("");
       setJwtToken("");
@@ -2681,6 +2769,8 @@ export default function App() {
       showToast("Error processing sign-out.");
     }
   };
+
+  handleLogoutRef.current = handleLogout;
 
   // 2. Medication Reminder System Action Handlers
   const toggleReminderTaken = (reminderId: number) => {
@@ -2934,44 +3024,50 @@ export default function App() {
           </div>
 
           <div className="space-y-5">
-            <div>
-              <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Simulate Role Authorization</label>
-              <p className={`text-[11px] mb-2 ${isAppDarkMode ? "text-slate-500" : "text-slate-400"}`}>Select your role to access different areas of the platform after authentication.</p>
-              <select 
-                value={authRoleSelection}
-                onChange={(e: any) => setAuthRoleSelection(e.target.value)}
-                className={`w-full border rounded-xl px-4 py-3.5 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
-                  isAppDarkMode 
-                    ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900 cursor-pointer" 
-                    : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white cursor-pointer"
-                }`}
-              >
-                <option value="PATIENT" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>PATIENT (Primary User / Family Profiles)</option>
-                <option value="DOCTOR" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>DOCTOR (Physician Care Portal)</option>
-                <option value="HOSPITAL" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>HOSPITAL ADMIN (Bed Allocation Coordinator)</option>
-                <option value="ADMIN" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>SYSTEM ADMIN (Delhi NCR Health Registry)</option>
-              </select>
+            <div className={`grid grid-cols-2 gap-1 p-1 rounded-xl text-xs font-bold ${isAppDarkMode ? "bg-slate-950" : "bg-slate-100"}`} role="tablist" aria-label="Sign in or create an account">
+              {([["LOGIN", "Sign in"], ["SIGNUP", "Create account"]] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="tab"
+                  aria-selected={authMode === mode}
+                  onClick={() => { setAuthMode(mode); setAuthError(null); }}
+                  className={`py-2.5 rounded-lg cursor-pointer transition-all ${
+                    authMode === mode
+                      ? (isAppDarkMode ? "bg-slate-800 text-blue-400 shadow-sm" : "bg-white text-blue-600 shadow-sm")
+                      : (isAppDarkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-800")
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
-            <div className="space-y-3">
+            <form className="space-y-3" onSubmit={authMode === "SIGNUP" ? handleEmailSignUp : handleEmailSignIn} noValidate>
+              {authMode === "SIGNUP" && (
+                <div>
+                  <label htmlFor="auth-name" className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Full Name</label>
+                  <input
+                    id="auth-name"
+                    type="text"
+                    autoComplete="name"
+                    value={authName}
+                    onChange={(e) => setAuthName(e.target.value)}
+                    placeholder="e.g. Ananya Verma"
+                    className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
+                      isAppDarkMode
+                        ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900"
+                        : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white"
+                    }`}
+                  />
+                </div>
+              )}
               <div>
-                <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Full Name</label>
+                <label htmlFor="auth-email" className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Email</label>
                 <input
-                  type="text"
-                  value={authName}
-                  onChange={(e) => setAuthName(e.target.value)}
-                  placeholder="e.g. Ananya Verma"
-                  className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
-                    isAppDarkMode
-                      ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900"
-                      : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white"
-                  }`}
-                />
-              </div>
-              <div>
-                <label className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Email ID</label>
-                <input
+                  id="auth-email"
                   type="email"
+                  autoComplete="email"
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
                   placeholder="you@example.com"
@@ -2982,42 +3078,111 @@ export default function App() {
                   }`}
                 />
               </div>
-            </div>
+              <div>
+                <label htmlFor="auth-password" className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Password</label>
+                <input
+                  id="auth-password"
+                  type="password"
+                  autoComplete={authMode === "SIGNUP" ? "new-password" : "current-password"}
+                  value={authPasscode}
+                  onChange={(e) => setAuthPasscode(e.target.value)}
+                  placeholder={authMode === "SIGNUP" ? "At least 8 characters" : "Your password"}
+                  className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
+                    isAppDarkMode
+                      ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900"
+                      : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white"
+                  }`}
+                />
+              </div>
+              {authMode === "SIGNUP" && (
+                <>
+                  <div>
+                    <label htmlFor="auth-password-confirm" className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Confirm Password</label>
+                    <input
+                      id="auth-password-confirm"
+                      type="password"
+                      autoComplete="new-password"
+                      value={authPasscodeConfirm}
+                      onChange={(e) => setAuthPasscodeConfirm(e.target.value)}
+                      placeholder="Type the password again"
+                      className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all ${
+                        isAppDarkMode
+                          ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900"
+                          : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white"
+                      }`}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="auth-role" className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>I am a</label>
+                    <select
+                      id="auth-role"
+                      value={authRoleSelection === "DOCTOR" ? "DOCTOR" : "PATIENT"}
+                      onChange={(e: any) => setAuthRoleSelection(e.target.value)}
+                      className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 transition-all cursor-pointer ${
+                        isAppDarkMode
+                          ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900"
+                          : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white"
+                      }`}
+                    >
+                      <option value="PATIENT" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>Patient</option>
+                      <option value="DOCTOR" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>Doctor</option>
+                    </select>
+                    <p className={`text-[11px] mt-1.5 ${isAppDarkMode ? "text-slate-500" : "text-slate-400"}`}>Hospital and admin accounts are granted by an administrator.</p>
+                  </div>
+                </>
+              )}
 
-            <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} onBypass={handleOfflineBypass} isDarkMode={isAppDarkMode} />
+              <AuthErrorMessage error={authError} onClear={() => setAuthError(null)} onBypass={demoAvailable ? handleOfflineBypass : undefined} isDarkMode={isAppDarkMode} />
 
-            <button
-              type="button"
-              onClick={handleGoogleLogin}
-              disabled={authLoading}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-sm py-4 rounded-xl flex items-center justify-center gap-3 cursor-pointer transition-all shadow-lg shadow-blue-500/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <svg className="w-5 h-5 bg-white p-0.5 rounded-full" viewBox="0 0 24 24">
-                <path fill="#EA4335" d="M12 5.04c1.65 0 3.13.57 4.3 1.69l3.22-3.22C17.56 1.63 14.99 1 12 1 7.35 1 3.39 3.63 1.5 7.5l3.86 3.03C6.27 7.54 8.92 5.04 12 5.04z" />
-                <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.47h6.44c-.28 1.47-1.11 2.71-2.36 3.55l3.65 2.83c2.13-1.97 3.36-4.87 3.36-8.49z" />
-                <path fill="#FBBC05" d="M5.36 14.47c-.24-.72-.37-1.49-.37-2.47s.13-1.75.37-2.47L1.5 6.5C.54 8.43 0 10.15 0 12s.54 3.57 1.5 5.5l3.86-3.03z" />
-                <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.65-2.83c-1.01.68-2.3 1.09-4.31 1.09-3.08 0-5.73-2.5-6.66-5.49L1.48 15.88C3.37 19.75 7.33 23 12 23z" />
-              </svg>
-              {authLoading ? "Authenticating Session..." : "Continue with Google Secure Auth"}
-            </button>
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-sm py-4 rounded-xl flex items-center justify-center gap-3 cursor-pointer transition-all shadow-lg shadow-blue-500/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {authLoading ? "Please wait…" : authMode === "SIGNUP" ? "Create account" : "Sign in"}
+              </button>
+            </form>
 
-            <div className="relative flex py-1 items-center">
-              <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
-              <span className="flex-shrink mx-4 text-[10px] text-slate-400 dark:text-slate-500 font-bold tracking-wider uppercase">Or</span>
-              <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
-            </div>
+            {demoAvailable && (
+              <>
+                <div className="relative flex py-1 items-center">
+                  <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
+                  <span className="flex-shrink mx-4 text-[10px] text-slate-400 dark:text-slate-500 font-bold tracking-wider uppercase">Or</span>
+                  <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
+                </div>
 
-            <button 
-              type="button"
-              onClick={handleOfflineBypass}
-              className={`w-full font-bold text-xs py-3.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] ${
-                isAppDarkMode 
-                  ? "bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white" 
-                  : "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 hover:text-slate-900"
-              }`}
-            >
-              🚀 Explore in Demo / Sandbox Mode
-            </button>
+                <div>
+                  <label htmlFor="demo-role" className={`text-[10px] uppercase font-bold tracking-wider ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>Demo workspace</label>
+                  <select
+                    id="demo-role"
+                    value={authRoleSelection}
+                    onChange={(e: any) => setAuthRoleSelection(e.target.value)}
+                    className={`w-full border rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 font-semibold mt-1 mb-2 transition-all cursor-pointer ${
+                      isAppDarkMode
+                        ? "bg-slate-950 border-slate-800 text-slate-100 focus:bg-slate-900"
+                        : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white"
+                    }`}
+                  >
+                    <option value="PATIENT" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>Patient</option>
+                    <option value="DOCTOR" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>Doctor</option>
+                    <option value="HOSPITAL" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>Hospital staff</option>
+                    <option value="ADMIN" className={isAppDarkMode ? "bg-slate-900 text-white" : ""}>System admin</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleOfflineBypass}
+                    className={`w-full font-bold text-xs py-3.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] ${
+                      isAppDarkMode
+                        ? "bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white"
+                        : "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 hover:text-slate-900"
+                    }`}
+                  >
+                    Explore the demo without an account
+                  </button>
+                  <p className={`text-[11px] mt-1.5 ${isAppDarkMode ? "text-slate-500" : "text-slate-400"}`}>The demo uses sample data only and saves nothing to a real account.</p>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -3070,6 +3235,56 @@ export default function App() {
       <PageTransition activeTab={activeTab} onChangeTab={(tab) => {
         setActiveTab(tab);
       }} />
+      {/* Location consent: asked once, in plain words, before the browser prompt */}
+      {locationChoice === "unknown" && (
+        <div
+          role="dialog"
+          aria-labelledby="location-consent-title"
+          className={`fixed bottom-6 left-24 z-40 max-w-sm rounded-2xl border p-4 shadow-2xl ${isAppDarkMode ? "bg-slate-900 border-slate-700 text-slate-100" : "bg-white border-slate-200 text-slate-900"}`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-blue-600 p-2 text-white shrink-0"><MapPin className="h-4 w-4" /></div>
+            <div>
+              <h3 id="location-consent-title" className="text-sm font-extrabold">Use your location?</h3>
+              <p className={`text-xs mt-1 leading-relaxed ${isAppDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                City Healer can list the nearest hospitals and doctors first and send your position with an SOS. Your location is used only for this and is not stored.
+              </p>
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={getUserRealTimeLocation}
+                  disabled={isLocatingUser}
+                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
+                >
+                  {isLocatingUser ? "Finding you…" : "Allow location"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => rememberLocationChoice("declined")}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer ${isAppDarkMode ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                >
+                  Not now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Voice commands: available on every screen */}
+      {speechSupported && (
+        <button
+          type="button"
+          onClick={toggleListening}
+          aria-pressed={isListening}
+          aria-label={isListening ? "Stop voice commands" : "Start voice commands"}
+          title={isListening ? "Listening. Say \"help\" for commands, or click to stop." : "Voice commands: click, then say \"help\""}
+          className={`fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full flex items-center justify-center shadow-xl cursor-pointer transition-all active:scale-95 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 ${
+            isListening ? "bg-red-600 text-white shadow-red-600/30 animate-pulse" : "bg-blue-600 text-white shadow-blue-600/30 hover:bg-blue-500"
+          }`}
+        >
+          {isListening ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+        </button>
+      )}
       {/* Toast notifications */}
       <AnimatePresence>
         {toastMessage && (
@@ -3450,7 +3665,7 @@ export default function App() {
                 { id: "DOCTOR", label: getTranslation(appLanguage, "roleDoctor") },
                 { id: "HOSPITAL", label: getTranslation(appLanguage, "roleHospital") },
                 { id: "ADMIN", label: getTranslation(appLanguage, "roleAdmin") }
-              ].map((role) => (
+              ].filter((role) => !sessionRole || sessionRole === "ADMIN" || role.id === sessionRole).map((role) => (
                 <button
                   key={role.id}
                   onClick={() => {
@@ -3568,13 +3783,14 @@ export default function App() {
           </div>
         ) : (
           <div className="flex-1 pr-1 relative z-10 min-h-0 pb-6">
-            <AnimatePresence mode="wait">
+            {/* No exit animation: with AnimatePresence mode="wait", clicking tabs quickly
+                left the previous screen on display while the URL had moved on. */}
+            <>
               <motion.div
                 key={activeTab}
-                initial={{ opacity: 0, y: 12 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.22, ease: "easeOut" }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
                 className="w-full flex flex-col flex-1"
               >
                 {/* TAB VIEW 1: MASTER OVERVIEW - PREMIUM ANIMATED LANDING PAGE */}
@@ -3946,7 +4162,7 @@ export default function App() {
                     <div className="bg-slate-100 rounded-3xl p-6 border border-slate-200 flex flex-col sm:flex-row gap-4 justify-between items-center">
                   <div className="space-y-1">
                     <h2 className="text-xl font-black text-slate-900">Virtual Triage Symptom Checker</h2>
-                    <p className="text-xs text-slate-500">Provide physical details below. Powered server-side by {aiModelLabel} with a structured clinical schema.</p>
+                    <p className="text-xs text-slate-500">Provide physical details below. Powered server-side by {aiModelLabel}.</p>
                   </div>
                   <div className="bg-emerald-50 text-emerald-700 px-3 py-1 text-[11px] font-bold rounded-lg flex items-center gap-1">
                     <Sparkles className="h-3.5 w-3.5" /> Private to Your Account
@@ -4089,7 +4305,7 @@ export default function App() {
                     </div>
 
                     <div className="border-t border-white/10 pt-4 mt-4 text-[10px] opacity-75 leading-relaxed">
-                      All clinical evaluations run on custom system prompts to safely isolate urgent cardio-respiratory indicators, recommending responsive specialists and automatic transport dispatch triggers when necessary.
+                      Red-flag symptoms are decided by fixed safety rules before the trained model is consulted, and the model answers only when it is confident. This is triage guidance, not a diagnosis.
                     </div>
                   </div>
                 </div>
@@ -4203,7 +4419,8 @@ export default function App() {
                             <button
                               onClick={() => {
                                 setActiveTab("consultation");
-                                setSearchQuery(aiReport.specialistType);
+                                // Search by the category doctors are listed under, not the display text.
+                                setSearchQuery(aiReport.doctorSpecialty || aiReport.specialistType);
                               }}
                               className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl shadow text-center cursor-pointer"
                             >
@@ -4334,7 +4551,7 @@ export default function App() {
                                   </p>
                                   <div className="text-[10px] text-teal-700 bg-teal-50 border border-teal-100/60 px-2 py-1 rounded-xl w-fit font-black flex items-center gap-1 mt-2 shadow-2xs">
                                     <Compass className="h-3.5 w-3.5 shrink-0" />
-                                    {getDistanceToUser(h).toFixed(1)} km away
+                                    {getDistanceToUser(h).toFixed(1)} km {userLocationCoords ? "away" : "from central Delhi"}
                                   </div>
                                 </div>
 
@@ -4951,7 +5168,7 @@ export default function App() {
                                     <span className={`w-2 h-2 rounded-full shrink-0 ${doc.online ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
                                   </div>
                                   <p className="text-[11px] text-blue-600 font-bold truncate leading-none">{doc.specialty}</p>
-                                  <p className="text-[10px] text-slate-400 truncate">{doc.hospitalName}</p>
+                                  <p className="text-[10px] text-slate-400 truncate">{doc.hospitalName}{doc.distanceKm != null ? ` · ${doc.distanceKm.toFixed(1)} km` : ""}</p>
                                 </div>
                               </div>
 
@@ -9230,7 +9447,7 @@ export default function App() {
               <DeveloperHub isAppDarkMode={isAppDarkMode} />
             )}
           </motion.div>
-        </AnimatePresence>
+        </>
             {/* ADD PATIENT / FAMILY MEMBER ONBOARD MODAL */}
             <AnimatePresence>
               {isAddPatientOpen && (
