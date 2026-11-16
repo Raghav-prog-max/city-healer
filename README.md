@@ -6,7 +6,7 @@ e-pharmacy, health records, and ambulance SOS dispatch — across four enforced
 roles (patient, doctor, hospital, admin).
 
 React 19 + Vite + Tailwind v4 on the front, Express + SQLite on the back, Firebase
-Authentication and Firestore for sign-in and patient profiles, and AI models trained in
+Authentication and Firestore for sign-in, patient profiles, bookings and prescriptions, and AI models trained in
 this repository (see [ml/README.md](ml/README.md)). One process serves both the API and
 the frontend; no external AI service is called.
 
@@ -30,6 +30,10 @@ covers the emulators and setting up a real Firebase project; [.env.example](.env
 lists every variable.
 
 First boot creates the SQLite schema and seeds 52 hospitals, 80 doctors and 31 medicines.
+Appointments are not in SQLite: every booking, prescription and consultation lives in
+Firestore (see *Booking verified doctors*). The old SQLite `appointments`, `queue_tokens` and
+`chat_messages` tables are still created so an existing database opens, but nothing reads,
+writes or seeds them.
 
 ## Commands
 
@@ -72,9 +76,12 @@ npm run set-role -- --email desk@apollo.example --role HOSPITAL --hospitalId hos
 npm run set-role -- --list
 ```
 
-A doctor sees patients only through the `doctorId` claim (their row in `doctors`), and
-hospital staff can change only the facility in `hospitalId`. An unlinked doctor or hospital
-account sees and changes nothing. Add `--emulators` to run these against `npm run dev`. See
+A doctor sees a patient only through a booking with them (Firestore), and reads that patient's
+records only inside the booking's time window and with the patient's consent
+(`GET /api/v1/appointments/:id/records`); `GET /api/records` gives a doctor nothing. The
+`doctorId` claim links a doctor account to its row in the sample directory (`doctors`), for the
+online toggle only. Hospital staff can change only the facility in `hospitalId`. An unlinked
+hospital account sees and changes nothing. Add `--emulators` to run these against `npm run dev`. See
 [FIREBASE_SETUP.md](FIREBASE_SETUP.md).
 
 ### Doctors who take bookings
@@ -90,8 +97,23 @@ No command line is needed to onboard a provider:
    note saying where it was checked) or refuses (with a reason the doctor sees).
 5. A verified doctor publishes and withdraws times and sees who has booked.
 
-Hospital desks, and the consultation tools for doctors and admins, are still in the earlier
-workspace at `/dashboard`.
+### Staff screens
+
+Every screen is in the site under `src/site`, in English and Hindi:
+
+| Who | Where | What |
+| --- | --- | --- |
+| Patient | `/en/dashboard` | Assistant, find care and booking, appointments, records, medicines, emergency |
+| Doctor | `/en/provider` | Application, times, bookings: complete, cancel, prescribe, read the patient's records |
+| Hospital desk | `/en/hospital` | The account's own facility (its `hospitalId` claim): bed and ICU numbers, emergency alerts |
+| Admin | `/en/admin/providers`, `/en/admin/hospitals` | Doctor role and application review; listings patients reported |
+
+The earlier all-in-one workspace (`src/App.tsx`, with its browser-stored "fallback database"
+in `src/utils/api.ts`) has been removed, with the SQLite appointment, OPD queue and
+consultation-chat routes it used (`/api/appointments`, `/api/queue`, `/api/chat`,
+`/api/doctors/:id/booked`, `/api/users/:uid`); those now answer 404. Old `/dashboard` links open the
+patient dashboard, which sends a staff account on to its own screen; any other unknown address
+shows a 404 page.
 
 ## Security
 
@@ -200,15 +222,16 @@ times (from City_Healer_Integrated_Doctor_Booking; `server/firebase/booking.ts`,
    audit event and a pending notification in `notificationOutbox` (nothing is sent yet).
 
 Registration numbers are never returned by the API, the four collections are closed to client
-SDKs (`firebase/firestore.rules`), and staff and demo accounts cannot book. There is no doctor
-or admin screen for steps 1 to 3 yet, and no cancellation cutoff, fees or payments.
+SDKs (`firebase/firestore.rules`), and staff and demo accounts cannot book. Steps 1 to 3 also
+have screens (*Doctors who take bookings* above). There is no cancellation cutoff, fees or
+payments, and no OPD queue tokens or appointment chat (the SQLite versions were removed).
 
 ### Sample directory
 
 The 80 doctors are a sample directory using real practitioners' names with unverified details.
-They are **look-only**: "Not verified · booking unavailable", and the server refuses to book
-them. A doctor becomes bookable only after `npm run verify-doctor` records a checked
-registration. No open dataset links Indian doctors to hospitals; doctors are meant to be added
+They are **look-only**: "Not verified · booking unavailable". `npm run verify-doctor` records a
+checked registration on a directory row, but booking is only ever with verified providers
+(Firestore), never with a directory row. No open dataset links Indian doctors to hospitals; doctors are meant to be added
 by their hospitals during provider onboarding.
 
 ## Scope

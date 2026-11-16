@@ -3,9 +3,10 @@
 City Healer signs people in with **Firebase Authentication** (a phone code by SMS, or email
 and password) and keeps patient profiles, consents and an audit log in **Cloud Firestore**.
 Verified providers, their times, bookings and the prescriptions written for those bookings are
-also in Firestore, reachable only through the server. Directory data (hospitals, sample doctors,
-medicines) and the health-wallet records patients save stay in SQLite, keyed by the Firebase
-user id.
+also in Firestore, reachable only through the server; they are the only appointments there are
+(the SQLite appointment, OPD queue and chat routes have been removed). Directory data
+(hospitals, sample doctors, medicines), hospital bed numbers, emergency alerts, medicine orders
+and the health-wallet records patients save stay in SQLite, keyed by the Firebase user id.
 
 This follows *City_Healer_Backend_Auth_Foundation.zip*: phone OTP on the client, Firebase ID
 tokens verified on the server with the Admin SDK, roles as custom claims, strict Zod schemas,
@@ -47,8 +48,9 @@ npm run set-password -- --email someone@example.com --password <new password>
 ```
 
 Add `--emulators` to run them against the local emulators while `npm run dev` is running.
-A doctor sees only the patients of the `doctors` row in `doctorId`, and hospital staff can
-update only the facility in `hospitalId`. Changing a role signs that person out everywhere,
+A doctor sees a patient only through a booking with them (Firestore); `doctorId` links the
+account to its sample-directory row, for the online toggle only. Hospital staff see and update
+only the facility in `hospitalId`, on the hospital desk (`/en/hospital`). Changing a role signs that person out everywhere,
 so the change applies at once.
 
 ## Setting up the real project
@@ -94,7 +96,7 @@ These steps need your Google account, so you do them yourself:
    npm run migrate-users -- --dry-run
    npm run migrate-users
    ```
-   Everyone keeps their user id (so their appointments and records stay theirs) and their
+   Everyone keeps their user id (so their records stay theirs) and their
    password, because Firebase accepts the existing bcrypt hashes. The script lists any
    account it imports without a password. Those people use *Forgot password*.
 9. **Make the first administrator:**
