@@ -10,7 +10,12 @@ import dns from "dns";
 import { dbRun, dbGet, dbAll, initializeDatabase } from "./database";
 import { detectLang } from "./shared/triage";
 import { triage, TRIAGE_MODEL_LABEL } from "./shared/triageModel";
-import { haversineKm, parseLatLng, sortByDistance, DELHI_CENTRE } from "./shared/geo";
+import { llmTriage } from "./server/ai/llm";
+import { answerWithRetrieval } from "./server/ai/rag";
+import { createFixedWindowLimiter } from "./server/rateLimit";
+import { estimateOpdWait } from "./shared/waitTime";
+import { scoreHospital, topK, scorePercent } from "./shared/hospitalRanking";
+import { haversineKm, parseLatLng, sortByDistance, nearest, DELHI_CENTRE } from "./shared/geo";
 import { matchDepartmentWithSource, doctorCategoryFor } from "./shared/specialties";
 import { isUnconfirmedListing } from "./shared/hospitalData";
 import { analyseLabReport, PANEL_FIELDS, type Panel } from "./shared/labModels";
@@ -195,21 +200,13 @@ const requireRole = (...roles: Role[]) =>
 // against abuse rather than cost (it was 30 when every call went to a paid API).
 const AI_RATE_LIMIT = Number(process.env.AI_RATE_LIMIT) || 300;
 const AI_RATE_WINDOW_MS = 60 * 60 * 1000;
-const aiRateWindow = new Map<string, { count: number; windowStart: number }>();
+// Fixed window per key (server/rateLimit.ts, A14).
+const aiLimiter = createFixedWindowLimiter({ limit: AI_RATE_LIMIT, windowMs: AI_RATE_WINDOW_MS });
 
 const aiRateLimit = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const user = getAuthUser(req);
   if (!user) {
     return res.status(401).json({ error: "Authentication required." });
-  }
-
-  const now = Date.now();
-
-  // Opportunistic prune so the map cannot grow without bound.
-  if (aiRateWindow.size > 5000) {
-    for (const [k, v] of aiRateWindow) {
-      if (now - v.windowStart > AI_RATE_WINDOW_MS) aiRateWindow.delete(k);
-    }
   }
 
   // Every anonymous demo caller resolves to the same synthetic uid, so keying the
@@ -219,15 +216,9 @@ const aiRateLimit = (req: express.Request, res: express.Response, next: express.
     ? `demo:${req.ip || req.socket.remoteAddress || "unknown"}`
     : user.uid;
 
-  const entry = aiRateWindow.get(quotaKey);
-  if (!entry || now - entry.windowStart > AI_RATE_WINDOW_MS) {
-    aiRateWindow.set(quotaKey, { count: 1, windowStart: now });
-    return next();
-  }
-
-  entry.count += 1;
-  if (entry.count > AI_RATE_LIMIT) {
-    const retryAfterSeconds = Math.ceil((entry.windowStart + AI_RATE_WINDOW_MS - now) / 1000);
+  const decision = aiLimiter.hit(quotaKey);
+  if (!decision.allowed) {
+    const retryAfterSeconds = decision.retryAfterSeconds;
     res.setHeader("Retry-After", String(retryAfterSeconds));
     return res.status(429).json({
       error: `AI request quota exceeded (${AI_RATE_LIMIT} per hour). Please try again later.`,
@@ -309,9 +300,6 @@ async function doctorTreatsPatient(doctorUid: string, patientId: string): Promis
   return !!link;
 }
 
-// Shared metric scoring matcher helper
-/** Highest score a hospital can reach: specialty 50 + reported free bed 10 + reported ICU 20 + distance 40. */
-const MAX_HOSPITAL_SCORE = 120;
 
 /**
  * Up to three doctors of the given category for the copilot and symptom triage.
@@ -379,66 +367,16 @@ async function recommendHospitals(specialistType: string, urgencyLevel: string, 
       hasOpdBooking: !!h.hasOpdBooking
     }));
 
-    const scored = hospitalsFromDb.map((h) => {
-      let score = 0;
-      
-      // 1. Department for the specialist, by how well it is known (shared/hospitalData.ts):
-      //    listed or in the name 50; expected under IPHS for the facility type 30; a large
-      //    general hospital whose departments are not listed 15.
-      const match = matchDepartmentWithSource(specialistType, h.specialties, h.departmentSources);
-      const department = match?.department ?? null;
-      const matchesSpecialty = department !== null;
-      if (match) score += match.source === "standard" ? 30 : 50;
-      else if (h.generalCare) score += 15;
-      // A listing nothing confirms and whose name the facility classifier doubts is a
-      // hospital (shared/hospitalData.ts isUnconfirmedListing) goes below the others.
-      if (h.unconfirmed) score -= 40;
-      
-      // 2. Bed & ICU score
-      if (h.availableBeds > 0) score += 10;
-      if (urgencyLevel === "CRITICAL" || urgencyLevel === "HIGH") {
-        if (h.icuAvailable > 0) score += 20;
-      }
-      
-      // 3. (No rating score: hospital ratings in this data are unverified, and imported
-      //    hospitals have none, so they would only tilt the ranking towards the seeded ones.)
-      
-      // 4. Distance score, from the patient's position (central Delhi if not shared)
-      const distKM = haversineKm(parseLatLng(userLat, userLng) || DELHI_CENTRE, h);
-      const distScore = Math.max(0, 40 - distKM);
-      score += distScore;
-      
-      // 5. Travel time: an estimate, not live traffic. Straight-line distance at an average
-      // Delhi road speed of about 22 km/h, plus 5 minutes to get going. (This used to be
-      // multiplied by a random "traffic factor", so the same hospital showed a different
-      // time on every request.)
-      const travelTimeMin = Math.round(5 + (distKM / 22) * 60);
-      
-      return {
-        hospital: h,
-        score,
-        distanceKM: Number(distKM.toFixed(1)),
-        travelTimeMin,
-        matchReason: match
-          ? match.source === "standard"
-            ? `Usually has ${department} (${h.facilityType || "public hospital"} standard) - call to confirm`
-            : match.source === "empanelled"
-              ? `${department} - empanelled under ${h.empanelment.map((e: any) => e.scheme).filter((s: string, i: number, a: string[]) => a.indexOf(s) === i).join(" / ") || "CGHS / DGEHS"}`
-              : `${department} department`
-          : h.generalCare
-            ? "Large general hospital - departments not listed, call to confirm"
-            : "Nearby hospital - departments not listed"
-      };
-    });
-    
-    scored.sort((a, b) => b.score - a.score);
-    
-    return scored.slice(0, 3).map((item) => ({
+    // Weighted scoring and top-k: shared/hospitalRanking.ts (A5).
+    const origin = parseLatLng(userLat, userLng) || DELHI_CENTRE;
+    const scored = hospitalsFromDb.map((h) => ({ hospital: h, ...scoreHospital(h, specialistType, urgencyLevel, origin) }));
+
+    return topK(scored, 3, (x) => x.score).map((item) => ({
       ...item.hospital,
       distanceKM: item.distanceKM,
       travelTimeMin: item.travelTimeMin,
       // As a percentage of the best possible score, so the UI can show "Match: 87%".
-      recommendationScore: Math.max(0, Math.round((item.score / MAX_HOSPITAL_SCORE) * 100)),
+      recommendationScore: scorePercent(item.score),
       matchReason: item.matchReason
     }));
   } catch (err) {
@@ -1252,7 +1190,8 @@ app.post("/api/queue/take", async (req, res) => {
       patientName: pName,
       doctorId: docInfo.id,
       doctorName: docInfo.name,
-      estimatedWaitTimeMin: (docInfo.queueCount * 12) + 10,
+      // shared/waitTime.ts (A7); with no timing data this is 12 x queue + 10, as before.
+      estimatedWaitTimeMin: estimateOpdWait({ patientsAhead: docInfo.queueCount }).minutes,
       status: "WAITING",
       checkpointTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -1471,16 +1410,8 @@ app.post("/api/emergency/sos", async (req, res) => {
     const tLat = Number(lat) || 28.5362;
     const tLng = Number(lng) || 77.2840;
 
-    // Find closest hospital
-    let nearestHospital = hospitalsList[0];
-    let minDistance = Infinity;
-    hospitalsList.forEach(h => {
-      const dist = haversineKm({ lat: tLat, lng: tLng }, h);
-      if (dist < minDistance) {
-        minDistance = dist;
-        nearestHospital = h;
-      }
-    });
+    // Closest hospital by linear scan (shared/geo.ts nearest, A6).
+    const nearestHospital = nearest({ lat: tLat, lng: tLng }, hospitalsList)?.item ?? hospitalsList[0];
 
     const alertId = "sos-" + Date.now();
     const alert = {
@@ -1670,8 +1601,9 @@ app.post("/api/symptoms/check", aiRateLimit, async (req, res) => {
     return res.status(400).json({ error: "Please enter your symptoms for clinical analysis." });
   }
 
-  // Safety rules first, then the trained model, then the rules again: see shared/triageModel.ts.
-  const result: any = triage(String(symptoms), language);
+  // Safety rules first, then (only if GEMINI_API_KEY is set) the LLM, else the trained model
+  // and the rules again: server/ai/llm.ts. `engine` says which answered ("offline" | "llm:<model>").
+  const result: any = await llmTriage(String(symptoms), language);
   // Route on the English specialist: the displayed one may be in Hindi.
   const specialist = result.specialistEn || result.specialistType;
   result.recommendedHospitals = await recommendHospitals(specialist, result.urgencyLevel, userLat, userLng);
@@ -1774,6 +1706,20 @@ app.post("/api/ai/copilot", aiRateLimit, async (req, res) => {
   } catch (err: any) {
     console.error("[Copilot Error]", err);
     res.status(500).json({ error: "The assistant could not answer. For an emergency call 112." });
+  }
+});
+
+// Retrieval-augmented answer over the medicine dataset (server/ai/rag.ts, A10): top-k cited
+// passages, then a templated answer (or, with GEMINI_API_KEY, an LLM answer limited to them).
+app.post("/api/v1/knowledge/ask", aiRateLimit, async (req, res) => {
+  const question = typeof req.body?.question === "string" ? req.body.question.trim() : "";
+  if (!question || question.length > 500) return res.status(400).json({ error: "question must be 1 to 500 characters." });
+  const k = Number(req.body?.k) || 3;
+  try {
+    res.json(await answerWithRetrieval(question, { k }));
+  } catch (err) {
+    console.error("[knowledge ask]", (err as Error)?.message);
+    res.status(500).json({ error: "The question could not be answered." });
   }
 });
 

@@ -166,7 +166,8 @@ describe("anonymous callers are rejected on every guarded route", () => {
     ["POST", "/api/medicines/guide", { name: "x" }],
     ["POST", "/api/diet/recommend", { condition: "x", preference: "Veg" }],
     ["POST", "/api/developer/ai-pipeline", { prompt: "x" }],
-    ["POST", "/api/medicines/search-nationwide", { query: "x" }]
+    ["POST", "/api/medicines/search-nationwide", { query: "x" }],
+    ["POST", "/api/v1/knowledge/ask", { question: "x" }]
   ];
 
   for (const [method, route, body] of guarded) {
@@ -557,6 +558,24 @@ describe("triage routes the patient to the right place", () => {
       assert.ok(h.recommendationScore <= 100);
     }
     assert.ok(r.body.recommendedDoctors.every((d: any) => d.specialty === "Gastroenterologist"));
+  });
+
+  test("with no LLM key the offline engine answers and says so", async () => {
+    const r = await check("I get a burning feeling in my chest after meals and sour liquid comes up when I lie down at night");
+    assert.equal(r.status, 200);
+    assert.equal(r.body.engine, "offline");
+    assert.equal(r.body.source, "ml-model");
+  });
+
+  test("knowledge answers cite the retrieved medicine passages (RAG, offline)", async () => {
+    const r = await api("POST", "/api/v1/knowledge/ask", erin.token, { question: "medicine for acidity", k: 3 });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.engine, "offline");
+    assert.ok(r.body.passages.length > 0 && r.body.passages.length <= 3);
+    assert.deepEqual(r.body.citations, r.body.passages.map((p: any) => p.id));
+    assert.ok(r.body.answer.includes(`[${r.body.passages[0].id}]`));
+    const bad = await api("POST", "/api/v1/knowledge/ask", erin.token, { question: "" });
+    assert.equal(bad.status, 400);
   });
 
   test("a different condition gets different hospitals", async () => {
