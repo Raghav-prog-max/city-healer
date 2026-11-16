@@ -2255,47 +2255,6 @@ export const doctors = [
   }
 ];
 
-export const appointments: any[] = [
-  {
-    id: "app-101",
-    patientId: "patient-default",
-    patientName: "Raghav Ram",
-    doctorId: "doc-1",
-    doctorName: "Dr. Rajesh Sharma",
-    specialty: "Primary Care / Family Physician",
-    date: "2026-05-29",
-    time: "10:30 AM",
-    status: "ACCEPTED",
-    symptoms: "Fever and smog cough since yesterday afternoon",
-    type: "VIRTUAL"
-  }
-];
-
-export const queueTokens: any[] = [
-  {
-    id: "q-1",
-    tokenNumber: "GP-034",
-    patientId: "patient-123",
-    patientName: "Robert Miller",
-    doctorId: "doc-1",
-    doctorName: "Dr. Rajesh Sharma",
-    estimatedWaitTimeMin: 10,
-    status: "WAITING",
-    checkpointTime: "09:05 AM"
-  },
-  {
-    id: "q-2",
-    tokenNumber: "GP-035",
-    patientId: "patient-456",
-    patientName: "Emily Watson",
-    doctorId: "doc-1",
-    doctorName: "Dr. Rajesh Sharma",
-    estimatedWaitTimeMin: 20,
-    status: "WAITING",
-    checkpointTime: "09:12 AM"
-  }
-];
-
 export const medicalRecords: any[] = [
   {
     id: "rec-1",
@@ -2317,23 +2276,6 @@ export const medicalRecords: any[] = [
   }
 ];
 
-let prescriptions: any[] = [
-  {
-    id: "rx-901",
-    appointmentId: "app-101",
-    patientId: "patient-default",
-    patientName: "Raghav Ram",
-    doctorId: "doc-1",
-    doctorName: "Dr. Rajesh Sharma",
-    date: "2026-05-28",
-    diagnosis: "Arid smog allergies and mild bronchial hyper-responsiveness",
-    medicines: [
-      { name: "Paracetamol 650mg (Crocin)", dosage: "650 mg", frequency: "Three times daily after meals if high temperature", duration: "3 days" },
-      { name: "Montelukast & Levocetirizine", dosage: "10 mg / 5 mg", frequency: "Daily before sleep", duration: "10 days" }
-    ],
-    instructions: "Stay indoors during high AQI index mornings. Use heavy-duty N95 mask. Keep air purifiers running."
-  }
-];
 
 export const medicineProducts = [
   {
@@ -2774,4 +2716,3 @@ export const medicineProducts = [
 
 export const medicineOrders: any[] = [];
 export const emergencyAlerts: any[] = [];
-export const activeChats: { [appId: string]: any[] } = {};
