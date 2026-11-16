@@ -186,7 +186,7 @@ describe("booking", () => {
     assert.ok(appt, "the doctor's list includes Alice's booking");
     assert.equal(appt.patientName, "Alice Patient");
     assert.equal(appt.status, "confirmed");
-    assert.deepEqual(Object.keys(appt).sort(), ["cancelledBy", "chat", "consultationType", "endsAt", "hasPrescription", "id", "patientName", "reason", "startsAt", "status"], "nothing else about the patient is sent");
+    assert.deepEqual(Object.keys(appt).sort(), ["arrivedAt", "calledAt", "cancelledBy", "chat", "consultationType", "endsAt", "hasPrescription", "id", "patientName", "reason", "startsAt", "status"], "nothing else about the patient is sent");
     assert.deepEqual(appt.chat, { unread: false, urgent: false }, "whether there are messages, never what they say");
 
     const other = await api("GET", "/api/v1/appointments/doctor", a.otherDoctor.token);

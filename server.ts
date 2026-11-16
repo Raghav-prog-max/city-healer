@@ -29,6 +29,7 @@ import { providerDoctorsRouter, appointmentsRouter, verifiedProviders } from "./
 import { providerSelfRouter, adminProvidersRouter } from "./server/firebase/providers";
 import { consultationsRouter, prescriptionsRouter } from "./server/firebase/consultations";
 import { messagesRouter } from "./server/firebase/messages";
+import { checkinRouter } from "./server/firebase/checkin";
 import { rateLimit } from "./server/firebase/rateLimit";
 import { requireConsent } from "./server/firebase/consent";
 import { BUILD_INFO_FILE, frontendBuildProblem } from "./shared/buildEnv";
@@ -474,6 +475,9 @@ app.use("/api/v1/prescriptions", prescriptionsRouter());
 const appointmentPostLimit = rateLimit({ limit: Number(process.env.MESSAGES_POST_LIMIT) || 20, windowMs: 10 * 60_000 });
 const appointmentPollLimit = rateLimit({ limit: Number(process.env.MESSAGES_POLL_LIMIT) || 30, windowMs: 60_000 });
 app.use("/api/v1/appointments", messagesRouter({ postLimit: appointmentPostLimit, pollLimit: appointmentPollLimit }));
+// Same-day check-in on in-person bookings (server/firebase/checkin.ts). Before the patient-only
+// booking router too, since doctors call patients in. GET /queue shares the poll limiter.
+app.use("/api/v1/appointments", checkinRouter({ pollLimit: appointmentPollLimit }));
 app.use("/api/v1/appointments", appointmentsRouter());
 // Doctor and admin screens for provider onboarding (server/firebase/providers.ts).
 app.use("/api/v1/provider", providerSelfRouter());

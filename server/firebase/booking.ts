@@ -252,7 +252,12 @@ export async function rescheduleAppointment(uid: string, id: string, newSlotId: 
     if (n.get("startsAt") <= nowIso()) throw Error("SLOT_IN_PAST");
     tx.update(ns, { status: "booked", appointmentId: id, updatedAt: FieldValue.serverTimestamp() });
     if (o.exists && o.get("appointmentId") === id) tx.update(os, { status: "open", appointmentId: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
-    tx.update(a, { slotId: newSlotId, startsAt: n.get("startsAt"), endsAt: n.get("endsAt"), updatedAt: FieldValue.serverTimestamp() });
+    // A check-in belongs to the old time (server/firebase/checkin.ts): the new one starts afresh.
+    tx.update(a, {
+      slotId: newSlotId, startsAt: n.get("startsAt"), endsAt: n.get("endsAt"),
+      arrivedAt: FieldValue.delete(), calledAt: FieldValue.delete(), checkInCount: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
     tx.create(outboxCol().doc(), { type: "appointment_rescheduled", recipientUid: uid, appointmentId: id, status: "pending", createdAt: FieldValue.serverTimestamp() });
   });
   await writeAuditEvent({ actorUid: uid, action: "appointment.rescheduled", resourceType: "appointment", resourceId: id });
@@ -373,6 +378,8 @@ export function appointmentsRouter() {
         id: d.id, patientName: nameOf.get(String(d.get("patientUid"))) || "", reason: d.get("reason") || "",
         startsAt: d.get("startsAt"), endsAt: d.get("endsAt"), consultationType: d.get("consultationType"), status: d.get("status"),
         cancelledBy: d.get("cancelledBy") || null, hasPrescription: !!d.get("hasPrescription"),
+        // Same-day check-in (server/firebase/checkin.ts): when the patient arrived and was called.
+        arrivedAt: d.get("arrivedAt") ?? null, calledAt: d.get("calledAt") ?? null,
         // Whether there is something to read, never what it says (server/firebase/messages.ts).
         chat: { unread: doctorUnread(d.get("chat") || {}), urgent: isUrgent(d.get("chat") || {}) },
       })).sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
