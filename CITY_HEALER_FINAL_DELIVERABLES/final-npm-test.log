@@ -1,0 +1,846 @@
+
+> city-healer@0.0.0 test
+> npm run test:unit && npm run test:server
+
+
+> city-healer@0.0.0 test:unit
+> tsx --test tests/triage-heuristic.test.ts tests/triage-model.test.ts tests/geo.test.ts tests/specialties.test.ts tests/hospital-data.test.ts tests/facility-model.test.ts tests/platform.test.ts tests/ai-models.test.ts tests/consent-rules.test.ts tests/lab-values.test.ts tests/build-env.test.ts tests/algorithms.test.ts tests/emergency-safety.test.ts tests/prescription-pdf.test.ts tests/appointment-thread.test.ts
+
+▶ lab risk models
+  ✔ diabetes: matches scikit-learn probabilities (0.8931ms)
+  ✔ heart: matches scikit-learn probabilities (0.1845ms)
+  ✔ liver: matches scikit-learn probabilities (0.1646ms)
+  ✔ higher glucose raises diabetes risk (0.1283ms)
+  ✔ missing values are reported, not hidden (0.1378ms)
+  ✔ reference ranges and patterns (0.7991ms)
+✔ lab risk models (3.1535ms)
+▶ intent model
+  ✔ matches scikit-learn predictions (1.4153ms)
+  ✔ routes everyday requests in three languages (0.5277ms)
+✔ intent model (2.1313ms)
+▶ medicine retrieval
+  ✔ finds products despite misspelling (138.3286ms)
+  ✔ searches by use, one result per composition (7.8299ms)
+  ✔ substitutes share the exact composition (2.874ms)
+✔ medicine retrieval (149.2451ms)
+▶ diet recommender
+  ✔ parses conditions in plain words (0.4416ms)
+  ✔ vegetarian plans contain no meat, fish or egg (18.0845ms)
+  ✔ diabetic plans avoid sweets and land near the calorie target (0.9705ms)
+  ✔ no food repeats within a day (1.3566ms)
+✔ diet recommender (21.0294ms)
+▶ orchestrator
+  ✔ emergency wording is escalated by rules, before any model (5.387ms)
+  ✔ Hindi emergency wording too (2.4724ms)
+  ✔ symptoms go to the triage model and bring doctors of the right kind (2.0312ms)
+  ✔ lab values typed in a message are read and analysed (3.2946ms)
+  ✔ medicine questions are answered from the catalogue (3.2856ms)
+  ✔ diet requests return a plan (1.1106ms)
+  ✔ gibberish is not guessed at (0.2163ms)
+  ✔ replies in Hindi to Hindi (0.2397ms)
+  ✔ every call is monitored (1.3799ms)
+✔ orchestrator (19.6977ms)
+▶ model registry
+  ✔ every deployed model has data, metrics and limitations (0.107ms)
+✔ model registry (0.1708ms)
+▶ A1 LLM structured JSON triage
+  ✔ A1: a valid model reply becomes the triage result, tagged with the model (6.2323ms)
+  ✔ A1: CRITICAL from the model always raises the SOS flag (1.9438ms)
+  ✔ A1: the Gemini caller asks for JSON and sends the key in a header, not the URL (0.6758ms)
+✔ A1 LLM structured JSON triage (9.5547ms)
+▶ A2 severity-ordered emergency rules
+  ✔ A2: cough plus chest pain is treated as cardio-respiratory, never as a cold (0.2033ms)
+  ✔ A2: unrecognised input is not guessed (0.169ms)
+  ✔ A2: emergency rules override the LLM - the model is never called (0.1616ms)
+✔ A2 severity-ordered emergency rules (0.6964ms)
+▶ A3 bilingual keyword and co-occurrence matching
+  ✔ A3: Devanagari chest + pain with an adjective in between still escalates (1.9353ms)
+  ✔ A3: romanised Hindi is matched too (0.132ms)
+✔ A3 bilingual keyword and co-occurrence matching (2.2038ms)
+▶ A4 Unicode-range language detection
+  ✔ A4: any Devanagari character means Hindi; Latin only means English (0.1061ms)
+✔ A4 Unicode-range language detection (0.1727ms)
+▶ A5 weighted hospital scoring and top-k
+  ✔ A5: a hospital with the needed department outranks a nearer one without it (0.4249ms)
+  ✔ A5: ICU counts only for HIGH or CRITICAL; the maximum is 120 (0.1365ms)
+  ✔ A5: topK returns the k best, best first, stable on ties (0.6179ms)
+✔ A5 weighted hospital scoring and top-k (1.261ms)
+▶ A6 nearest-neighbour linear scan
+  ✔ A6: picks the closest point and reports its distance (0.1269ms)
+✔ A6 nearest-neighbour linear scan (0.1699ms)
+▶ A7 OPD waiting-time estimation
+  ✔ A7: with no timing data it equals the original 12q + 10 (0.2148ms)
+  ✔ A7: uses the median of recent consultations and the doctor's delay, with a range (0.1193ms)
+  ✔ A7: slot length is the fallback, and bad input is cleaned (0.0683ms)
+✔ A7 OPD waiting-time estimation (0.469ms)
+▶ A8 exponential backoff and model failover
+  ✔ A8: delays grow by the factor, with jitter in [d/2, d] (0.1606ms)
+  ✔ A8: a transient failure is retried, waiting between attempts (0.2281ms)
+  ✔ A8: after the first model's retries fail, the second model answers (0.1787ms)
+  ✔ A8: a permanent error (bad key) stops retries and failover (0.3831ms)
+  ✔ A8: the Gemini caller marks 5xx as transient and 4xx as permanent (0.2883ms)
+✔ A8 exponential backoff and model failover (1.3588ms)
+▶ A9 graceful degradation
+  ✔ A9: no key configured means exactly the offline result plus engine: offline (0.4694ms)
+  ✔ A9: invalid JSON from the model falls back to offline and says why (0.3691ms)
+  ✔ A9: a timeout on every model falls back to offline (51.3777ms)
+✔ A9 graceful degradation (52.5026ms)
+▶ A10 retrieval-augmented generation
+  ✔ A10: the real retriever returns top-k cited passages from the medicine dataset (139.7573ms)
+  ✔ A10: offline generation quotes and cites every retrieved passage (0.2874ms)
+  ✔ A10: nothing retrieved means abstain, not an answer from memory (0.1218ms)
+  ✔ A10: the LLM sees only the passages and its citations must be among them (0.4735ms)
+✔ A10 retrieval-augmented generation (140.8178ms)
+▶ A11 robust JSON extraction and schema validation
+  ✔ A11: plain, fenced, prose-wrapped and trailing-comma JSON all parse (0.3138ms)
+  ✔ A11: commas inside strings are left alone (0.0513ms)
+  ✔ A11: schema validation rejects wrong types and unknown urgency levels (0.8043ms)
+✔ A11 robust JSON extraction and schema validation (1.2529ms)
+▶ A13 bcrypt (legacy account migration)
+  ✔ A13: a hash of the email-derived legacy password is detected (10.4685ms)
+  ✔ A13: a real password is not flagged, and no hash is not flagged (3.402ms)
+✔ A13 bcrypt (legacy account migration) (14.0016ms)
+▶ A14 fixed-window rate limiting
+  ✔ A14: allows `limit` requests per window, then refuses with Retry-After (0.2985ms)
+  ✔ A14: a new window opens once the old one has passed (0.1076ms)
+  ✔ A14: expired windows are pruned once the map is over its cap (0.1171ms)
+✔ A14 fixed-window rate limiting (0.5966ms)
+▶ thread merge and cursor
+  ✔ dedupes by id and keeps seq order (1.0353ms)
+  ✔ the cursor stops at a gap, so a message written meanwhile by the other side is not skipped (0.1722ms)
+  ✔ an empty thread has cursor 0 (0.0966ms)
+✔ thread merge and cursor (1.9935ms)
+▶ thread-level line and safety banner
+  ✔ no line until the patient has written (0.1908ms)
+  ✔ not opened until the doctor's read covers the latest patient message (0.1175ms)
+  ✔ the banner follows a notice stored right after the patient's latest message only (0.1135ms)
+  ✔ read is needed only when something is unread (or an urgent flag is open, for the doctor) (0.1151ms)
+  ✔ read is judged by what the screen has shown, not by the server's lastSeq (0.1279ms)
+✔ thread-level line and safety banner (0.8889ms)
+▶ check-in window on the IST day
+  ✔ the client IST day matches the server's, across the UTC date line (1.0591ms)
+  ✔ opens one hour before the start and closes at the end (0.2233ms)
+  ✔ a 00:30 IST slot does not open at 23:45 IST the evening before (0.0766ms)
+✔ check-in window on the IST day (1.4783ms)
+▶ doctor's Today list
+  ✔ today's in-person confirmed and completed bookings, in booked-time order (8.119ms)
+  ✔ visit state follows checkin.ts (0.1079ms)
+✔ doctor's Today list (8.4659ms)
+▶ copy helpers
+  ✔ doctor title is not doubled (0.1745ms)
+  ✔ fill replaces known placeholders only (0.1122ms)
+✔ copy helpers (0.3467ms)
+▶ the overview card's booking
+  ✔ a Firestore booking stays until it ends, not until it starts (0.1016ms)
+  ✔ cancelled, refused and completed bookings never show (0.0662ms)
+  ✔ rows from the earlier store, without an end, keep the old rule (0.052ms)
+✔ the overview card's booking (0.2802ms)
+▶ release builds
+  ✔ a full web config with emulators off may be released (0.8893ms)
+  ✔ emulator mode is refused, as a local .env.local would cause (0.1907ms)
+  ✔ missing or blank web config is refused, naming each missing value (0.1473ms)
+  ✔ the local default (.env.local: emulators on, no web config) fails on both counts (0.0933ms)
+✔ release builds (2.043ms)
+▶ the record of what a build was compiled for
+  ✔ build info (0.1738ms)
+✔ the record of what a build was compiled for (0.2563ms)
+▶ a production server checks the frontend it is about to serve
+  ✔ a frontend built for the same project is served (0.1512ms)
+  ✔ a frontend built for emulators is refused by a server on a real project (0.0906ms)
+  ✔ a frontend built for another project is refused (0.1186ms)
+  ✔ a local production run against the emulators is allowed (0.0907ms)
+  ✔ an older build with no record is not blocked (0.091ms)
+✔ a production server checks the frontend it is about to serve (0.7317ms)
+▶ the image build
+  ✔ .dockerignore keeps every local env file out and the example in (0.2276ms)
+  ✔ the Dockerfile builds as a release with emulator mode off and the web config from build arguments (0.2121ms)
+✔ the image build (0.5109ms)
+▶ consent status
+  ✔ no events is missing (0.9824ms)
+  ✔ an acceptance of the current terms and privacy versions is valid (0.2421ms)
+  ✔ records written before the action field existed still count as acceptances (0.1599ms)
+  ✔ an older terms or privacy version is outdated (0.1594ms)
+  ✔ the latest event decides, whatever order they arrive in (0.2564ms)
+  ✔ an event with no server timestamp yet counts as the newest (0.1996ms)
+  ✔ malformed records are invalid, never valid (0.2124ms)
+  ✔ marketing opt-in alone is not consent (0.1598ms)
+  ✔ expiry applies only when a maximum age is set (0.2246ms)
+✔ consent status (4.0381ms)
+  false positives: 2/35 (5.7%) [
+  'I used to have chest pain years ago, now fine; what diet is good for heart',
+  'I fainted once last year, should I get tested'
+]
+▶ the four emergencies the audit found missed
+  ✔ escalates: I want to kill myself (2.9056ms)
+  ✔ escalates: I took 30 sleeping pills (1.1461ms)
+  ✔ escalates: my lips are turning blue and I can barely breathe (1.4292ms)
+  ✔ escalates: मुझे साँस लेने में बहुत तकलीफ हो रही है (2.0235ms)
+✔ the four emergencies the audit found missed (8.216ms)
+▶ critical safety set: 100% recall required
+  ✔ every critical message escalates in triage (60 messages) (3.6522ms)
+  ✔ every critical message escalates in the copilot, with no reassurance (2.5161ms)
+  ✔ each category is covered in English, Hindi and Hinglish (0.1976ms)
+✔ critical safety set: 100% recall required (6.5883ms)
+▶ crisis wording
+  ✔ self-harm replies point to Tele-MANAS and 112, in the language used (0.3097ms)
+  ✔ other emergencies tell the person to call 112 now (0.1276ms)
+  ✔ the rules are not presented as a validated model (0.1839ms)
+✔ crisis wording (0.761ms)
+▶ false positives (measured, bounded)
+  ✔ non-emergency messages rarely escalate (212.453ms)
+  ✔ ordinary medicine-taking and figures of speech do not escalate (0.2337ms)
+✔ false positives (measured, bounded) (212.8082ms)
+▶ facility-name classifier
+  ✔ matches scikit-learn predictions (1.6462ms)
+  ✔ tells hospitals from pharmacies, labs, dentists and clinics by name (0.2548ms)
+  ✔ names with no telltale word are not taken for hospitals (0.1703ms)
+✔ facility-name classifier (2.9167ms)
+▶ unconfirmed listings
+  ✔ a registry, scheme list, review or seed confirms a listing, in that order (0.2247ms)
+  ✔ only unconfirmed, doubtful names that do not say hospital are flagged (0.3426ms)
+  ✔ Hindi names that say hospital are taken at their word (0.1875ms)
+✔ unconfirmed listings (0.9784ms)
+▶ geo
+  ✔ haversine matches a known distance (0.7748ms)
+  ✔ bad coordinates are rejected, not turned into 0,0 (0.6078ms)
+  ✔ nearest first, unknown distances last (0.1748ms)
+✔ geo (2.3535ms)
+✔ map entries that are not hospitals for people are caught (1.3743ms)
+✔ real hospitals are kept, even with words like diagnostic or Pvt Ltd in the name (0.3176ms)
+✔ specialist hospitals' names give their department (1.1106ms)
+✔ large and multi-speciality hospitals are recognised as general care (0.5308ms)
+✔ district hospitals carry the IPHS 2022 essential specialties (0.1397ms)
+✔ a listed department beats one that is only expected under a standard (0.2671ms)
+✔ gastroenterology is not mistaken for ENT (0.1319ms)
+▶ the audit's ten synthetic reports
+  ✔ cbc-columns (6.001ms)
+  ✔ cbc-colon (0.8583ms)
+  ✔ diabetes (0.5327ms)
+  ✔ lipid (0.2341ms)
+  ✔ liver (0.3548ms)
+  ✔ thyroid (0.1788ms)
+  ✔ no-units (0.2571ms)
+  ✔ range-before-value (0.1544ms)
+  ✔ hindi-labels (1.3335ms)
+  ✔ indian-number-format (0.3061ms)
+✔ the audit's ten synthetic reports (12.1311ms)
+▶ numbers as Indian reports print them
+  ✔ Indian and Western digit grouping (0.4041ms)
+  ✔ lakh (0.2041ms)
+  ✔ counts printed in thousands (0.282ms)
+  ✔ a count with no unit is read in thousands only when nothing else fits (0.204ms)
+  ✔ a comma between two readings is not digit grouping (0.121ms)
+✔ numbers as Indian reports print them (1.436ms)
+▶ the result, not the reference range
+  ✔ a bracketed range before the result is skipped (0.1984ms)
+  ✔ an unbracketed range before the result is skipped (0.1401ms)
+  ✔ a line with only a range fills nothing (0.1108ms)
+  ✔ a range after the result is ignored (0.1622ms)
+✔ the result, not the reference range (0.7865ms)
+▶ labels with extra words (BUG-009)
+  ✔ a word or bracket between the name and the value (0.2852ms)
+  ✔ a far-away number is not taken as the value (0.131ms)
+✔ labels with extra words (BUG-009) (0.5159ms)
+▶ one test is not mistaken for another
+  ✔ HDL or LDL cholesterol is not total cholesterol (0.3628ms)
+  ✔ ratios are not results (2.6314ms)
+  ✔ red-cell indices are not haemoglobin (0.2793ms)
+  ✔ platelet indices are not the platelet count (0.1056ms)
+  ✔ only a fasting or unqualified sugar fills fasting glucose (0.2102ms)
+  ✔ direct and indirect bilirubin are not total bilirubin (1.4742ms)
+✔ one test is not mistaken for another (53.2273ms)
+▶ implausible values are left out, never pre-filled
+  ✔ values no person could have are dropped and reported as skipped (0.3173ms)
+  ✔ a platelet count of 1,500 is never produced from '1.5 lakh' (0.4964ms)
+  ✔ every pre-filled value comes with the text it was read from (0.2784ms)
+✔ implausible values are left out, never pre-filled (1.1998ms)
+▶ what already worked still works
+  ✔ chat messages (0.2105ms)
+  ✔ panel, sex and age (0.1087ms)
+✔ what already worked still works (0.3979ms)
+▶ zip baselines, against this app's models
+  ✔ a request for a doctor is an appointment intent (2.6543ms)
+  ✔ Hindi script is detected (1.267ms)
+  ✔ the zip's urgent phrases are emergencies here too (4.6211ms)
+  ✔ copilot routes (0.1665ms)
+  ✔ discovery never ranks unverified or hidden providers (0.7236ms)
+✔ zip baselines, against this app's models (10.3882ms)
+▶ demand forecast
+  ✔ refuses short, negative or malformed series (0.5207ms)
+  ✔ forecasts are non-negative and come with a range (0.3907ms)
+  ✔ a weekday pattern is picked up by the weekly model (0.2104ms)
+  ✔ a steady rise is picked up by the trend model (0.221ms)
+  ✔ daily series count per day and ignore dates outside the window (0.9525ms)
+✔ demand forecast (2.5342ms)
+▶ lab report reading
+  ✔ a text report fills the CBC panel (2.425ms)
+  ✔ label/value pairs are found in both 'Label: value' and column layouts (0.1978ms)
+  ✔ other file types and empty files are refused with a reason (0.1389ms)
+  ✔ a PDF is read when pdf.js is installed, and says so when it is not (7.3477ms)
+✔ lab report reading (10.3098ms)
+▶ entities
+  ✔ symptoms in three languages and lab values (0.4388ms)
+  ✔ short words only match whole words (0.1381ms)
+✔ entities (0.6573ms)
+▶ lab terms that look alike
+  ✔ HbA1c is the diabetes test, not haemoglobin (1.0514ms)
+✔ lab terms that look alike (1.1105ms)
+✔ an A4 PDF with the header, disclaimer, doctor, diagnosis, medicines and instructions (20.5963ms)
+✔ a long prescription flows onto more pages; the file name is safe (4.5519ms)
+✔ finds the hospital department for a specialist (1.4371ms)
+✔ returns null when the hospital has no suitable department (0.2916ms)
+✔ maps specialists to bookable doctor categories (0.2557ms)
+✔ every model condition routes to a real doctor category (0.6386ms)
+▶ red flags escalate in English
+  ✔ unconscious (8.5752ms)
+  ✔ trauma (1.7791ms)
+  ✔ stroke (0.3926ms)
+  ✔ cardiac (0.0923ms)
+✔ red flags escalate in English (11.8192ms)
+▶ red flags escalate in Devanagari Hindi
+  ✔ unconscious (2.0441ms)
+  ✔ heavy bleeding (1.1418ms)
+  ✔ fracture (0.2769ms)
+  ✔ chest pain (0.1066ms)
+  ✔ breathlessness (0.1197ms)
+  ✔ stroke (0.194ms)
+  ✔ seizure (0.1259ms)
+✔ red flags escalate in Devanagari Hindi (7.2996ms)
+▶ red flags escalate in romanised Hindi
+  ✔ chest pain (0.1594ms)
+  ✔ bleeding (0.9873ms)
+  ✔ breathlessness (0.0788ms)
+  ✔ unconscious (0.0948ms)
+✔ red flags escalate in romanised Hindi (1.4368ms)
+▶ ordinary Hindi symptoms are graded, not escalated
+  ✔ fever -> MEDIUM, no SOS (0.1236ms)
+  ✔ headache -> LOW, and is not mistaken for chest pain (0.2229ms)
+  ✔ cough and cold -> LOW (0.093ms)
+  ✔ stomach upset -> MEDIUM (0.0653ms)
+✔ ordinary Hindi symptoms are graded, not escalated (0.5847ms)
+▶ the two ambiguous pairs stay separated
+  ✔ सिर में दर्द (headache) does not read as सीने में दर्द (chest pain) (0.1449ms)
+  ✔ सिर में चोट (head injury) escalates as trauma, not as a headache (0.0927ms)
+✔ the two ambiguous pairs stay separated (0.2901ms)
+▶ non-symptom input is still recognised, in both languages
+  ✔ English facility search (0.1258ms)
+  ✔ Hindi facility search (0.104ms)
+  ✔ a Hindi facility search that also mentions a symptom is triaged, not deflected (0.078ms)
+✔ non-symptom input is still recognised, in both languages (0.3778ms)
+▶ unrecognised input still refuses to guess
+  ✔ gibberish -> not assessed, never a fabricated diagnosis (0.1036ms)
+  ✔ every result is labelled as heuristic, never as a clinical assessment (0.0999ms)
+✔ unrecognised input still refuses to guess (0.2591ms)
+▶ the response is written in the caller's language
+  ✔ Hindi input returns Hindi prose, not English (0.113ms)
+  ✔ English input returns English prose (0.0674ms)
+  ✔ an explicit lang overrides the detected script (0.0535ms)
+  ✔ the verdict is identical across languages — only the wording differs (0.0672ms)
+  ✔ every verdict has complete Hindi copy — no English leaking through (0.298ms)
+✔ the response is written in the caller's language (0.6803ms)
+▶ trained model: parity with scikit-learn
+  ✔ predicts the same label and confidence as the Python model (5.6134ms)
+  ✔ every class the model can predict has patient-facing copy (0.1666ms)
+✔ trained model: parity with scikit-learn (6.5271ms)
+▶ hybrid triage
+  ✔ a clear non-emergency description is answered by the model (4.8993ms)
+  ✔ red-flag wording goes to the rules, whatever the model thinks (3.4039ms)
+  ✔ a red flag inside an otherwise ordinary description still escalates (0.2025ms)
+  ✔ nonsense is not given a diagnosis (0.293ms)
+  ✔ a facility search is not treated as symptoms (0.1237ms)
+  ✔ a vague Hindi complaint is left to the rules, not guessed by the model (0.6591ms)
+  ✔ a detailed Hindi description is answered by the model, in Hindi (0.3595ms)
+  ✔ romanised Hindi is answered by the model (0.3441ms)
+  ✔ model answers can be given in Hindi (0.2947ms)
+✔ hybrid triage (11.0572ms)
+ℹ tests 225
+ℹ suites 59
+ℹ pass 225
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1581.6384
+
+> city-healer@0.0.0 test:server
+> node scripts/dev-firebase.mjs --no-persist "tsx --test --test-concurrency=1 tests/security-headers.test.ts tests/access-matrix.test.ts tests/resource-ownership.test.ts tests/booking.test.ts tests/consent.test.ts tests/provider-admin.test.ts tests/consultations.test.ts tests/messages.test.ts tests/checkin.test.ts"
+
+(node:25200) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[36m[1mi  emulators:[22m[39m Starting emulators: auth, firestore
+[36m[1mi  emulators:[22m[39m Detected demo project ID "demo-city-healer", emulated services will use a demo configuration and attempts to access non-emulated services for this project will fail.
+[36m[1mi  firestore:[22m[39m Firestore Emulator logging to [1mfirestore-debug.log[22m
+[32m[1m+  firestore:[22m[39m Firestore Emulator was started in standard edition.
+[32m[1m+  firestore:[22m[39m Firestore Emulator UI websocket is running on 9150.
+[36m[1mi [22m[39m Running script: [1mtsx --test --test-concurrency=1 tests/security-headers.test.ts tests/access-matrix.test.ts tests/resource-ownership.test.ts tests/booking.test.ts tests/consent.test.ts tests/provider-admin.test.ts tests/consultations.test.ts tests/messages.test.ts tests/checkin.test.ts[22m
+(node:16996) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+▶ anonymous callers are rejected on every guarded route
+  ✔ GET /api/records -> 401 (2.1015ms)
+  ✔ POST /api/records -> 401 (1.8409ms)
+  ✔ GET /api/medicines/orders -> 401 (1.2603ms)
+  ✔ POST /api/medicines/order -> 401 (2.0768ms)
+  ✔ GET /api/emergency/alerts -> 401 (0.9596ms)
+  ✔ POST /api/emergency/sos -> 401 (1.513ms)
+  ✔ GET /api/v1/hospital/facility -> 401 (1.0818ms)
+  ✔ PUT /api/hospitals/hosp-1/beds -> 401 (1.0864ms)
+  ✔ POST /api/hospitals -> 401 (1.0371ms)
+  ✔ PUT /api/hospitals/hosp-1 -> 401 (2.2311ms)
+  ✔ POST /api/hospitals/hosp-1/doctors -> 401 (1.8268ms)
+  ✔ PUT /api/doctors/doc-1/online -> 401 (1.2308ms)
+  ✔ PUT /api/emergency/alerts/sos-1/status -> 401 (1.1205ms)
+  ✔ POST /api/symptoms/check -> 401 (1.0438ms)
+  ✔ POST /api/records/analyze -> 401 (1.9483ms)
+  ✔ POST /api/medicines/guide -> 401 (1.816ms)
+  ✔ POST /api/diet/recommend -> 401 (1.6128ms)
+  ✔ POST /api/developer/ai-pipeline -> 401 (1.3952ms)
+  ✔ POST /api/medicines/search-nationwide -> 401 (0.9388ms)
+  ✔ POST /api/v1/knowledge/ask -> 401 (1.0981ms)
+✔ anonymous callers are rejected on every guarded route (10162.1361ms)
+▶ public routes remain reachable without a session
+  ✔ GET /api/health -> 200 (1.8545ms)
+  ✔ GET /api/hospitals -> 200 (3.035ms)
+  ✔ GET /api/doctors -> 200 (2.2259ms)
+  ✔ GET /api/medicines -> 200 (1.8323ms)
+✔ public routes remain reachable without a session (9.229ms)
+▶ forged and malformed tokens are rejected
+  ✔ garbage token -> 401 (1.4433ms)
+  ✔ a token from the retired sign-in (HS256 with the old hardcoded secret) -> 401 (1.4227ms)
+  ✔ expired token -> 401 (1.1825ms)
+  ✔ token for a uid that does not exist -> 401 (2.7832ms)
+  ✔ a disabled account is refused at once, not when its token expires (46.1904ms)
+✔ forged and malformed tokens are rejected (53.3027ms)
+▶ PATIENT is refused privileged operations
+  ✔ GET /api/emergency/alerts -> 403 (2.8715ms)
+  ✔ GET /api/v1/hospital/facility -> 403 (3.2656ms)
+  ✔ PUT /api/hospitals/hosp-1/beds -> 403 (3.0197ms)
+  ✔ POST /api/hospitals -> 403 (2.5296ms)
+  ✔ PUT /api/hospitals/hosp-1 -> 403 (3.651ms)
+  ✔ POST /api/hospitals/hosp-1/doctors -> 403 (2.918ms)
+  ✔ PUT /api/doctors/doc-1/online -> 403 (2.1893ms)
+  ✔ PUT /api/emergency/alerts/sos-1/status -> 403 (3.153ms)
+  ✔ cannot escalate own role -> 403 and role is unchanged (4.6549ms)
+✔ PATIENT is refused privileged operations (28.6325ms)
+▶ PATIENT is allowed their own operations
+  ✔ reads own profile -> 200 (43.3872ms)
+  ✔ reads own records -> 200 (4.1463ms)
+✔ PATIENT is allowed their own operations (47.7887ms)
+▶ cross-patient isolation
+  ✔ Alice sees none of Bob's records (4.3324ms)
+  ✔ Bob sees his own record and not Alice's (3.769ms)
+✔ cross-patient isolation (8.2619ms)
+▶ doctors get no patient records from the record list
+  ✔ unlinked doctor sees zero records (2.4399ms)
+  ✔ a doctor linked to a clinician row sees zero records too (3.3656ms)
+✔ doctors get no patient records from the record list (6.0036ms)
+▶ the retired SQLite appointment, queue and chat routes are gone
+  ✔ GET /api/appointments -> 404 for patient, doctor and admin (8.1147ms)
+  ✔ POST /api/appointments -> 404 for patient, doctor and admin (5.8408ms)
+  ✔ PUT /api/appointments/app-101/status -> 404 for patient, doctor and admin (14.4438ms)
+  ✔ POST /api/appointments/app-101/prescription -> 404 for patient, doctor and admin (13.5978ms)
+  ✔ GET /api/doctors/doc-1/booked?date=2099-02-10 -> 404 for patient, doctor and admin (6.2817ms)
+  ✔ GET /api/queue -> 404 for patient, doctor and admin (5.0361ms)
+  ✔ POST /api/queue/take -> 404 for patient, doctor and admin (6.5046ms)
+  ✔ PUT /api/queue/tok-1/status -> 404 for patient, doctor and admin (7.3752ms)
+  ✔ GET /api/chat/app-101 -> 404 for patient, doctor and admin (5.7471ms)
+  ✔ POST /api/chat/app-101 -> 404 for patient, doctor and admin (5.3726ms)
+  ✔ GET /api/users/someone -> 404 for patient, doctor and admin (5.6608ms)
+  ✔ PUT /api/users/someone -> 404 for patient, doctor and admin (7.1118ms)
+✔ the retired SQLite appointment, queue and chat routes are gone (91.6035ms)
+▶ the hospital desk sees its own facility
+  ✔ a linked desk gets its own facility (4.8011ms)
+  ✔ a desk bound to no facility is told so, and can write to none (15.8887ms)
+  ✔ doctors and admins are not hospital desks -> 403 (4.3835ms)
+✔ the hospital desk sees its own facility (25.2516ms)
+▶ privileged roles retain access
+  ✔ HOSPITAL may write the bed census -> 200 (11.4802ms)
+  ✔ HOSPITAL may read the dispatch stream -> 200 (4.8988ms)
+  ✔ a hospital desk sees and updates only the SOS alerts routed to its own facility (38.9505ms)
+  ✔ ADMIN may read all records -> 200 (5.4958ms)
+  ✔ ADMIN may change another user's role -> 201 (41.371ms)
+✔ privileged roles retain access (102.4989ms)
+▶ AI endpoints are metered per user
+  ✔ quota returns 429 once exceeded, and the limit is per-account (869.237ms)
+✔ AI endpoints are metered per user (869.411ms)
+▶ accounts (Firebase) and patient profiles (Firestore)
+  ✔ the retired /api/auth sign-in routes no longer exist (1.3504ms)
+  ✔ GET /api/v1/me returns the caller's identity and own profile (37.405ms)
+  ✔ the profile schema is strict: unknown fields and cities outside Delhi NCR are refused (88.9401ms)
+  ✔ a first profile needs a name and a city (45.7235ms)
+  ✔ consent must accept the terms, and is recorded with its versions and an audit event (72.7506ms)
+  ✔ staff accounts are refused the patient routes (3.1963ms)
+  ✔ nobody can give themselves a role (26.968ms)
+  ✔ an administrator's role change revokes the account's existing sessions (1184.442ms)
+✔ accounts (Firebase) and patient profiles (Firestore) (1461.3359ms)
+▶ bed numbers are shown only when a hospital reports them
+  ✔ no hospital starts with invented bed or ICU counts (5.1046ms)
+  ✔ a hospital desk's report is stored with its totals and the time (66.0406ms)
+✔ bed numbers are shown only when a hospital reports them (71.3211ms)
+▶ hospital listings can be reported and hidden
+  ✔ a signed-in user can report a listing once, with a known reason (16.1431ms)
+  ✔ only an administrator sees reports and can hide a listing (6.6706ms)
+  ✔ a hidden listing disappears from lists and recommendations, and can be restored (25.3853ms)
+✔ hospital listings can be reported and hidden (48.3852ms)
+▶ the doctor directory is look-only until a doctor is verified
+  ✔ doctors carry their verification state, city and locality (2.2732ms)
+✔ the doctor directory is look-only until a doctor is verified (2.4004ms)
+▶ location-aware lists
+  ✔ hospitals come back nearest first when a position is given (3.0181ms)
+  ✔ doctors carry the distance to their hospital, nearest first (2.3001ms)
+  ✔ without a position the lists are returned as before (1.9591ms)
+✔ location-aware lists (7.4419ms)
+▶ triage routes the patient to the right place
+  ✔ recommended hospitals have a department for the condition (42.1026ms)
+  ✔ with no LLM key the offline engine answers and says so (5.5777ms)
+  ✔ knowledge answers cite the retrieved medicine passages (RAG, offline) (121.5931ms)
+  ✔ a different condition gets different hospitals (9.5614ms)
+  ✔ routing still works when the reply is in Hindi (4.9942ms)
+✔ triage routes the patient to the right place (202.3201ms)
+(node:32132) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+▶ provider onboarding
+  ✔ only a doctor account can apply, and the profile starts pending and hidden (291.1012ms)
+  ✔ an application cannot set its own verification status (4.0858ms)
+  ✔ an unverified doctor cannot publish times (28.6429ms)
+  ✔ only an admin can verify, and only consistent decisions are accepted (77.5421ms)
+✔ provider onboarding (7446.0169ms)
+▶ availability
+  ✔ only the owning doctor publishes, in the future, without overlaps (311.2075ms)
+  ✔ an unlisted doctor's times are not public (16.3121ms)
+✔ availability (327.933ms)
+▶ booking
+  ✔ staff accounts cannot book (6.293ms)
+  ✔ the consultation type must match the slot (80.3575ms)
+  ✔ a slot is booked once, even when two patients try at the same moment (3743.2491ms)
+  ✔ patients see only their own appointments, with the doctor's name (43.5488ms)
+  ✔ the doctor sees the bookings made with their own profile, and only those (73.8986ms)
+  ✔ triage and the copilot recommend the verified provider first, and only it is bookable (46.0126ms)
+  ✔ another patient cannot cancel or reschedule it (95.3789ms)
+  ✔ rescheduling moves to an open slot of the same type and frees the old one (163.1112ms)
+  ✔ cancelling frees the slot, and a cancelled appointment cannot be cancelled again (109.7596ms)
+  ✔ a rejected doctor can no longer be booked (117.0093ms)
+  ✔ a rejected doctor is no longer recommended, at once (19.7533ms)
+✔ booking (4536.1235ms)
+▶ intelligence platform endpoints
+  ✔ the module inventory is public; the AI endpoints need a session (10.013ms)
+  ✔ the copilot answers an emergency with the urgent route (5.1775ms)
+  ✔ a report file is read without being stored (5.6322ms)
+  ✔ forecasts are for hospital staff and admins only (27.5072ms)
+  ✔ discovery ranks only verified, active providers from the server's own records (12.276ms)
+✔ intelligence platform endpoints (60.9397ms)
+(node:25496) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+▶ the Asia/Kolkata day (fixed +05:30, never the host time zone)
+  ✔ a 00:30 IST slot is on its IST day, the day after its UTC date (1.9056ms)
+  ✔ a 23:30 IST slot stays on its IST day (0.4506ms)
+  ✔ the day runs from 18:30 UTC the day before to 18:30 UTC, half open (0.6691ms)
+  ✔ the check-in window is the slot's IST day, from 60 minutes before start until end (343.5291ms)
+✔ the Asia/Kolkata day (fixed +05:30, never the host time zone) (9697.2973ms)
+▶ who can check in, leave, read the line and call in
+  ✔ anonymous callers get 401 on every route (8.1999ms)
+  ✔ admin, hospital and doctor accounts get 403 on check-in, leave and the line (26.0403ms)
+  ✔ patients, admin and hospital get 403 on visit-state (8.1741ms)
+  ✔ another patient's booking and an unknown id get the same 404 (238.412ms)
+  ✔ a patient without consent is stopped by the consent gate (18.3446ms)
+  ✔ check-in takes no body (8.5946ms)
+✔ who can check in, leave, read the line and call in (308.2436ms)
+▶ when a patient can check in
+  ✔ not on an online appointment (47.8761ms)
+  ✔ not three hours before, not tomorrow, not after the end (203.3915ms)
+  ✔ not on a cancelled or completed booking (199.4623ms)
+✔ when a patient can check in (451.0637ms)
+▶ the line: booked time decides, not arrival
+  ✔ before checking in, a patient is not in the line (14.1949ms)
+  ✔ noise that must never count: other doctors, online, cancelled, completed, called, another day (39.5286ms)
+  ✔ the last booked checks in first and is not ahead of anyone (90.1298ms)
+  ✔ each patient booked earlier who checks in goes before them (354.2028ms)
+  ✔ the response holds the caller's own state and a count, nothing about anyone else (123.787ms)
+  ✔ checking in again returns the same arrival and writes nothing (122.0334ms)
+  ✔ a patient who cancels drops out of the others' count (79.9752ms)
+  ✔ the doctor's list shows arrivals; the patient's list shows their own (58.1011ms)
+✔ the line: booked time decides, not arrival (882.6042ms)
+▶ the doctor calls in, or marks not here
+  ✔ the body is checked (11.4791ms)
+  ✔ a patient who has not checked in cannot be called (97.9371ms)
+  ✔ calling in: the patient is told, and those after them move up (203.0369ms)
+  ✔ calling again is a 200 that changes nothing (94.7415ms)
+  ✔ a called patient cannot leave the line (27.8727ms)
+  ✔ not here clears the arrival; the others move up and the patient can check in again (224.2769ms)
+  ✔ finishing is the existing complete route, and the patient sees done (119.2031ms)
+✔ the doctor calls in, or marks not here (779.1592ms)
+▶ leaving and rejoining, up to three check-ins
+  ✔ leaving takes the patient out of the line; leaving again is a no-op (111.1685ms)
+  ✔ the patient can rejoin, and is placed by booked time again (66.9748ms)
+  ✔ the fourth check-in is refused (274.8447ms)
+✔ leaving and rejoining, up to three check-ins (453.2388ms)
+▶ rescheduling clears the check-in
+  ✔ arrivedAt, calledAt and checkInCount are removed with the old time (307.5621ms)
+✔ rescheduling clears the check-in (307.7028ms)
+▶ a refused doctor
+  ✔ cannot call patients in, and no one can check in with them (433.9329ms)
+✔ a refused doctor (434.0719ms)
+▶ audit and limits
+  ✔ audit events hold ids only (8.9924ms)
+  ✔ polling the line is rate limited per account (630.8254ms)
+✔ audit and limits (640.1255ms)
+▶ the doctor's Today list
+  ✔ today's bookings are listed for a doctor with more than 300 bookings in all (157.7295ms)
+✔ the doctor's Today list (157.9373ms)
+(node:28832) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+▶ a patient with no consent
+  ✔ POST /api/symptoms/check is refused with CONSENT_REQUIRED (218.658ms)
+  ✔ POST /api/v1/copilot/chat is refused with CONSENT_REQUIRED (5.8451ms)
+  ✔ POST /api/v1/nlp/analyze is refused with CONSENT_REQUIRED (3.5135ms)
+  ✔ POST /api/ai/copilot is refused with CONSENT_REQUIRED (3.5431ms)
+  ✔ POST /api/records/analyze is refused with CONSENT_REQUIRED (3.3386ms)
+  ✔ POST /api/v1/documents/extract is refused with CONSENT_REQUIRED (3.51ms)
+  ✔ POST /api/diet/recommend is refused with CONSENT_REQUIRED (2.68ms)
+  ✔ POST /api/medicines/guide is refused with CONSENT_REQUIRED (3.5628ms)
+  ✔ GET /api/records is refused with CONSENT_REQUIRED (2.8112ms)
+  ✔ POST /api/records is refused with CONSENT_REQUIRED (2.6499ms)
+  ✔ GET /api/v1/appointments/mine is refused with CONSENT_REQUIRED (3.1031ms)
+  ✔ POST /api/v1/appointments is refused with CONSENT_REQUIRED (2.6721ms)
+  ✔ GET /api/medicines/orders is refused with CONSENT_REQUIRED (1.8526ms)
+  ✔ POST /api/medicines/order is refused with CONSENT_REQUIRED (2.7637ms)
+  ✔ POST /api/hospitals/hosp-1/report is refused with CONSENT_REQUIRED (2.4297ms)
+  ✔ the refusal carries no data, only what the app needs to ask again (2.5789ms)
+  ✔ the account route still answers and reports the missing consent with the versions to accept (40.063ms)
+  ✔ the profile can still be saved (onboarding saves it before the consent) (79.3504ms)
+  ✔ public browsing still works (42.7001ms)
+  ✔ emergency SOS is never blocked by consent (18.3731ms)
+  ✔ without a session the answer is still 401, not a consent prompt (1.0125ms)
+  ✔ another patient's consent does not count (19.333ms)
+✔ a patient with no consent (9599.1328ms)
+▶ recording consent
+  ✔ terms not accepted is rejected (4.0165ms)
+  ✔ an older version cannot be accepted, and the answer names the current ones (3.3209ms)
+  ✔ unknown fields are rejected (3.8498ms)
+  ✔ rejected attempts leave the patient without consent (33.5105ms)
+  ✔ rejected attempts record no consent event (45.2119ms)
+  ✔ accepting the current versions unlocks patient routes at once (189.6562ms)
+  ✔ the acceptance is stored as an append-only event with versions and a server timestamp, and audited (29.1537ms)
+✔ recording consent (309.2563ms)
+▶ withdrawing consent
+  ✔ a withdrawal locks patient routes at once and is audited (80.3637ms)
+  ✔ after withdrawing, the account, SOS and public browsing still work (53.6182ms)
+  ✔ the earlier acceptance is kept: withdrawal is a new event, not a deletion (7.8371ms)
+  ✔ consent can be given again after a withdrawal (64.0343ms)
+✔ withdrawing consent (206.2082ms)
+▶ stored consent states
+  ✔ an acceptance of older terms is refused as outdated (44.9505ms)
+  ✔ a record without termsAccepted true is refused as invalid (47.0806ms)
+  ✔ an acceptance followed by a withdrawal is refused as withdrawn (45.7246ms)
+  ✔ a withdrawal followed by a new acceptance is valid (17.8282ms)
+  ✔ a patient on older terms is let in after accepting the current ones (29.2575ms)
+✔ stored consent states (185.223ms)
+▶ staff are not gated by patient consent
+  ✔ a doctor, hospital desk and admin with no consent record use their routes (53.7557ms)
+[consent] check failed: firestore unavailable
+[consent] check failed: blip
+  ✔ staff cannot record or withdraw patient consent (4.3405ms)
+✔ staff are not gated by patient consent (58.358ms)
+▶ the consent check itself (requireConsent middleware)
+  ✔ fails closed: if consent cannot be read the request is refused with 503 (0.789ms)
+  ✔ a failed lookup is not remembered: the next request checks again (0.3571ms)
+  ✔ every status other than valid is refused (0.1599ms)
+  ✔ the lookup is cached per patient, and forgetConsent clears it (0.1546ms)
+  ✔ staff, the demo sandbox, signed-out callers and non-API paths are not checked (0.1326ms)
+  ✔ exemptions are exact: look-alike paths and other methods are still gated (0.2242ms)
+  ✔ every exemption says why it exists (0.0771ms)
+✔ the consent check itself (requireConsent middleware) (5.6186ms)
+(node:14932) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+▶ completing an appointment
+  ✔ only the doctor it was booked with can, and only a doctor (70.0093ms)
+  ✔ not before it has started (59.4114ms)
+  ✔ once started it is completed, once, and the patient sees it (142.4676ms)
+  ✔ a completed appointment cannot be cancelled or rescheduled by the patient (121.6832ms)
+  ✔ the doctor cannot cancel an appointment that is already completed (51.7814ms)
+✔ completing an appointment (9351.4913ms)
+▶ the doctor cancels
+  ✔ a reason is required, and only the appointment's doctor can cancel (59.7729ms)
+  ✔ a cancellation aimed at a time the appointment no longer has is refused (50.1448ms)
+  ✔ the patient sees the cancellation and its reason, and the time is not offered again (247.1716ms)
+  ✔ a cancelled appointment cannot be cancelled, completed or prescribed for (105.5721ms)
+✔ the doctor cancels (463.1942ms)
+▶ writing a prescription
+  ✔ not before the appointment has started (43.6616ms)
+  ✔ the request is checked: diagnosis, medicines with name and dosage, nothing else (25.7263ms)
+  ✔ only the appointment's doctor can prescribe (51.4289ms)
+  ✔ it is written once, signed with the booked doctor's name, and completes the appointment (205.5226ms)
+  ✔ a prescription can follow an appointment already marked completed (74.9037ms)
+  ✔ only the patient and the doctor on it can read it (49.0497ms)
+  ✔ a patient's list holds their own prescriptions only (30.3843ms)
+  ✔ a patient without consent cannot read prescriptions (13.557ms)
+  ✔ the audit trail records the act, not the diagnosis or medicines (17.9961ms)
+  ✔ the doctor's booking list shows which appointments have a prescription (32.0051ms)
+✔ writing a prescription (544.9066ms)
+▶ reading a patient's records
+  ✔ records do not open at booking: only from a day before the appointment (68.2023ms)
+  ✔ the doctor sees the records of the patient on their appointment, and only that patient's (110.1486ms)
+  ✔ another doctor, a patient and an admin cannot use the route (34.1888ms)
+  ✔ access ends two weeks after the appointment (158.5002ms)
+  ✔ when the patient withdraws consent, the doctor's access to their records ends at once (98.6782ms)
+  ✔ a cancelled booking gives no access to records (27.2532ms)
+  ✔ when the patient cancels, the doctor's access to their records ends (90.328ms)
+  ✔ refused reads are not recorded as views (68.4751ms)
+  ✔ each read of a patient's records is audited (12.4047ms)
+✔ reading a patient's records (668.8272ms)
+▶ once an appointment has started it is the doctor's to close
+  ✔ the patient can no longer cancel or move it (169.7205ms)
+  ✔ so the doctor can still complete it (55.0269ms)
+  ✔ an appointment with a prescription cannot be cancelled by the doctor (85.0999ms)
+✔ once an appointment has started it is the doctor's to close (310.1563ms)
+▶ a doctor who is no longer verified
+  ✔ while verified, the doctor can read records on a completed appointment (61.6343ms)
+  ✔ while a new application is pending they cannot complete, prescribe or read records (164.2695ms)
+  ✔ they can still cancel, which releases the patient (75.1162ms)
+  ✔ verifying a doctor cancels nothing (155.6428ms)
+  ✔ a refusal cancels the doctor's upcoming appointments and queues a notice for each patient (436.7445ms)
+  ✔ after the refusal they cannot complete, prescribe or read records, though they keep the doctor role (151.6005ms)
+  ✔ a cancelled-by-City-Healer appointment cannot be cancelled again by anyone (62.985ms)
+  ✔ refusing again is safe: nothing more is cancelled and the reason on record is kept (97.3312ms)
+  ✔ the visit that was under way is left to the doctor, who can still cancel it (174.58ms)
+  ✔ a doctor account with no profile at all is refused too (123.6011ms)
+✔ a doctor who is no longer verified (1504.2277ms)
+(node:34060) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+▶ who can use a thread
+  ✔ anonymous callers get 401, admin and hospital accounts 403, on every route (17.9013ms)
+  ✔ another patient, another verified doctor and an unknown id all get the same 404 (377.8659ms)
+  ✔ a patient without consent is stopped by the consent gate (8.2803ms)
+  ✔ the patient and the doctor on the booking can read it (60.9501ms)
+✔ who can use a thread (8377.8088ms)
+▶ posting
+  ✔ the body is exactly { text }: sender, authorUid, empty, blank and over-long text are refused (76.7754ms)
+  ✔ an ordinary patient message is stored trimmed, as the patient, and nothing answers it (79.1048ms)
+  ✔ the doctor's message is stored as the doctor (82.7891ms)
+  ✔ the patient's list shows an unread doctor message, without the raw chat summary (84.5705ms)
+✔ posting (323.7201ms)
+▶ read state
+  ✔ a doctor's GET alone changes nothing; POST /read marks it read (461.5195ms)
+  ✔ a read covers only what the screen showed: a red flag posted after the doctor's fetch stays unread and urgent (535.7413ms)
+  ✔ the patient's read is clamped to what they were shown too (196.2847ms)
+✔ read state (1193.958ms)
+▶ red-flag patient messages
+  ✔ a chest-pain message gets a fixed system notice in the same post, and the booking is marked urgent (167.5124ms)
+  ✔ opening the thread acknowledges it; a second red flag marks it urgent again (202.583ms)
+  ✔ Hindi text gets the Hindi notice (82.0061ms)
+  ✔ a self-harm message gets the helpline wording (39.0946ms)
+  ✔ a doctor's message with red-flag words creates no system message (87.4785ms)
+✔ red-flag patient messages (579.0482ms)
+▶ the window around the visit
+  ✔ posting opens one day before the start (227.3814ms)
+  ✔ it is still open 13 days after the end, and closed for both sides after 15 (273.1808ms)
+✔ the window around the visit (500.8534ms)
+▶ a cancelled booking
+  ✔ the patient can read but not post; the doctor loses access at once (392.9511ms)
+  ✔ a post racing a cancel never lands on a cancelled booking (18351.0032ms)
+✔ a cancelled booking (18744.2298ms)
+▶ the doctor's verification and the patient's consent
+  ✔ a pending or refused doctor is refused on GET, POST and /read (266.8407ms)
+  ✔ when the patient withdraws consent the doctor's access ends at once, and nothing is audited (351.7251ms)
+✔ the doctor's verification and the patient's consent (618.8433ms)
+▶ order, cursor and cap
+  ✔ ten concurrent posts from both sides get seq 1..10 with no gaps or duplicates (6794.2652ms)
+  ✔ ?after returns only later messages, including a notice written with the patient's message (174.8534ms)
+  ✔ a thread holds at most 200 messages (147.7438ms)
+  ✔ a red flag as the 200th message still gets its notice, and a full fetch returns all 201 (241.6988ms)
+✔ order, cursor and cap (7358.9268ms)
+▶ audit and leakage
+  ✔ one appointment.message.sent per post (49.0486ms)
+  ✔ a doctor GET that returns messages is audited; an empty poll is not (193.7465ms)
+  ✔ audit documents hold only ids, never text or the emergency category (17.2497ms)
+  ✔ no response carries authorUid or patientUid (123.3196ms)
+✔ audit and leakage (383.7632ms)
+▶ rate limits
+  ✔ posting past the post limit is 429 with Retry-After (752.8594ms)
+  ✔ polling past the poll limit is 429 with Retry-After (1960.3566ms)
+  ✔ polls are counted per open thread: a doctor with one panel past its limit can still read the others (2740.2957ms)
+  ✔ one account's limit does not affect another's (14.7721ms)
+✔ rate limits (5468.6174ms)
+(node:24324) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+▶ an admin gives an account the doctor role
+  ✔ only an admin can (308.3382ms)
+  ✔ the request names one account, by email or phone (14.7677ms)
+  ✔ an account that does not exist is not created (3.5922ms)
+  ✔ a hospital or admin account is left as it is (7.4539ms)
+  ✔ before the grant the account cannot apply or use the doctor routes (3.6259ms)
+  ✔ granting changes the role, signs the account out, and is audited (570.9572ms)
+  ✔ granting again changes nothing and does not sign the doctor out (14.1205ms)
+  ✔ an account can be named by phone number, however it is typed (11.8002ms)
+✔ an admin gives an account the doctor role (8089.1095ms)
+▶ the doctor applies and follows the review
+  ✔ a submitted application is pending and shown back to the doctor (19.7317ms)
+  ✔ the application list is for admins only (21.0703ms)
+  ✔ an admin sees pending applications with what a reviewer needs (24.678ms)
+  ✔ a rejection reaches the doctor with its reason, and re-applying goes back to pending (78.3135ms)
+  ✔ verifying records where the registration was checked, for admins only (72.4225ms)
+  ✔ an over-long review note is refused (6.2179ms)
+✔ the doctor applies and follows the review (222.9612ms)
+▶ a verified doctor manages their own times
+  ✔ published times are listed for the doctor with their status (113.1953ms)
+  ✔ the doctor routes are for doctors, and show only the doctor's own times (41.2476ms)
+  ✔ a booked time cannot be withdrawn (46.6205ms)
+  ✔ another doctor cannot withdraw it, and cannot tell that it exists (75.2018ms)
+  ✔ withdrawing an open time removes it from booking, once (175.2962ms)
+  ✔ a withdrawn time can be published again (33.8749ms)
+  ✔ the doctor sees who booked (41.0099ms)
+✔ a verified doctor manages their own times (527.2686ms)
+(node:32420) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+▶ a hospital may act only on its own facility
+  ✔ cannot rewrite another facility's bed census -> 403 (29.0644ms)
+  ✔ cannot edit another facility's profile -> 403 (5.6301ms)
+  ✔ cannot add clinicians to another facility -> 403 (5.0344ms)
+  ✔ its own facility still works -> 200 (13.7277ms)
+  ✔ ADMIN keeps blanket access -> 200 (10.079ms)
+✔ a hospital may act only on its own facility (9239.5987ms)
+▶ a doctor may not sabotage another clinician
+  ✔ cannot force another doctor offline -> 403 (4.8348ms)
+  ✔ can toggle their own availability -> 200 (8.7886ms)
+✔ a doctor may not sabotage another clinician (13.8548ms)
+▶ order integrity
+  ✔ the total is recomputed, not taken from the body (220.3309ms)
+  ✔ a negative quantity is rejected -> 400 (3.6404ms)
+  ✔ a prescription-only medicine needs one attached -> 400 (5.7635ms)
+  ✔ ordering beyond available stock is refused -> 400 (16.553ms)
+  ✔ the Medicines screen's order (id + quantity, prescription attached) is placed and listed in My orders (28.4661ms)
+  ✔ an unknown medicine id is refused -> 404 (3.3514ms)
+✔ order integrity (278.5124ms)
+▶ the dispatch state machine
+  ✔ an invalid alert status is rejected -> 400 (2.5452ms)
+✔ the dispatch state machine (2.6566ms)
+(node:29120) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+▶ security headers
+  ✔ are on a normal response, an unknown API route and an auth refusal (5.485ms)
+  ✔ development sets no CSP or HSTS (Vite HMR needs inline scripts and websockets) (1.4234ms)
+  ✔ production adds HSTS and a CSP limited to self, Firebase Auth, Google Fonts and the image host (0.5672ms)
+✔ security headers (8464.196ms)
+▶ error bodies
+  ✔ malformed JSON is a JSON 400 INVALID_JSON without the parser message (22.2367ms)
+  ✔ malformed JSON is refused the same way without a session (1.8004ms)
+✔ error bodies (24.4995ms)
+▶ general write rate limit
+  ✔ the 4th record write in the window is a 429 with Retry-After (247.1438ms)
+  ✔ reads are not counted, and another user has their own window (33.3618ms)
+✔ general write rate limit (280.8009ms)
+ℹ tests 309
+ℹ suites 63
+ℹ pass 309
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 155895.1905
+[32m[1m+ [22m[39m Script exited successfully (code 0)
+[36m[1mi  emulators:[22m[39m Shutting down emulators.
+[36m[1mi  firestore:[22m[39m Stopping Firestore Emulator
+[33m[1m! [22m[39m Firestore Emulator has exited upon receiving signal: SIGINT
+[36m[1mi  auth:[22m[39m Stopping Authentication Emulator
+[36m[1mi  hub:[22m[39m Stopping emulator hub
+[36m[1mi  logging:[22m[39m Stopping Logging Emulator
+exit=0

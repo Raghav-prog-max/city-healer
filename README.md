@@ -13,6 +13,7 @@ the frontend; no external AI service is called.
 ## Run it locally
 
 **Prerequisites:** Node.js 20+, and Java 11+ for the Firestore emulator.
+If the default `java` is older, set `FIREBASE_JAVA_HOME` in `.env.local` to a JDK 11+ folder.
 
 ```bash
 npm install
@@ -28,6 +29,21 @@ accounts, profiles and the phone sign-in codes, which are never texted locally. 
 `DEMO_MODE="true"` to `.env.local` for the no-account demo. [FIREBASE_SETUP.md](FIREBASE_SETUP.md)
 covers the emulators and setting up a real Firebase project; [.env.example](.env.example)
 lists every variable.
+
+### Demo accounts
+
+With `npm run dev` running, create the synthetic demo accounts on the local emulators:
+
+```bash
+npm run seed-demo
+```
+
+It prints the shared password. Accounts: `patient.demo@cityhealer.test` (patient),
+`doctor.demo@cityhealer.test` (verified provider "Dr Kavya Menon", with open times today and
+tomorrow), `hospital.demo@cityhealer.test` (hospital desk for hosp-1) and
+`admin.demo@cityhealer.test` (administrator). All data is synthetic, and the script refuses to
+run against anything but the emulators. The demonstration walk-through and the course
+deliverables are in [CITY_HEALER_FINAL_DELIVERABLES/](CITY_HEALER_FINAL_DELIVERABLES/).
 
 First boot creates the SQLite schema and seeds 52 hospitals, 80 doctors and 31 medicines.
 Appointments are not in SQLite: every booking, prescription and consultation lives in
