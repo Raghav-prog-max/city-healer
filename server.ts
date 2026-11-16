@@ -1156,9 +1156,28 @@ app.post("/api/emergency/sos", async (req, res) => {
 
 // GET Emergency Alerts
 // Dispatch stream carries caller name, phone and GPS — responders only.
+/**
+ * The facility a hospital desk account administers (hospitalId claim), as its name, which is how
+ * alerts record the hospital they were routed to. null for an unlinked desk.
+ */
+async function ownFacilityName(req: express.Request): Promise<string | null> {
+  const hospitalId = await resolveHospitalId(getAuthUser(req)!.uid);
+  if (!hospitalId) return null;
+  const h = await dbGet("SELECT name FROM hospitals WHERE id = ?", [hospitalId]);
+  return h?.name || null;
+}
+
+// Alerts hold the caller's name, phone and location: a hospital desk sees only the alerts routed
+// to its own facility (an unlinked desk sees none); an administrator sees all.
 app.get("/api/emergency/alerts", requireRole("HOSPITAL", "ADMIN"), async (req, res) => {
   try {
-    const list = await dbAll("SELECT * FROM emergency_alerts");
+    let list: any[];
+    if (getAuthUser(req)!.role === "ADMIN") {
+      list = await dbAll("SELECT * FROM emergency_alerts");
+    } else {
+      const facility = await ownFacilityName(req);
+      list = facility ? await dbAll("SELECT * FROM emergency_alerts WHERE hospitalName = ?", [facility]) : [];
+    }
     res.json(list);
   } catch (err: any) {
     res.status(500).json({ error: "Failed to fetch emergency alerts", message: err.message });
@@ -1177,6 +1196,10 @@ app.put("/api/emergency/alerts/:id/status", requireRole("HOSPITAL", "ADMIN"), as
 
   try {
     const alert = await dbGet("SELECT * FROM emergency_alerts WHERE id = ?", [id]);
+    // A desk may act only on alerts routed to its own facility; any other answers like a missing one.
+    if (alert && getAuthUser(req)!.role === "HOSPITAL" && alert.hospitalName !== (await ownFacilityName(req))) {
+      return res.status(404).json({ error: "Distress alert registry not found" });
+    }
     if (!alert) {
       return res.status(404).json({ error: "Distress alert registry not found" });
     }

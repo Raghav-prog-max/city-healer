@@ -38,7 +38,6 @@ export default function HospitalWorkspace() {
 
   const [alerts, setAlerts] = useState<SosAlert[] | null>(null);
   const [alertsError, setAlertsError] = useState("");
-  const [scope, setScope] = useState<"mine" | "all">("mine");
   const [busy, setBusy] = useState("");
   const [rowError, setRowError] = useState<Record<string, string>>({});
 
@@ -93,11 +92,12 @@ export default function HospitalWorkspace() {
   };
 
   const shown = useMemo(() => {
-    const list = (alerts || []).filter((a) => scope === "all" || (facility && a.hospitalName === facility.name));
+    // The server sends only the alerts routed to this facility.
+    const list = alerts || [];
     // Open alerts first, newest first within each group.
     const rank = { REPORTED: 0, DISPATCHED: 1, RESOLVED: 2 } as Record<string, number>;
     return list.slice().sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || String(b.timestamp).localeCompare(String(a.timestamp)));
-  }, [alerts, scope, facility]);
+  }, [alerts]);
 
   const tone = { REPORTED: "danger", DISPATCHED: "warn", RESOLVED: "health" } as const;
   const label = { REPORTED: h.reported, DISPATCHED: h.dispatched, RESOLVED: h.resolved };
@@ -140,12 +140,6 @@ export default function HospitalWorkspace() {
       <section className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg font-semibold">{h.alertsTitle}</h2>
-          <div className="inline-flex rounded-xl border border-line bg-white p-1" role="tablist">
-            {(["mine", "all"] as const).map((s) => (
-              <button key={s} role="tab" aria-selected={scope === s} onClick={() => setScope(s)}
-                className={`h-9 rounded-lg px-3.5 text-sm font-semibold ${scope === s ? "bg-ink text-paper" : "text-subtle hover:text-text"}`}>{h[s]}</button>
-            ))}
-          </div>
           <Button size="sm" variant="secondary" onClick={loadAlerts}><RefreshCw className="h-4 w-4" aria-hidden="true" />{h.refresh}</Button>
         </div>
         <p className="max-w-[720px] text-sm text-subtle">{h.alertsSub}</p>
@@ -166,7 +160,6 @@ export default function HospitalWorkspace() {
                   <dt className="text-subtle">{h.phone}</dt><dd><a className="font-semibold text-care-deep underline underline-offset-2" href={`tel:${a.patientPhone}`}>{a.patientPhone}</a></dd>
                   <dt className="text-subtle">{h.place}</dt><dd>{a.address} <span className="text-subtle">({Number(a.lat).toFixed(4)}, {Number(a.lng).toFixed(4)})</span></dd>
                   <dt className="text-subtle">{h.ambulance}</dt><dd className="font-mono">{a.assignedAmbulanceRef}</dd>
-                  {scope === "all" && <><dt className="text-subtle">{h.facility}</dt><dd>{a.hospitalName}</dd></>}
                 </dl>
                 {rowError[a.id] && <p role="alert" className="mt-2 text-sm text-danger">{rowError[a.id]}</p>}
                 <div className="mt-3 flex flex-wrap gap-2">

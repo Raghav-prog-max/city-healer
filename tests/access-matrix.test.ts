@@ -330,6 +330,30 @@ describe("privileged roles retain access", () => {
   test("HOSPITAL may read the dispatch stream -> 200", async () => {
     assert.equal((await api("GET", "/api/emergency/alerts", actors.hospital.token)).status, 200);
   });
+
+  test("a hospital desk sees and updates only the SOS alerts routed to its own facility", async () => {
+    // Two alerts written straight into this suite's throwaway database: one routed to the desk's
+    // own facility (hosp-1), one to another hospital.
+    const sqlite3 = (await import("sqlite3")).default;
+    const db = new sqlite3.Database(TEST_DB_PATH);
+    const run = (sql: string, args: unknown[]) => new Promise<void>((ok, bad) => db.run(sql, args, (e) => (e ? bad(e) : ok())));
+    const get = (sql: string, args: unknown[]) => new Promise<any>((ok, bad) => db.get(sql, args, (e, row) => (e ? bad(e) : ok(row))));
+    const own = (await get("SELECT name FROM hospitals WHERE id = ?", ["hosp-1"])).name;
+    const other = (await get("SELECT name FROM hospitals WHERE id != ? LIMIT 1", ["hosp-1"])).name;
+    const insert = "INSERT INTO emergency_alerts (id, patientId, patientName, patientPhone, lat, lng, address, type, status, timestamp, assignedAmbulanceRef, hospitalName) VALUES (?, ?, ?, ?, 28.6, 77.2, 'Test address', 'OTHER', 'REPORTED', ?, 'AMB-T', ?)";
+    await run(insert, ["sos-own", actors.bob.uid, "Bob Own", "9000000001", new Date().toISOString(), own]);
+    await run(insert, ["sos-other", actors.alice.uid, "Alice Other", "9000000002", new Date().toISOString(), other]);
+    await new Promise<void>((ok) => db.close(() => ok()));
+
+    const desk = (await api("GET", "/api/emergency/alerts", actors.hospital.token)).body.map((x: any) => x.id);
+    assert.ok(desk.includes("sos-own"), "the desk sees its own facility's alert");
+    assert.ok(!desk.includes("sos-other"), "the desk never sees another facility's alert, or the caller's details");
+    const adminIds = (await api("GET", "/api/emergency/alerts", actors.admin.token)).body.map((x: any) => x.id);
+    assert.ok(adminIds.includes("sos-own") && adminIds.includes("sos-other"), "an admin sees all alerts");
+
+    assert.equal((await api("PUT", "/api/emergency/alerts/sos-other/status", actors.hospital.token, { status: "DISPATCHED" })).status, 404, "another facility's alert cannot be updated");
+    assert.equal((await api("PUT", "/api/emergency/alerts/sos-own/status", actors.hospital.token, { status: "DISPATCHED" })).status, 200);
+  });
   test("ADMIN may read all records -> 200", async () => {
     assert.equal((await api("GET", "/api/records", actors.admin.token)).status, 200);
   });
