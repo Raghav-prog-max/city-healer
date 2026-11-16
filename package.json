@@ -11,7 +11,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "npm run test:unit && npm run test:server",
-    "test:unit": "tsx --test tests/triage-heuristic.test.ts tests/triage-model.test.ts tests/voice-commands.test.ts tests/geo.test.ts tests/specialties.test.ts tests/hospital-data.test.ts tests/facility-model.test.ts tests/platform.test.ts tests/ai-models.test.ts tests/consent-rules.test.ts tests/lab-values.test.ts tests/build-env.test.ts",
+    "test:unit": "tsx --test tests/triage-heuristic.test.ts tests/triage-model.test.ts tests/voice-commands.test.ts tests/geo.test.ts tests/specialties.test.ts tests/hospital-data.test.ts tests/facility-model.test.ts tests/platform.test.ts tests/ai-models.test.ts tests/consent-rules.test.ts tests/lab-values.test.ts tests/build-env.test.ts tests/algorithms.test.ts",
     "test:server": "node scripts/dev-firebase.mjs --no-persist \"tsx --test --test-concurrency=1 tests/access-matrix.test.ts tests/resource-ownership.test.ts tests/booking.test.ts tests/consent.test.ts tests/provider-admin.test.ts tests/consultations.test.ts\"",
     "set-role": "tsx scripts/set-role.ts",
     "set-password": "tsx scripts/set-password.ts",
