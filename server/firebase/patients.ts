@@ -10,7 +10,8 @@
  *                              (server/firebase/consent.ts) until consent is given again
  *
  * Collections: patientProfiles/{uid}, patientConsents/{id}, auditLogs/{id}. No diagnosis,
- * prescriptions, lab values, clinical notes or files are stored here.
+ * prescriptions, lab values, clinical notes or files are stored in these collections.
+ * (Prescriptions for Firestore bookings have their own collection: consultations.ts.)
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { FieldValue } from "firebase-admin/firestore";

@@ -29,7 +29,7 @@ const ModelsPage = lazy(() => import("../app/ModelsPage"));
 const AssistantPage = lazy(() => import("../app/AssistantPage"));
 
 const copy = {
-  en: { apptLoadError: "Your appointments could not be loaded. Please try again.", overview: "Overview", find: "Find care", appointments: "Appointments", records: "Health wallet", family: "Family care", assistant: "AI companion", settings: "Settings", nutrition: "Nutrition", medicines: "Medicines", emergency: "Emergency", models: "AI models",
+  en: { prescription: "Prescription", rxInstructions: "Instructions", cancelledByDoctor: "Cancelled by the doctor", apptLoadError: "Your appointments could not be loaded. Please try again.", overview: "Overview", find: "Find care", appointments: "Appointments", records: "Health wallet", family: "Family care", assistant: "AI companion", settings: "Settings", nutrition: "Nutrition", medicines: "Medicines", emergency: "Emergency", models: "AI models",
     morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening", headline: "Your health, connected.", sub: "A clearer view of your care, all in one place.", location: "Delhi NCR", nearYou: "Near you",
     search: "Search doctors, specialities, hospitals or services", book: "Find a doctor", lab: "Understand a lab report", meds: "Medicines", emergencyHelp: "Emergency help",
     bookSub: "Doctors & specialists", labSub: "Check values from your report", medsSub: "Uses, side effects, substitutes", emergencyQuickSub: "Call 112 · nearest hospitals",
@@ -48,7 +48,7 @@ const copy = {
     status: { PENDING: "Requested", CONFIRMED: "Confirmed", ACCEPTED: "Confirmed", COMPLETED: "Completed", CANCELLED: "Cancelled", REJECTED: "Declined" },
     familySoon: "Linking family members is not available yet. It will need the person's permission or appropriate legal authority.", noFamily: "No linked family members",
     email: "Email", phone: "Mobile", city: "City", doctorsTab: "Doctors", bookTab: "Book appointment", hospitalsTab: "Hospitals", name: "Name", language: "Language", workspace: "Workspace", patientAccount: "Patient account", demoAccount: "Demo session", video: "Video consultation", inPerson: "In-person visit", view: "View", menu: "Menu" },
-  hi: { apptLoadError: "आपके अपॉइंटमेंट लोड नहीं हो सके। कृपया फिर कोशिश करें।", overview: "होम", find: "देखभाल खोजें", appointments: "अपॉइंटमेंट", records: "हेल्थ वॉलेट", family: "परिवार की देखभाल", assistant: "AI सहायक", settings: "सेटिंग्स", nutrition: "पोषण", medicines: "दवाइयाँ", emergency: "आपातकाल", models: "AI मॉडल",
+  hi: { prescription: "प्रिस्क्रिप्शन", rxInstructions: "निर्देश", cancelledByDoctor: "डॉक्टर ने रद्द किया", apptLoadError: "आपके अपॉइंटमेंट लोड नहीं हो सके। कृपया फिर कोशिश करें।", overview: "होम", find: "देखभाल खोजें", appointments: "अपॉइंटमेंट", records: "हेल्थ वॉलेट", family: "परिवार की देखभाल", assistant: "AI सहायक", settings: "सेटिंग्स", nutrition: "पोषण", medicines: "दवाइयाँ", emergency: "आपातकाल", models: "AI मॉडल",
     morning: "सुप्रभात", afternoon: "नमस्कार", evening: "शुभ संध्या", headline: "आपकी सेहत, एक साथ।", sub: "आपकी देखभाल की जानकारी, एक ही जगह।", location: "दिल्ली NCR", nearYou: "आपके पास",
     search: "डॉक्टर, विशेषज्ञता, अस्पताल या सेवा खोजें", book: "डॉक्टर खोजें", lab: "लैब रिपोर्ट समझें", meds: "दवाइयाँ", emergencyHelp: "आपातकालीन सहायता",
     bookSub: "डॉक्टर और विशेषज्ञ", labSub: "रिपोर्ट के आंकड़े जाँचें", medsSub: "उपयोग, दुष्प्रभाव, विकल्प", emergencyQuickSub: "112 पर कॉल · नज़दीकी अस्पताल",
@@ -106,7 +106,11 @@ export default function PatientDashboard() {
   }, [session.user, active, apptTick]);
   useEffect(() => {
     if (!session.user) { setRecords([]); return; }
-    request("/api/records").then(setRecords).catch(() => setRecords([]));
+    // Saved records, then the prescriptions doctors have written (oldest first: the list shows
+    // the last entry first). A failure to load prescriptions does not hide the records.
+    Promise.all([request("/api/records"), request("/api/v1/prescriptions/mine").catch(() => ({ prescriptions: [] }))])
+      .then(([saved, rx]) => setRecords([...saved, ...(rx.prescriptions || []).slice().reverse().map((p) => fromPrescription(p, t))]))
+      .catch(() => setRecords([]));
   }, [session.user, recordsTick]);
 
   const name = session.name || (session.demo ? t.demoAccount : "");
@@ -268,6 +272,16 @@ function fromBooking(b) {
     time: start.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
     type: b.consultationType === "online" ? "VIRTUAL" : "IN_PERSON",
     status: String(b.status || "").toUpperCase(),
+    cancelledBy: b.cancelledBy || null, cancelReason: b.cancelReason || "",
+  };
+}
+
+/** A prescription (server/firebase/consultations.ts) in the shape the health-wallet list shows. */
+function fromPrescription(p, t) {
+  const medicines = (p.medicines || []).map((m) => [m.name, m.dosage, m.frequency, m.duration].filter(Boolean).join(", ")).join("; ");
+  return {
+    id: `rx-${p.id}`, title: `${t.prescription}: ${p.diagnosis}`, date: String(p.issuedAt || "").slice(0, 10), doctorName: p.doctorName,
+    diagnoseSummary: [medicines, p.instructions ? `${t.rxInstructions}: ${p.instructions}` : ""].filter(Boolean).join(". "),
   };
 }
 
@@ -275,7 +289,7 @@ function AppointmentCard({ a, t, lang, onView }) {
   const d = new Date(`${a.date}T00:00:00`);
   return <div className="appointment-card"><div className="appt-date"><b>{d.getDate()}</b><span>{d.toLocaleDateString("en-IN", { month: "short" }).toUpperCase()}</span></div>
     <div className="appt-info"><div className="appt-tag"><span />{a.type === "VIRTUAL" ? t.video : t.inPerson}</div><h3>{a.doctorName}</h3><p>{a.specialty}</p>
-      <div className="appt-meta"><span><CalendarDays size={14} />{d.toLocaleDateString(lang === "hi" ? "hi-IN" : "en-IN", { weekday: "long", day: "numeric", month: "long" })}</span><span><Clock size={14} />{a.time}</span></div></div>
+      <div className="appt-meta"><span><CalendarDays size={14} />{d.toLocaleDateString(lang === "hi" ? "hi-IN" : "en-IN", { weekday: "long", day: "numeric", month: "long" })}</span><span><Clock size={14} />{a.time}</span></div>{a.cancelledBy === "doctor" && <p style={{ marginTop: 6 }}>{t.cancelledByDoctor}{a.cancelReason ? `: ${a.cancelReason}` : ""}</p>}</div>
     <div className="appt-action"><span className="demo-chip">{t.status[a.status] || a.status}</span>{onView && <button onClick={onView}>{t.view}<ArrowRight size={14} /></button>}</div></div>;
 }
 

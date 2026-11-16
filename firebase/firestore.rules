@@ -32,6 +32,11 @@ service cloud.firestore {
     match /appointments/{id} { allow read, write: if false; }
     match /notificationOutbox/{id} { allow read, write: if false; }
 
+    // Prescriptions (server/firebase/consultations.ts) hold a diagnosis and medicines. Only the
+    // server reads or writes them, after checking the caller is the patient or the doctor on
+    // the appointment; no client SDK can.
+    match /prescriptions/{id} { allow read, write: if false; }
+
     // Deny all unspecified collections until a collection-specific policy is added.
     match /{document=**} {
       allow read, write: if false;

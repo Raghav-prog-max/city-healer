@@ -300,6 +300,7 @@ export function appointmentsRouter() {
       const appointments = s.docs.map((d) => ({
         id: d.id, patientName: nameOf.get(String(d.get("patientUid"))) || "", reason: d.get("reason") || "",
         startsAt: d.get("startsAt"), endsAt: d.get("endsAt"), consultationType: d.get("consultationType"), status: d.get("status"),
+        cancelledBy: d.get("cancelledBy") || null, hasPrescription: !!d.get("hasPrescription"),
       })).sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
       res.json({ appointments });
     } catch (e) { fail(res, e); }

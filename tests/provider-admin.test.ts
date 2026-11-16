@@ -119,6 +119,12 @@ describe("an admin gives an account the doctor role", () => {
   });
 
   test("granting changes the role, signs the account out, and is audited", async () => {
+    // Firebase revokes sessions to the second: a token issued in the same second as the
+    // revocation is still accepted. Let that second pass, as it would between a real sign-up
+    // and an administrator's grant, so the assertion below is about revocation, not timing.
+    const issuedAt = JSON.parse(Buffer.from(a.pia.token.split(".")[1], "base64url").toString()).auth_time as number;
+    const wait = (issuedAt + 1) * 1000 + 100 - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     const r = await grant(a.admin.token, { email: a.pia.email.toUpperCase() });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.deepEqual(r.body, { uid: a.pia.uid, contact: a.pia.email, role: "doctor", changed: true });

@@ -2,8 +2,10 @@
 
 City Healer signs people in with **Firebase Authentication** (a phone code by SMS, or email
 and password) and keeps patient profiles, consents and an audit log in **Cloud Firestore**.
-Clinical and directory data (hospitals, doctors, appointments, records, prescriptions) stays
-in SQLite, keyed by the Firebase user id.
+Verified providers, their times, bookings and the prescriptions written for those bookings are
+also in Firestore, reachable only through the server. Directory data (hospitals, sample doctors,
+medicines) and the health-wallet records patients save stay in SQLite, keyed by the Firebase
+user id.
 
 This follows *City_Healer_Backend_Auth_Foundation.zip*: phone OTP on the client, Firebase ID
 tokens verified on the server with the Admin SDK, roles as custom claims, strict Zod schemas,

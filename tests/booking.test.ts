@@ -183,7 +183,7 @@ describe("booking", () => {
     assert.ok(appt, "the doctor's list includes Alice's booking");
     assert.equal(appt.patientName, "Alice Patient");
     assert.equal(appt.status, "confirmed");
-    assert.deepEqual(Object.keys(appt).sort(), ["consultationType", "endsAt", "id", "patientName", "reason", "startsAt", "status"], "nothing else about the patient is sent");
+    assert.deepEqual(Object.keys(appt).sort(), ["cancelledBy", "consultationType", "endsAt", "hasPrescription", "id", "patientName", "reason", "startsAt", "status"], "nothing else about the patient is sent");
 
     const other = await api("GET", "/api/v1/appointments/doctor", a.otherDoctor.token);
     assert.equal(other.status, 200);
