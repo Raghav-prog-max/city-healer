@@ -146,9 +146,8 @@ LLM test injects a fake model caller or a fake `fetch`). Server tests: `npm run 
   the median of recent consultations (range: quartiles), else the slot length (range x0.8 to
   x1.3), else 12 minutes (range x0.6 to x1.5); plus 10 minutes overhead plus the doctor's delay.
 - **Source.** `shared/waitTime.ts:56` `estimateOpdWait` (API documented in the file header).
-- **Used by.** `POST /api/queue/take` (`server.ts:1194`). With no timing data it returns exactly the
-  previous 12q + 10. The same-day check-in feature (another branch) is meant to call it with real
-  consultation durations and the doctor's running delay.
+- **Used by.** The same-day check-in queue (`GET /api/v1/appointments/:id/queue`), which replaces the
+  retired SQLite walk-in token route. Until that lands, the function is exercised by its unit tests only.
 - **Tests.** "A7: with no timing data it equals the original 12q + 10", "A7: uses the median of
   recent consultations and the doctor's delay, with a range", "A7: slot length is the fallback, and
   bad input is cleaned".
