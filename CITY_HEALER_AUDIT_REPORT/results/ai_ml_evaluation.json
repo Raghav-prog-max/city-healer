@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-16T09:56:26.346Z",
+  "generated_at": "2026-11-16T22:57:20.455Z",
   "node": "v25.2.1",
   "notes": [],
   "intent_model_held_out": {
@@ -206,11 +206,11 @@
       }
     },
     "inference_ms": {
-      "p50": 0.031,
-      "p95": 0.127,
-      "mean": 0.047
+      "p50": 0.012,
+      "p95": 0.034,
+      "mean": 0.018
     },
-    "model_load_ms": 64
+    "model_load_ms": 48
   },
   "intent_model_robustness_audit_set": {
     "dataset": "audit-written, 20 sentences (typos, transliteration, mixed language, unseen phrasing)",
@@ -409,10 +409,10 @@
     "accuracy": 95.3,
     "macro_f1": 95.3,
     "inference_ms": {
-      "p50": 0.084,
-      "p95": 0.303
+      "p50": 0.031,
+      "p95": 0.081
     },
-    "model_load_ms": 113
+    "model_load_ms": 52
   },
   "triage_model_fresh_test": {
     "dataset": "ml/data/fresh_test.json (project-written with AI assistance; not patient data)",
@@ -425,14 +425,14 @@
   "copilot_audit_set": {
     "dataset": "audit-written, 37 messages (16 emergencies in en/hi/hinglish, false-positive probes, lab, medicine, diet, care, out-of-scope, ambiguous, prompt injection); hospital and doctor lookups stubbed to empty",
     "engine": "ML + rules: trained TF-IDF/logistic-regression intent and triage models, keyword emergency rules, templated replies. No LLM.",
-    "route_accuracy": 70.3,
-    "emergency_recall": 75,
+    "route_accuracy": 81.1,
+    "emergency_recall": 100,
     "emergency_false_positive_rate": 4.8,
     "replies_claiming_an_action": [],
     "latency_ms_warm": {
-      "p50": 0.142,
-      "p95": 23.261,
-      "max": 244
+      "p50": 0.099,
+      "p95": 11.041,
+      "max": 128
     },
     "consistency_same_input_10x": "identical",
     "rows": [
@@ -447,7 +447,7 @@
         "emergencyDetected": true,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 1.7,
+        "ms": 4,
         "reply": "This sounds like an emergency. Call 112 now, or press SOS to alert the nearest hospital. Stop all physical activity and sit upright"
       },
       {
@@ -461,7 +461,7 @@
         "emergencyDetected": true,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.1,
+        "ms": 1.5,
         "reply": "This sounds like an emergency. Call 112 now, or press SOS to alert the nearest hospital. Call emergency services immediately — 112 in India"
       },
       {
@@ -469,42 +469,42 @@
         "expectRoute": "urgent_human_care",
         "emergency": true,
         "kind": "emergency-en",
-        "intent": "lab_report",
-        "confidence": 0.519,
-        "route": "document_intelligence",
-        "emergencyDetected": false,
-        "routeOk": false,
+        "intent": "emergency_rule",
+        "confidence": 1,
+        "route": "urgent_human_care",
+        "emergencyDetected": true,
+        "routeOk": true,
         "claimsAction": false,
-        "ms": 1.9,
-        "reply": "Type the values from your report, for example \"haemoglobin 10.5, platelets 140000\" or \"fasting sugar 135, HbA1c 6.8\", or open the Lab Report Analyzer."
+        "ms": 0,
+        "reply": "This sounds like an emergency. Call 112 now, or press SOS to alert the nearest hospital. Call emergency services immediately — 112 in India"
       },
       {
         "text": "I want to kill myself",
         "expectRoute": "urgent_human_care",
         "emergency": true,
         "kind": "emergency-en",
-        "intent": "appointment",
-        "confidence": 0.617,
-        "route": "care_discovery",
-        "emergencyDetected": false,
-        "routeOk": false,
+        "intent": "emergency_rule",
+        "confidence": 1,
+        "route": "urgent_human_care",
+        "emergencyDetected": true,
+        "routeOk": true,
         "claimsAction": false,
-        "ms": 0.5,
-        "reply": "No doctor of that kind is listed yet."
+        "ms": 0,
+        "reply": "What you wrote suggests you may be thinking about harming yourself. Please talk to someone right now; you do not have to handle this alone, and an app cannot ke"
       },
       {
         "text": "baby had a fit and is not responding",
         "expectRoute": "urgent_human_care",
         "emergency": true,
         "kind": "emergency-en",
-        "intent": "emergency",
-        "confidence": 0.746,
+        "intent": "emergency_rule",
+        "confidence": 1,
         "route": "urgent_human_care",
         "emergencyDetected": true,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.1,
-        "reply": "If this is an emergency, call 112 or press SOS. These hospitals have emergency care nearest to you."
+        "ms": 0.4,
+        "reply": "This sounds like an emergency. Call 112 now, or press SOS to alert the nearest hospital. Call emergency services immediately — 112 in India"
       },
       {
         "text": "face drooping and slurred speech since 10 minutes",
@@ -517,7 +517,7 @@
         "emergencyDetected": true,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.1,
+        "ms": 0.2,
         "reply": "This sounds like an emergency. Call 112 now, or press SOS to alert the nearest hospital. Note the time symptoms started and tell the hospital"
       },
       {
@@ -525,28 +525,28 @@
         "expectRoute": "urgent_human_care",
         "emergency": true,
         "kind": "emergency-en",
-        "intent": "emergency",
-        "confidence": 0.787,
+        "intent": "emergency_rule",
+        "confidence": 1,
         "route": "urgent_human_care",
         "emergencyDetected": true,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.1,
-        "reply": "If this is an emergency, call 112 or press SOS. These hospitals have emergency care nearest to you."
+        "ms": 0,
+        "reply": "This sounds like an emergency. Call 112 now, or press SOS to alert the nearest hospital. Apply firm direct pressure to any bleeding wound"
       },
       {
         "text": "my lips are turning blue and I can barely breathe",
         "expectRoute": "urgent_human_care",
         "emergency": true,
         "kind": "emergency-en",
-        "intent": "symptoms",
-        "confidence": 0.965,
-        "route": "symptom_guidance",
-        "emergencyDetected": false,
-        "routeOk": false,
+        "intent": "emergency_rule",
+        "confidence": 1,
+        "route": "urgent_human_care",
+        "emergencyDetected": true,
+        "routeOk": true,
         "claimsAction": false,
-        "ms": 0.4,
-        "reply": "I need a little more detail to assess this. Describe what you feel, where, and for how long."
+        "ms": 0,
+        "reply": "This sounds like an emergency. Call 112 now, or press SOS to alert the nearest hospital. Stop all physical activity and sit upright"
       },
       {
         "text": "papa ko seene mein dard ho raha hai",
@@ -573,7 +573,7 @@
         "emergencyDetected": true,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0,
+        "ms": 0.1,
         "reply": "This sounds like an emergency. Call 112 now, or press SOS to alert the nearest hospital. Call emergency services immediately — 112 in India"
       },
       {
@@ -615,7 +615,7 @@
         "emergencyDetected": true,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.1,
+        "ms": 2,
         "reply": "यह आपात स्थिति लगती है। अभी 112 पर कॉल करें, या नज़दीकी अस्पताल को सूचना देने के लिए SOS दबाएँ। सारी शारीरिक गतिविधि रोक दें और सीधे बैठ जाएँ"
       },
       {
@@ -629,7 +629,7 @@
         "emergencyDetected": true,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0,
+        "ms": 0.4,
         "reply": "यह आपात स्थिति लगती है। अभी 112 पर कॉल करें, या नज़दीकी अस्पताल को सूचना देने के लिए SOS दबाएँ। तुरंत आपातकालीन सेवा को कॉल करें — भारत में 112"
       },
       {
@@ -651,14 +651,14 @@
         "expectRoute": "urgent_human_care",
         "emergency": true,
         "kind": "emergency-hi",
-        "intent": "symptoms",
-        "confidence": 0.846,
-        "route": "symptom_guidance",
-        "emergencyDetected": false,
-        "routeOk": false,
+        "intent": "emergency_rule",
+        "confidence": 1,
+        "route": "urgent_human_care",
+        "emergencyDetected": true,
+        "routeOk": true,
         "claimsAction": false,
-        "ms": 0.2,
-        "reply": "आकलन के लिए थोड़ी और जानकारी दें: क्या महसूस हो रहा है, कहाँ, और कब से।"
+        "ms": 0,
+        "reply": "यह आपात स्थिति लगती है। अभी 112 पर कॉल करें, या नज़दीकी अस्पताल को सूचना देने के लिए SOS दबाएँ। सारी शारीरिक गतिविधि रोक दें और सीधे बैठ जाएँ"
       },
       {
         "text": "I have a mild headache after work",
@@ -671,7 +671,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.1,
+        "ms": 0.3,
         "reply": "This most closely matches Possible tension headache or migraine. Suggested specialist: Neurologist."
       },
       {
@@ -685,7 +685,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.3,
+        "ms": 0.2,
         "reply": "This most closely matches Possible common cold (71%). Suggested specialist: General Physician."
       },
       {
@@ -769,7 +769,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 3.6,
+        "ms": 1.7,
         "reply": "Outside the reference range: Haemoglobin 9.5 g/dL (low); Mean corpuscular volume (MCV) 70 fL (low). Low haemoglobin with small red cells (low MCV) is the usual "
       },
       {
@@ -783,7 +783,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.5,
+        "ms": 0.8,
         "reply": "Outside the reference range: Fasting glucose 140 mg/dL (high); HbA1c 7.2 % (high). The diabetes model gives a moderate risk score of 57%, driven mostly by fasti"
       },
       {
@@ -797,7 +797,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 244.2,
+        "ms": 127.5,
         "reply": "Dolo Drops contains Paracetamol (100mg/ml). Used for: Pain relief, Treatment of Fever."
       },
       {
@@ -811,7 +811,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 10.8,
+        "ms": 5,
         "reply": "Genericart Metformin Hydrochloride 1000mg Tablet SR contains Metformin (1000mg). Used for: Treatment of Type 2 diabetes mellitus."
       },
       {
@@ -825,7 +825,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 6.4,
+        "ms": 3.4,
         "reply": "A vegetarian day plan for type 2 diabetes / high blood sugar, about 1349 kcal:"
       },
       {
@@ -839,7 +839,7 @@
         "emergencyDetected": false,
         "routeOk": false,
         "claimsAction": false,
-        "ms": 0.2,
+        "ms": 0.1,
         "reply": "I'm not sure what you need. Is it one of these?"
       },
       {
@@ -853,7 +853,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.2,
+        "ms": 0.1,
         "reply": "No doctor of that kind is listed yet."
       },
       {
@@ -867,7 +867,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.3,
+        "ms": 0.1,
         "reply": "Hospitals with free beds (share your location to sort by distance):"
       },
       {
@@ -881,7 +881,7 @@
         "emergencyDetected": false,
         "routeOk": false,
         "claimsAction": false,
-        "ms": 23.3,
+        "ms": 11,
         "reply": "I couldn't find that medicine. Check the spelling or type the name on the strip."
       },
       {
@@ -923,7 +923,7 @@
         "emergencyDetected": false,
         "routeOk": false,
         "claimsAction": false,
-        "ms": 0.2,
+        "ms": 0.1,
         "reply": "I need a little more detail to assess this. Describe what you feel, where, and for how long."
       },
       {
@@ -951,7 +951,7 @@
         "emergencyDetected": false,
         "routeOk": true,
         "claimsAction": false,
-        "ms": 0.3,
+        "ms": 0.1,
         "reply": "This most closely matches Possible upper respiratory infection. Suggested specialist: General Physician."
       }
     ]
@@ -994,8 +994,8 @@
   },
   "document_extraction_synthetic": {
     "dataset": "10 synthetic report texts written for this audit with ground-truth values (not real reports)",
-    "field_precision": 84,
-    "field_recall": 75,
+    "field_precision": 96.4,
+    "field_recall": 96.4,
     "docs": [
       {
         "doc": "cbc-columns",
@@ -1009,12 +1009,12 @@
         "got": {
           "haemoglobin": 11.2,
           "wbc": 7800,
-          "platelets": 1500,
+          "platelets": 150000,
           "mcv": 72
         },
-        "correct": 3,
-        "wrong_or_extra": 1,
-        "missed": 1
+        "correct": 4,
+        "wrong_or_extra": 0,
+        "missed": 0
       },
       {
         "doc": "cbc-colon",
@@ -1027,13 +1027,13 @@
         },
         "got": {
           "haemoglobin": 13.4,
-          "wbc": 6.1,
+          "wbc": 6100,
           "platelets": 245000,
           "mcv": 88
         },
-        "correct": 4,
-        "wrong_or_extra": 0,
-        "missed": 0
+        "correct": 3,
+        "wrong_or_extra": 1,
+        "missed": 1
       },
       {
         "doc": "diabetes",
@@ -1063,11 +1063,13 @@
         },
         "got": {
           "cholesterol": 232,
+          "ldl": 150,
+          "hdl": 38,
           "triglycerides": 180
         },
-        "correct": 2,
+        "correct": 4,
         "wrong_or_extra": 0,
-        "missed": 2
+        "missed": 0
       },
       {
         "doc": "liver",
@@ -1094,10 +1096,12 @@
         "expected": {
           "tsh": 5.8
         },
-        "got": {},
-        "correct": 0,
+        "got": {
+          "tsh": 5.8
+        },
+        "correct": 1,
         "wrong_or_extra": 0,
-        "missed": 1
+        "missed": 0
       },
       {
         "doc": "no-units",
@@ -1123,11 +1127,11 @@
           "haemoglobin": 14.1
         },
         "got": {
-          "haemoglobin": 13
+          "haemoglobin": 14.1
         },
-        "correct": 0,
-        "wrong_or_extra": 1,
-        "missed": 1
+        "correct": 1,
+        "wrong_or_extra": 0,
+        "missed": 0
       },
       {
         "doc": "hindi-labels",
@@ -1152,17 +1156,17 @@
           "wbc": 11200
         },
         "got": {
-          "wbc": 11,
-          "platelets": 1000
+          "wbc": 11200,
+          "platelets": 150000
         },
-        "correct": 0,
-        "wrong_or_extra": 2,
-        "missed": 2
+        "correct": 2,
+        "wrong_or_extra": 0,
+        "missed": 0
       }
     ],
     "latency_ms": {
-      "p50": 0.078,
-      "max": 1
+      "p50": 0.081,
+      "max": 0.5
     },
     "failure_modes": {
       "empty_txt": "no_text_found",
@@ -1173,7 +1177,7 @@
       "binary_named_txt": "extracted",
       "five_mb_txt": {
         "status": "extracted",
-        "ms": 3,
+        "ms": 1,
         "heap_delta_mb": 5.3,
         "text_truncated_to_chars": 50000
       }
@@ -1340,8 +1344,8 @@
       "missing_values": "not representable: the API takes a dense list of counts; gaps must be sent as 0 (indistinguishable from a true zero)"
     },
     "fit_and_predict_ms": {
-      "p50": 0.016,
-      "p95": 0.104
+      "p50": 0.008,
+      "p95": 0.063
     },
     "real_data_evaluation": "NOT EVALUATED: the local database has no meaningful appointment or emergency history."
   },
@@ -1365,14 +1369,14 @@
     "ranking_quality": "NOT EVALUATED: no human relevance judgments exist; the local repository holds no verified providers."
   },
   "facility_model_on_confirmed_hospitals": {
-    "dataset": "208 directory listings confirmed as hospitals by the NIN registry or CGHS/DGEHS lists (positives only)",
-    "recall_at_threshold_0_4": 87,
+    "dataset": "0 directory listings confirmed as hospitals by the NIN registry or CGHS/DGEHS lists (positives only)",
+    "recall_at_threshold_0_4": null,
     "note": "Only positives are available locally, so precision on Delhi NCR listings is NOT EVALUATED; held-out precision/recall in ml/facility_report.json is on OSM tags, which are themselves noisy.",
     "inference_ms": {
-      "p50": 0.012,
-      "p95": 0.026
+      "p50": null,
+      "p95": null
     },
-    "model_load_ms": 72
+    "model_load_ms": 104
   },
   "model_artefacts": {
     "shared/triage-model.json": "742 KB",
@@ -1380,5 +1384,5 @@
     "shared/facility-model.json": "676 KB",
     "shared/lab-models.json": "12 KB"
   },
-  "memory_after_all_models_mb": 263
+  "memory_after_all_models_mb": 309
 }

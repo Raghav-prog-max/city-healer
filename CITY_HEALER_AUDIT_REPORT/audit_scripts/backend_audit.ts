@@ -110,8 +110,20 @@ const check = (name: string, ok: boolean, detail: unknown) => sec.push({ name, r
   const h = await api("GET", "/api/health", undefined, undefined, { Origin: "https://evil.example" });
   out.response_headers_sample = { route: "/api/health", headers: Object.fromEntries(Object.entries(h.headers).filter(([k]) => /^(x-|content-security|strict-transport|access-control|referrer|permissions)/i.test(k))) };
   check("no permissive CORS header for a foreign origin", !h.headers["access-control-allow-origin"], h.headers["access-control-allow-origin"] || "(none)");
-  check("Content-Security-Policy header present", !!h.headers["content-security-policy"], h.headers["content-security-policy"] || "(none)");
-  check("Strict-Transport-Security header present (expected only behind HTTPS in production)", !!h.headers["strict-transport-security"], h.headers["strict-transport-security"] || "(none)");
+  check("baseline headers present (nosniff, frame DENY, referrer policy)", h.headers["x-content-type-options"] === "nosniff" && h.headers["x-frame-options"] === "DENY" && !!h.headers["referrer-policy"], { nosniff: h.headers["x-content-type-options"], frame: h.headers["x-frame-options"], referrer: h.headers["referrer-policy"] });
+  check("no CSP in development (Vite needs inline scripts and websockets)", !h.headers["content-security-policy"], h.headers["content-security-policy"] || "(none)");
+}
+{
+  // CSP and HSTS are production-only (server/httpHardening.ts): check them on a production-mode
+  // API server (API_ONLY, so no built frontend is needed).
+  const sp = startServer(3913, { NODE_ENV: "production" });
+  await waitHealthy("http://127.0.0.1:3913", sp.t0);
+  const r = await fetch("http://127.0.0.1:3913/api/health");
+  const csp = r.headers.get("content-security-policy") || "";
+  out.production_headers_sample = { csp, hsts: r.headers.get("strict-transport-security") };
+  check("production: Content-Security-Policy present, no unsafe-eval, frames denied", !!csp && !/unsafe-eval/.test(csp) && /frame-ancestors 'none'/.test(csp), csp.slice(0, 200) || "(none)");
+  check("production: Strict-Transport-Security present", !!r.headers.get("strict-transport-security"), r.headers.get("strict-transport-security") || "(none)");
+  sp.child.kill();
 }
 {
   // General (non-AI) rate limiting: 150 rapid calls to a write route.
@@ -160,10 +172,11 @@ const check = (name: string, ok: boolean, detail: unknown) => sec.push({ name, r
   out.concurrent_booking = { application_status: app.status, patients: 20, rounds };
   check("20 concurrent bookings of one slot: exactly one succeeds (5 rounds)", rounds.every((r) => r.created_201 === 1 && r.conflict_409 === 19), rounds.map((r) => `${r.created_201}/${r.conflict_409}/${r.other}`));
   // Past slot / unverified doctor (legacy SQLite route): look-only doctors must refuse booking
+  // The SQLite booking system was retired (PR #12): its routes must now answer a JSON 404.
   const legacy = await api("POST", "/api/appointments", A.alice.token, { doctorId: "doc-5", patientName: "Alice", date: new Date(Date.now() + 86400000).toISOString().slice(0, 10), time: "10:00", type: "VIRTUAL", symptoms: "" });
-  check("legacy SQLite booking refuses an unverified directory doctor", legacy.status === 409, { status: legacy.status, code: legacy.body?.code });
+  check("retired SQLite booking route answers 404 (cannot book a directory doctor)", legacy.status === 404, { status: legacy.status, code: legacy.body?.error });
   const past = await api("POST", "/api/appointments", A.alice.token, { doctorId: "doc-1", patientName: "Alice", date: "2020-01-01", time: "10:00", type: "VIRTUAL", symptoms: "" });
-  check("legacy booking refuses a past date", past.status === 400 || past.status === 409, past.status);
+  check("retired SQLite booking route answers 404 for any date", past.status === 404, past.status);
 }
 
 // ------------------------------------------------------------------ load tests

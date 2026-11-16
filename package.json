@@ -13,6 +13,7 @@
     "test": "npm run test:unit && npm run test:server",
     "test:unit": "tsx --test tests/triage-heuristic.test.ts tests/triage-model.test.ts tests/geo.test.ts tests/specialties.test.ts tests/hospital-data.test.ts tests/facility-model.test.ts tests/platform.test.ts tests/ai-models.test.ts tests/consent-rules.test.ts tests/lab-values.test.ts tests/build-env.test.ts tests/algorithms.test.ts tests/emergency-safety.test.ts tests/prescription-pdf.test.ts tests/appointment-thread.test.ts",
     "test:server": "node scripts/dev-firebase.mjs --no-persist \"tsx --test --test-concurrency=1 tests/security-headers.test.ts tests/access-matrix.test.ts tests/resource-ownership.test.ts tests/booking.test.ts tests/consent.test.ts tests/provider-admin.test.ts tests/consultations.test.ts tests/messages.test.ts tests/checkin.test.ts\"",
+    "seed-demo": "tsx scripts/seed-demo.ts",
     "set-role": "tsx scripts/set-role.ts",
     "set-password": "tsx scripts/set-password.ts",
     "migrate-users": "tsx scripts/migrate-users.ts",

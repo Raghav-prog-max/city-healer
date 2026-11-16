@@ -95,5 +95,33 @@
       "p50": 0.037,
       "p95": 8.486
     }
+  },
+  "final_2026-11-17": {
+    "at": "2026-11-16T22:57:16.902Z",
+    "development": {
+      "n": 36,
+      "copilot_recall": 100,
+      "triage_recall": 100,
+      "missed": []
+    },
+    "holdout": {
+      "n": 24,
+      "copilot_recall": 100,
+      "triage_recall": 100,
+      "missed": []
+    },
+    "non_emergency": {
+      "n": 35,
+      "copilot_false_positive_rate": 5.7,
+      "triage_false_positive_rate": 5.7,
+      "false_positives": [
+        "I used to have chest pain years ago, now fine; what diet is good for heart",
+        "I fainted once last year, should I get tested"
+      ]
+    },
+    "copilot_ms": {
+      "p50": 0.032,
+      "p95": 8.068
+    }
   }
 }
