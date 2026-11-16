@@ -199,9 +199,9 @@ const noBody = (req: Request) => z.object({}).strict().safeParse(req.body ?? {})
 
 /**
  * Mounted on /api/v1/appointments before appointmentsRouter (whose patient-only r.use would
- * answer a doctor 403). `pollLimit` is the per-uid poll limiter shared with GET messages.
+ * answer a doctor 403). `pollLimit` limits GET /queue (server.ts: per booking, under a per-uid ceiling).
  */
-export function checkinRouter(deps: { pollLimit: RequestHandler }) {
+export function checkinRouter(deps: { pollLimit: RequestHandler | RequestHandler[] }) {
   const r = Router();
 
   r.post("/:appointmentId/check-in", allow("PATIENT"), async (req, res) => {

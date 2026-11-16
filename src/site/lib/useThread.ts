@@ -2,7 +2,9 @@
  * One appointment's message thread, for the panel that shows it (patient or doctor). Mount it
  * only while the panel is open: it loads the thread, polls for newer messages every 15 s while
  * the tab is visible, and marks the thread read only when the open panel has something new to
- * show. Server: server/firebase/messages.ts.
+ * show, and only up to what it has shown ({ upTo: cursor }). If `appointmentId` changes, the
+ * thread starts over: nothing of the previous booking is kept, shown or used as a cursor.
+ * Server: server/firebase/messages.ts.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { request } from "./api";
@@ -32,6 +34,15 @@ export function useThread(appointmentId: string, role: "patient" | "doctor", onR
   useEffect(() => { onReadRef.current = onRead; });
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
+  // Another booking: start over. Done during render, so no poll for the new id can run with the
+  // old cursor; `thread` lets a request for the old id that is still in flight be ignored.
+  const thread = useRef(route);
+  if (thread.current !== route) {
+    thread.current = route;
+    list.current = []; cursor.current = 0; loadedOnce.current = false; inFlight.current = false;
+    setMessages([]); setMeta(null); setError(""); setPostError("");
+  }
+
   const add = (more: ThreadMessage[]) => {
     if (!more.length) return;
     const merged = mergeThread(list.current, more);
@@ -43,24 +54,27 @@ export function useThread(appointmentId: string, role: "patient" | "doctor", onR
   const load = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
+    const current = () => alive.current && thread.current === route;
     try {
       const r = await request<ThreadResponse>(`${route}?after=${cursor.current}`);
-      if (!alive.current) return;
+      if (!current()) return;
       const { messages: more, ...rest } = r;
       add(more);
       setMeta(rest);
       setError("");
       const first = !loadedOnce.current;
       loadedOnce.current = true;
-      // Read state changes only when the open, visible panel has shown something new.
-      if ((first || more.length > 0) && needsRead(role, r.chat) && document.visibilityState === "visible") {
-        await request(`${route}/read`, { method: "POST" });
-        if (alive.current) onReadRef.current?.();
+      // Read state changes only when the open, visible panel has shown something new, and only
+      // up to what it has shown: anything written after this fetch stays unread.
+      const shown = cursor.current;
+      if ((first || more.length > 0) && needsRead(role, r.chat, shown) && document.visibilityState === "visible") {
+        await request(`${route}/read`, { body: { upTo: shown } });
+        if (current()) onReadRef.current?.();
       }
     } catch (e: any) {
-      if (alive.current) setError(e?.message || "error");
+      if (current()) setError(e?.message || "error");
     } finally {
-      inFlight.current = false;
+      if (thread.current === route) inFlight.current = false;
     }
   }, [route, role]);
 
@@ -71,7 +85,7 @@ export function useThread(appointmentId: string, role: "patient" | "doctor", onR
     setSending(true); setPostError("");
     try {
       const r = await request<PostResponse>(route, { body: { text } });
-      if (!alive.current) return r.safety || null;
+      if (!alive.current || thread.current !== route) return r.safety || null;
       add(r.messages);
       void load(); // pick up anything the other side wrote meanwhile, and the new window state
       return r.safety || null;

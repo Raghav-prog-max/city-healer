@@ -7,7 +7,7 @@ import { X, Phone, Ambulance, AlertTriangle, Send } from "lucide-react";
 import { request } from "../lib/api";
 import { useThread } from "../lib/useThread";
 import { useVisiblePoll } from "../lib/usePoll";
-import { MESSAGE_MAX, checkInOpen, checkInLaterToday, doctorOpenedLine, doctorTitle, fill, istDayKey, latestSafetyNotice } from "../lib/appointmentThread";
+import { MESSAGE_MAX, checkInOpen, checkInLaterToday, doctorOpenedLine, doctorTitle, fill, istDayKey } from "../lib/appointmentThread";
 
 const shown = (t, e) => (e === "network" ? t.serverDown : e);
 const stamp = (iso, lang) => new Date(iso).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -28,17 +28,20 @@ function closedSentence(meta, t, name) {
 export function MessagesModal({ a, t, lang, onClose, onRead, onSOS }) {
   const { messages, meta, error, postError, sending, send, loaded } = useThread(a.id, "patient", onRead);
   const [text, setText] = useState("");
-  const [dismissed, setDismissed] = useState("");
+  // The red banner answers a post made in this modal whose reply carried `safety`, until
+  // dismissed. It is not rebuilt from the thread's history: an old notice, already seen and
+  // dismissed, stays in the thread as an amber message but does not raise the banner again.
+  const [banner, setBanner] = useState(false);
   const name = doctorTitle(a.doctorName, t.drPrefix) || a.doctorName || "";
-  const notice = latestSafetyNotice(messages);
-  const banner = notice && notice.id !== dismissed ? notice : null;
   const line = doctorOpenedLine(messages, meta && meta.chat);
 
   const submit = async (e) => {
     e.preventDefault();
     const body = text.trim();
     if (!body || sending) return;
-    if ((await send(body)) !== false) setText("");
+    const r = await send(body);
+    if (r !== false) setText("");
+    if (r && r.level === "emergency") setBanner(true);
   };
 
   return createPortal(<div className="chd"><div className="modal-backdrop" onClick={onClose}>
@@ -63,7 +66,7 @@ export function MessagesModal({ a, t, lang, onClose, onRead, onSOS }) {
         <div className="msg-alert-actions">
           <a href="tel:112"><Phone size={14} />{t.call112}</a>
           <button type="button" onClick={onSOS}><Ambulance size={14} />{t.openSos}</button>
-          <button type="button" className="msg-dismiss" onClick={() => setDismissed(banner.id)}>{t.dismiss}</button>
+          <button type="button" className="msg-dismiss" onClick={() => setBanner(false)}>{t.dismiss}</button>
         </div>
       </div>}
 

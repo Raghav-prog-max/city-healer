@@ -61,7 +61,8 @@ const post = (id: string, token: string | undefined, text: unknown) => {
   if (typeof text === "string") posted.push(text.trim());
   return api("POST", msgs(id), token, { text });
 };
-const read = (id: string, token?: string, body?: unknown) => api("POST", `/api/v1/appointments/${id}/messages/read`, token, body);
+/** POST /read. By default it claims the whole thread was shown (the server clamps to lastSeq). */
+const read = (id: string, token?: string, body: unknown = { upTo: 1e9 }) => api("POST", `/api/v1/appointments/${id}/messages/read`, token, body);
 const doctorRow = async (id: string, who = a.dev) => (await api("GET", "/api/v1/appointments/doctor", who.token)).body.appointments.find((x: any) => x.id === id);
 const mineRow = async (id: string, who: Actor) => (await api("GET", "/api/v1/appointments/mine", who.token)).body.appointments.find((x: any) => x.id === id);
 
@@ -138,7 +139,9 @@ before(async () => {
   appt.carl = await book(a.carl);
   appt.rita = await book(a.rita);
   appt.otherDoc = await book(a.bob, a.other);
-  for (const id of [appt.main, appt.bob, appt.cancel, appt.cap, appt.order, appt.carl, appt.rita, appt.otherDoc]) await setTimes(id, 2, 2.5);
+  appt.readRace = await book(a.bob);
+  appt.capFlag = await book(a.bob);
+  for (const id of [appt.main, appt.bob, appt.cancel, appt.cap, appt.order, appt.carl, appt.rita, appt.otherDoc, appt.readRace, appt.capFlag]) await setTimes(id, 2, 2.5);
   appt.pia = await directAppointment(a.pia.uid, a.alice.uid);
   appt.rex = await directAppointment(a.rex.uid, a.alice.uid);
 });
@@ -250,7 +253,10 @@ describe("read state", () => {
     assert.equal(afterGet.doctorReadAt, before.doctorReadAt);
     assert.equal((await doctorRow(appt.bob)).chat.unread, true);
 
-    assert.equal((await read(appt.bob, a.dev.token, { seq: 5 })).status, 400, "/read takes no body");
+    assert.equal((await read(appt.bob, a.dev.token, { seq: 5 })).status, 400, "/read takes only upTo");
+    assert.equal((await read(appt.bob, a.dev.token, {})).status, 400, "upTo is required");
+    assert.equal((await read(appt.bob, a.dev.token, { upTo: -1 })).status, 400);
+    assert.equal((await read(appt.bob, a.dev.token, { upTo: 1.5 })).status, 400);
     assert.equal((await read(appt.bob, a.dev.token)).status, 200);
     const marked = (await appointmentDoc(appt.bob)).chat;
     assert.equal(marked.doctorReadSeq, marked.lastSeq);
@@ -262,6 +268,54 @@ describe("read state", () => {
     assert.equal(p.body.chat.doctorReadSeq, marked.lastSeq);
     assert.equal((await read(appt.bob, a.dev.token)).status, 200, "nothing unread: a no-op 200");
     assert.equal((await appointmentDoc(appt.bob)).chat.doctorReadAt, marked.doctorReadAt);
+  });
+
+  test("a read covers only what the screen showed: a red flag posted after the doctor's fetch stays unread and urgent", async () => {
+    const id = appt.readRace;
+    assert.equal((await post(id, a.bob.token, "My knee is still sore.")).status, 201);
+    // The doctor's panel fetches the thread: it shows up to seq 1.
+    const shown = await get(id, a.dev.token);
+    const cursor = shown.body.messages[shown.body.messages.length - 1].seq;
+    assert.equal(cursor, 1);
+    // Before the panel's /read lands, the patient writes a red flag (seq 2 and notice seq 3).
+    const flag = await post(id, a.bob.token, "Now I have severe chest pain");
+    assert.equal(flag.body.messages.length, 2);
+    assert.equal((await read(id, a.dev.token, { upTo: cursor })).status, 200);
+    const c = (await appointmentDoc(id)).chat;
+    assert.equal(c.doctorReadSeq, 1, "marked read up to what was shown, not up to lastSeq");
+    assert.equal(c.urgentAckAt, undefined, "the red flag is not acknowledged");
+    const row = await doctorRow(id);
+    assert.equal(row.chat.urgent, true, "the doctor's list still shows the emergency tag");
+    assert.equal(row.chat.unread, true);
+    const p = await get(id, a.bob.token);
+    assert.ok(p.body.chat.doctorReadSeq < flag.body.messages[0].seq, "the patient is not told the doctor opened the red-flag message");
+    assert.equal(p.body.chat.urgentAcked, false);
+
+    // A read that reaches the notice acknowledges it; asking past lastSeq is clamped.
+    assert.equal((await read(id, a.dev.token, { upTo: 99 })).status, 200);
+    const after = (await appointmentDoc(id)).chat;
+    assert.equal(after.doctorReadSeq, 3);
+    assert.ok(after.urgentAckAt);
+    assert.equal((await doctorRow(id)).chat.urgent, false);
+    // A late, smaller read never moves it back.
+    assert.equal((await read(id, a.dev.token, { upTo: 1 })).status, 200);
+    assert.equal((await appointmentDoc(id)).chat.doctorReadSeq, 3);
+
+    // Red flags are ordered by seq, not by time: a new one right after the read is urgent
+    // again, even within the same millisecond as the acknowledgement.
+    assert.equal((await post(id, a.bob.token, "The chest pain is back and spreading to my arm")).status, 201);
+    assert.equal((await doctorRow(id)).chat.urgent, true);
+  });
+
+  test("the patient's read is clamped to what they were shown too", async () => {
+    const id = appt.readRace;
+    assert.equal((await post(id, a.dev.token, "Please call 112 now.")).status, 201);
+    const last = (await appointmentDoc(id)).chat.lastSeq;
+    assert.equal((await read(id, a.bob.token, { upTo: last - 1 })).status, 200);
+    assert.equal((await appointmentDoc(id)).chat.patientReadSeq, last - 1);
+    assert.equal((await mineRow(id, a.bob)).chatUnread, true, "the doctor's latest message is still unread");
+    assert.equal((await read(id, a.bob.token, { upTo: last })).status, 200);
+    assert.equal((await mineRow(id, a.bob)).chatUnread, false);
   });
 });
 
@@ -394,16 +448,35 @@ describe("a cancelled booking", () => {
   });
 
   test("a post racing a cancel never lands on a cancelled booking", async () => {
+    // Several races. Whichever side wins, a stored message must have been written before the
+    // cancel committed: its createdAt (taken inside the post's transaction) is no later than the
+    // cancel's commit time (updatedAt, a server timestamp). A status check made outside the
+    // transaction, or on a stale read, would let a message be written after the cancel.
     const id = appt.rita;
-    const [p, c] = await Promise.all([post(id, a.rita.token, "Racing the cancel"), api("POST", `/api/v1/appointments/${id}/cancel`, a.rita.token)]);
-    assert.equal(c.status, 200);
-    const stored = await storedMessages(id);
-    if (p.status === 201) assert.equal(stored.length, 1, "committed before the cancel");
-    else { assert.equal(p.status, 409); assert.equal(stored.length, 0); }
-    assert.equal((await post(id, a.rita.token, "After the race")).status, 409);
-    assert.equal((await storedMessages(id)).length, stored.length);
-    // Rita's later tests need an open booking again.
-    await (await fs()).collection("appointments").doc(id).update({ status: "confirmed" });
+    const ref = (await fs()).collection("appointments").doc(id);
+    for (let round = 0; round < 6; round++) {
+      const text = `Racing the cancel ${round}`;
+      const [p, c] = await Promise.all([post(id, a.rita.token, text), api("POST", `/api/v1/appointments/${id}/cancel`, a.rita.token)]);
+      assert.equal(c.status, 200);
+      const snap = await ref.get();
+      assert.equal(snap.get("status"), "cancelled");
+      const cancelledAt = snap.get("updatedAt").toDate().getTime();
+      const stored = await storedMessages(id);
+      const mine = stored.filter((m) => m.text === text);
+      if (p.status === 201) {
+        assert.equal(mine.length, 1);
+        assert.ok(Date.parse(mine[0].createdAt) <= cancelledAt, "the message was written before the cancel committed");
+      } else {
+        assert.equal(p.status, 409);
+        assert.equal(p.body.code, "APPOINTMENT_CANCELLED");
+        assert.equal(mine.length, 0);
+      }
+      assert.ok(stored.every((m) => Date.parse(m.createdAt) <= cancelledAt), "nothing stored after the cancel");
+      assert.equal((await post(id, a.rita.token, "After the race")).status, 409);
+      assert.equal((await storedMessages(id)).length, stored.length);
+      // Open the booking again for the next round (and for Rita's later tests).
+      await ref.update({ status: "confirmed" });
+    }
   });
 });
 
@@ -472,6 +545,32 @@ describe("order, cursor and cap", () => {
     assert.equal((await post(appt.cap, a.dev.token, "Doctor in a full thread")).body.code, "THREAD_FULL");
     assert.equal((await storedMessages(appt.cap)).length, 1);
   });
+
+  test("a red flag as the 200th message still gets its notice, and a full fetch returns all 201", async () => {
+    const id = appt.capFlag;
+    const ref = (await fs()).collection("appointments").doc(id);
+    const batch = (await fs()).batch();
+    for (let seq = 1; seq <= 199; seq++) {
+      batch.set(ref.collection("messages").doc(`m${String(seq).padStart(3, "0")}`), {
+        seq, sender: seq % 2 ? "patient" : "doctor", authorUid: seq % 2 ? a.bob.uid : a.dev.uid, kind: "message", text: `Filler ${seq}`,
+        createdAt: new Date(Date.now() - (200 - seq) * 1000).toISOString(),
+      });
+    }
+    batch.update(ref, { chat: { count: 199, lastSeq: 199, lastSender: "patient", lastAt: new Date().toISOString() } });
+    await batch.commit();
+    const r = await post(id, a.bob.token, "I have severe chest pain and cannot breathe");
+    assert.equal(r.status, 201);
+    assert.equal(r.body.messages.length, 2, "the safety notice is not dropped at the cap");
+    assert.equal((await appointmentDoc(id)).chat.count, 201);
+    const all = await get(id, a.bob.token);
+    assert.equal(all.body.messages.length, 201, "a fetch from the start returns every message");
+    assert.equal(all.body.messages[200].sender, "system");
+    assert.equal(all.body.messages[200].kind, "emergency_notice");
+    const full = await post(id, a.bob.token, "Another message");
+    assert.equal(full.status, 409);
+    assert.equal(full.body.code, "THREAD_FULL");
+    assert.equal((await storedMessages(id)).length, 201);
+  });
 });
 
 describe("audit and leakage", () => {
@@ -534,6 +633,17 @@ describe("rate limits", () => {
     }
     assert.equal(last!.status, 429);
     assert.ok(Number(last!.headers.get("retry-after")) > 0);
+  });
+
+  test("polls are counted per open thread: a doctor with one panel past its limit can still read the others", async () => {
+    let last: Awaited<ReturnType<typeof get>> | null = null;
+    for (let i = 0; i < POLL_LIMIT + 5; i++) {
+      last = await get(appt.order, a.dev.token, 999);
+      if (last.status === 429) break;
+      assert.equal(last.status, 200);
+    }
+    assert.equal(last!.status, 429);
+    for (const id of [appt.bob, appt.main, appt.readRace]) assert.equal((await get(id, a.dev.token, 999)).status, 200, id);
   });
 
   test("one account's limit does not affect another's", async () => {

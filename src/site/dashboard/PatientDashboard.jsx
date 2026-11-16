@@ -16,6 +16,7 @@ import { useSession } from "../lib/session";
 import { request } from "../lib/api";
 import { useLocationConsent } from "../lib/location";
 import { MessagesModal, CheckInLine } from "./AppointmentExtras";
+import { isStillAhead } from "../lib/appointmentThread";
 import "./dashboard.css";
 
 const FindCarePage = lazy(() => import("../app/FindCarePage"));
@@ -151,7 +152,9 @@ export default function PatientDashboard() {
   const todayISO = now.toISOString().slice(0, 10);
   const when = (a) => a.at || `${a.date} ${a.time}`;
   const sortedAppts = useMemo(() => (appointments || []).slice().sort((a, b) => when(a).localeCompare(when(b))), [appointments]);
-  const nextAppt = sortedAppts.find((a) => (a.at ? a.at > now.toISOString() : a.date >= todayISO) && !["CANCELLED", "REJECTED", "COMPLETED"].includes(a.status));
+  // Kept until the booking ends, not until it starts: a patient checked in at the clinic is still
+  // waiting after the booked time, and check-in stays open until endsAt.
+  const nextAppt = sortedAppts.find((a) => isStillAhead(a, now.toISOString(), todayISO));
 
   // The latest lab values the patient entered in Health wallet (kept on this device).
   const labs = useMemo(() => { try { return JSON.parse(localStorage.getItem("ch_last_labs") || "null"); } catch { return null; } }, [active, recordsTick]);
@@ -202,7 +205,7 @@ export default function PatientDashboard() {
           <section className="quick-grid">{service.map((s, i) => <button className="quick-card" key={i} onClick={() => go(s.id)}><span className={"quick-icon " + s.tint}><s.icon size={20} /></span><span className="quick-copy"><b>{s.name}</b><small>{s.sub}</small></span><ArrowUpRight size={15} className="quick-arrow" /></button>)}</section>
 
           <div className="section-heading"><div><h2>{t.upcoming}</h2><p role={apptError ? "alert" : undefined}>{nextAppt ? (t.status[nextAppt.status] || nextAppt.status) : apptError ? t.apptLoadError : t.noUpcomingSub}</p></div><button className="text-btn" onClick={() => go("appointments")}>{t.viewAll}<ArrowRight size={14} /></button></div>
-          {nextAppt ? <AppointmentCard a={nextAppt} t={t} lang={lang} onView={() => go("appointments")} onChanged={() => setApptTick((n) => n + 1)} onSOS={() => go("emergency")} /> : (
+          {nextAppt ? <AppointmentCard key={nextAppt.id} a={nextAppt} t={t} lang={lang} onView={() => go("appointments")} onChanged={() => setApptTick((n) => n + 1)} onSOS={() => go("emergency")} /> : (
             <div className="appointment-card"><div className="appt-date"><b>—</b><span></span></div><div className="appt-info"><h3>{t.noUpcoming}</h3><p>{t.noUpcomingSub}</p></div><div className="appt-action"><button onClick={() => go("find", "?tab=doctors")}>{t.book}<ArrowRight size={14} /></button></div></div>
           )}
 
@@ -333,7 +336,7 @@ function AppointmentCard({ a, t, lang, onView, onChanged, onSOS }) {
     <div className="appt-action"><span className="demo-chip">{t.status[a.status] || a.status}</span>
       {canMessage && <button onClick={() => setMessagesOpen(true)}><MessageCircle size={14} />{t.messages}{a.chatUnread && <i className="unread-dot" role="img" aria-label={t.newMessage} />}</button>}
       {onView && <button onClick={onView}>{t.view}<ArrowRight size={14} /></button>}</div>
-    {messagesOpen && <MessagesModal a={a} t={t} lang={lang} onClose={() => { setMessagesOpen(false); refresh(); }} onRead={refresh} onSOS={() => { setMessagesOpen(false); onSOS && onSOS(); }} />}</div>;
+    {messagesOpen && <MessagesModal key={a.id} a={a} t={t} lang={lang} onClose={() => { setMessagesOpen(false); refresh(); }} onRead={refresh} onSOS={() => { setMessagesOpen(false); onSOS && onSOS(); }} />}</div>;
 }
 
 function AppointmentsView({ list, loading, error, onRetry, t, lang, onFind, onSOS }) {

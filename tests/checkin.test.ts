@@ -531,3 +531,30 @@ describe("audit and limits", () => {
     assert.equal((await queue(appt.q3, a.carl.token)).status, 200, "another account is not affected");
   });
 });
+
+describe("the doctor's Today list", () => {
+  test("today's bookings are listed for a doctor with more than 300 bookings in all", async () => {
+    // GET /doctor's general list is an unordered limit(300): Firestore returns it in document-id
+    // order. 300 older bookings whose ids sort first would crowd today's out of it; the day query
+    // must still bring today's booking in.
+    const firestore = await fs();
+    const batch = firestore.batch();
+    for (let i = 0; i < 300; i++) {
+      const at = Date.now() - (30 * 24 * 60 + i) * MIN;
+      batch.set(firestore.collection("appointments").doc(`aaa-old-${String(i).padStart(3, "0")}`), {
+        patientUid: "noise-patient", doctorId: a.other.uid, doctorName: "Dr Other", specialty: "General Physician", slotId: "none",
+        consultationType: "in_person", reason: "", status: "completed", startsAt: new Date(at).toISOString(), endsAt: new Date(at + 30 * MIN).toISOString(),
+      });
+    }
+    batch.set(firestore.collection("appointments").doc("zzz-today"), {
+      patientUid: "noise-patient", doctorId: a.other.uid, doctorName: "Dr Other", specialty: "General Physician", slotId: "none",
+      consultationType: "in_person", reason: "", status: "confirmed", arrivedAt: new Date().toISOString(), ...todayTimes(3),
+    });
+    await batch.commit();
+    const row = await doctorRow("zzz-today", a.other);
+    assert.ok(row, "today's booking is in the doctor's list");
+    assert.ok(row.arrivedAt, "with its check-in");
+    const r = await api("GET", "/api/v1/appointments/doctor", a.other.token);
+    assert.equal(new Set(r.body.appointments.map((x: any) => x.id)).size, r.body.appointments.length, "no booking listed twice");
+  });
+});

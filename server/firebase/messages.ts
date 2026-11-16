@@ -5,13 +5,21 @@
  *
  *   Patient, Doctor  GET  /api/v1/appointments/:id/messages?after=<seq>   the thread (never writes)
  *   Patient, Doctor  POST /api/v1/appointments/:id/messages               { text } -> 201
- *   Patient, Doctor  POST /api/v1/appointments/:id/messages/read          mark the thread read
+ *   Patient, Doctor  POST /api/v1/appointments/:id/messages/read          { upTo } mark read up to what was shown
  *
  * Storage (server-only, firebase/firestore.rules denies clients):
  *   appointments/{id}/messages/{autoId}  { seq, sender, authorUid, kind, text, createdAt }
  *   appointments/{id}.chat               { count, lastSeq, lastSender, lastAt, patientReadSeq,
- *                                          doctorReadSeq, doctorReadAt, urgentAt, urgentAckAt }
- * Messages are immutable: no route edits or deletes one. A thread holds at most THREAD_CAP.
+ *                                          doctorReadSeq, doctorReadAt, urgentAt, urgentSeq,
+ *                                          urgentAckAt, urgentAckSeq }
+ * Messages are immutable: no route edits or deletes one. Posting stops once a thread holds
+ * THREAD_CAP messages; a safety notice is always stored with the patient's message that caused
+ * it, so a thread can end one over the cap (THREAD_MAX_STORED).
+ *
+ * Read state is a seq, never a timestamp: POST /read carries the highest seq the screen actually
+ * rendered (its gap-free cursor), and the server marks read only up to min(upTo, lastSeq). A red
+ * flag is acknowledged only when that read covers the notice's seq (chat.urgentSeq), so a message
+ * written between the screen's last fetch and its /read is never marked as seen.
  *
  * Who may do what:
  *   - Only the two parties; anyone else, and an unknown id, gets the same 404.
@@ -40,6 +48,8 @@ import { RECORDS_OPEN_BEFORE_MS, RECORDS_OPEN_AFTER_MS } from "./consultations";
 import { triageWithoutAI, type Lang } from "../../shared/triage";
 
 export const THREAD_CAP = 200;
+/** The most a thread can hold: the cap plus a safety notice stored with the last patient message. */
+export const THREAD_MAX_STORED = THREAD_CAP + 1;
 
 const doctorsCol = () => firestore.collection("doctors");
 const appointmentsCol = () => firestore.collection("appointments");
@@ -77,13 +87,24 @@ type Kind = "message" | "emergency_notice" | "self_harm_notice";
 
 interface ChatSummary {
   count?: number; lastSeq?: number; lastSender?: Sender; lastAt?: string;
-  patientReadSeq?: number; doctorReadSeq?: number; doctorReadAt?: string; urgentAt?: string; urgentAckAt?: string;
+  patientReadSeq?: number; doctorReadSeq?: number; doctorReadAt?: string;
+  /** The latest red flag: when, and the seq of its system notice. */
+  urgentAt?: string; urgentSeq?: number;
+  /** The doctor's acknowledgement of it: when, and the read seq that covered the notice. */
+  urgentAckAt?: string; urgentAckSeq?: number;
 }
 
 const chatOf = (snap: FirebaseFirestore.DocumentSnapshot): ChatSummary => (snap.get("chat") as ChatSummary) || {};
 
-/** A red flag the doctor has not opened the thread since. */
-export const isUrgent = (c: ChatSummary) => !!c.urgentAt && (!c.urgentAckAt || c.urgentAckAt < c.urgentAt);
+/**
+ * A red flag whose notice the doctor's read has not covered yet. Compared by seq, not by time:
+ * timestamps from two server processes, or within one millisecond, cannot order a post and a read.
+ * (A summary written before urgentSeq existed falls back to the timestamps.)
+ */
+export const isUrgent = (c: ChatSummary) => {
+  if (typeof c.urgentSeq === "number") return (c.urgentAckSeq || 0) < c.urgentSeq;
+  return !!c.urgentAt && (!c.urgentAckAt || c.urgentAckAt < c.urgentAt);
+};
 /** The doctor's list: the patient wrote last and the doctor has not read it. */
 export const doctorUnread = (c: ChatSummary) => c.lastSender === "patient" && (c.lastSeq || 0) > (c.doctorReadSeq || 0);
 /** The patient's list: the doctor wrote last and the patient has not read it. */
@@ -208,6 +229,9 @@ export async function postMessage(u: AuthUser, id: string, text: string) {
     if (blocked) throw Error(blocked);
     const chat = chatOf(snap);
     const count = chat.count || 0, lastSeq = chat.lastSeq || 0;
+    // A post is refused once the thread holds THREAD_CAP messages. A safety notice is never
+    // dropped for want of room: it is stored with the patient's message that caused it, even when
+    // that one is the 200th, so a thread can end at THREAD_MAX_STORED (and GET reads that many).
     if (count >= THREAD_CAP) throw Error("THREAD_FULL");
     const at = nowIso();
     const own = { seq: lastSeq + 1, sender, authorUid: u.uid, kind: "message" as Kind, text, createdAt: at };
@@ -228,7 +252,7 @@ export async function postMessage(u: AuthUser, id: string, text: string) {
       // is about what the patient wrote.
       "chat.lastSender": sender,
       "chat.lastAt": at,
-      ...(notice ? { "chat.urgentAt": at } : {}),
+      ...(notice ? { "chat.urgentAt": at, "chat.urgentSeq": lastSeq + 2 } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
     return written;
@@ -238,23 +262,33 @@ export async function postMessage(u: AuthUser, id: string, text: string) {
   return { messages: out, ...(notice ? { safety: { level: "emergency" as const, kind: notice.kind } } : {}) };
 }
 
-export async function markRead(u: AuthUser, id: string) {
+export const readBodySchema = z.object({ upTo: z.number().int().min(0).max(1e9) }).strict();
+
+/**
+ * Mark the caller's side read up to `upTo`, the highest seq their screen rendered with no gap
+ * before it. Never past chat.lastSeq and never backwards. A doctor's read also acknowledges the
+ * open red flag, but only when it reaches the notice's seq: a message posted after the screen's
+ * last fetch stays unread and urgent.
+ */
+export async function markRead(u: AuthUser, id: string, upTo: number) {
   await firestore.runTransaction(async (tx) => {
     const { ref, snap } = await readableBooking(tx, u, id);
     const chat = chatOf(snap);
-    const lastSeq = chat.lastSeq || 0;
+    const readTo = Math.min(upTo, chat.lastSeq || 0);
     if (u.role === "PATIENT") {
-      if ((chat.patientReadSeq || 0) >= lastSeq) return;
-      tx.update(ref, { "chat.patientReadSeq": lastSeq });
+      if ((chat.patientReadSeq || 0) >= readTo) return;
+      tx.update(ref, { "chat.patientReadSeq": readTo });
       return;
     }
-    const urgentOpen = isUrgent(chat);
-    if ((chat.doctorReadSeq || 0) >= lastSeq && !urgentOpen) return;
+    const advance = readTo > (chat.doctorReadSeq || 0);
+    const ack = typeof chat.urgentSeq === "number" ? isUrgent(chat) && readTo >= chat.urgentSeq
+      // A summary from before urgentSeq: acknowledged only by a read of the whole thread.
+      : isUrgent(chat) && readTo >= (chat.lastSeq || 0);
+    if (!advance && !ack) return;
     const at = nowIso();
     tx.update(ref, {
-      "chat.doctorReadSeq": lastSeq,
-      "chat.doctorReadAt": at,
-      ...(chat.urgentAt ? { "chat.urgentAckAt": at } : {}),
+      ...(advance ? { "chat.doctorReadSeq": readTo, "chat.doctorReadAt": at } : {}),
+      ...(ack ? { "chat.urgentAckAt": at, "chat.urgentAckSeq": readTo } : {}),
     });
   }, { maxAttempts: 15 });
 }
@@ -264,7 +298,7 @@ export async function markRead(u: AuthUser, id: string) {
  * (whose patient-only r.use would answer a doctor 403). `postLimit` and `pollLimit` are
  * per-uid limiters from rateLimit.ts.
  */
-export function messagesRouter(deps: { postLimit: RequestHandler; pollLimit: RequestHandler }) {
+export function messagesRouter(deps: { postLimit: RequestHandler; pollLimit: RequestHandler | RequestHandler[] }) {
   const r = Router();
 
   r.get("/:appointmentId/messages", allow("PATIENT", "DOCTOR"), deps.pollLimit, async (req, res) => {
@@ -278,7 +312,7 @@ export function messagesRouter(deps: { postLimit: RequestHandler; pollLimit: Req
       const lastSeq = chat.lastSeq || 0;
       let messages: ReturnType<typeof publicMessage>[] = [];
       if (lastSeq > after) {
-        const s = await ref.collection("messages").orderBy("seq").startAfter(after).limit(THREAD_CAP).get();
+        const s = await ref.collection("messages").orderBy("seq").startAfter(after).limit(THREAD_MAX_STORED).get();
         messages = s.docs.map((d) => publicMessage(d.id, d.data()));
       }
       if (u.role === "DOCTOR" && messages.length) {
@@ -304,9 +338,10 @@ export function messagesRouter(deps: { postLimit: RequestHandler; pollLimit: Req
   });
 
   r.post("/:appointmentId/messages/read", allow("PATIENT", "DOCTOR"), async (req, res) => {
-    if (!z.object({}).strict().safeParse(req.body ?? {}).success) return res.status(400).json({ error: "This request takes no body." });
+    const p = readBodySchema.safeParse(req.body);
+    if (!p.success) return res.status(400).json({ error: "upTo must be the last message number shown (0 or more)." });
     try {
-      await markRead(user(req)!, req.params.appointmentId);
+      await markRead(user(req)!, req.params.appointmentId, p.data.upTo);
       res.json({ appointmentId: req.params.appointmentId, read: true });
     } catch (e) { fail(res, e); }
   });

@@ -56,10 +56,27 @@ export function latestSafetyNotice(messages: ThreadMessage[]): ThreadMessage | n
   return lastSystem && lastSystem.seq === lastPatient + 1 ? lastSystem : null;
 }
 
-/** Whether the caller has something to mark read (the server makes a repeat a no-op anyway). */
-export function needsRead(role: "patient" | "doctor", chat: ThreadChat): boolean {
-  if (role === "patient") return chat.lastSeq > chat.patientReadSeq;
-  return chat.lastSeq > chat.doctorReadSeq || chat.urgent;
+/**
+ * Whether the caller has something to mark read, given `shown`, the gap-free cursor of what the
+ * screen has rendered: the read is sent as { upTo: shown } and the server never marks past it.
+ * (The server makes a repeat a no-op anyway.)
+ */
+export function needsRead(role: "patient" | "doctor", chat: ThreadChat, shown: number): boolean {
+  const upTo = Math.min(shown, chat.lastSeq);
+  if (role === "patient") return upTo > chat.patientReadSeq;
+  return upTo > chat.doctorReadSeq || (chat.urgent && shown > 0);
+}
+
+/**
+ * The overview card's booking: the first one not yet over. A booking with an end time stays
+ * until it ends (a patient checked in for 11:30 is still waiting at 11:35); rows from the
+ * earlier store, which have no end, until their start (or their day, without a time).
+ */
+export function isStillAhead(a: { at?: string; endsAt?: string; date?: string; status?: string }, nowIso: string, todayISO: string): boolean {
+  if (["CANCELLED", "REJECTED", "COMPLETED"].includes(String(a.status || ""))) return false;
+  if (a.endsAt) return a.endsAt > nowIso;
+  if (a.at) return a.at > nowIso;
+  return String(a.date || "") >= todayISO;
 }
 
 // ---------------------------------------------------------------------------------------------

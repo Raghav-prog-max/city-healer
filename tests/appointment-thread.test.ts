@@ -2,7 +2,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-  mergeThread, doctorOpenedLine, latestSafetyNotice, needsRead, istDayKey, checkInOpen, checkInLaterToday,
+  mergeThread, doctorOpenedLine, latestSafetyNotice, needsRead, isStillAhead, istDayKey, checkInOpen, checkInLaterToday,
   todaysVisits, visitStateOf, doctorTitle, fill, type ThreadMessage,
 } from "../src/site/lib/appointmentThread";
 import { istDayKey as serverIstDayKey } from "../server/firebase/istDay";
@@ -47,10 +47,16 @@ describe("thread-level line and safety banner", () => {
     assert.equal(latestSafetyNotice([msg(1), msg(2, "doctor")]), null);
   });
   test("read is needed only when something is unread (or an urgent flag is open, for the doctor)", () => {
-    assert.equal(needsRead("patient", chat({ lastSeq: 3, patientReadSeq: 3 })), false);
-    assert.equal(needsRead("patient", chat({ lastSeq: 4, patientReadSeq: 3 })), true);
-    assert.equal(needsRead("doctor", chat({ lastSeq: 3, doctorReadSeq: 3 })), false);
-    assert.equal(needsRead("doctor", chat({ lastSeq: 3, doctorReadSeq: 3, urgent: true })), true);
+    assert.equal(needsRead("patient", chat({ lastSeq: 3, patientReadSeq: 3 }), 3), false);
+    assert.equal(needsRead("patient", chat({ lastSeq: 4, patientReadSeq: 3 }), 4), true);
+    assert.equal(needsRead("doctor", chat({ lastSeq: 3, doctorReadSeq: 3 }), 3), false);
+    assert.equal(needsRead("doctor", chat({ lastSeq: 3, doctorReadSeq: 3, urgent: true }), 3), true);
+  });
+  test("read is judged by what the screen has shown, not by the server's lastSeq", () => {
+    // The server already holds seq 6 (written after the fetch); the screen shows up to 4.
+    assert.equal(needsRead("doctor", chat({ lastSeq: 6, doctorReadSeq: 4 }), 4), false);
+    assert.equal(needsRead("patient", chat({ lastSeq: 6, patientReadSeq: 4 }), 4), false);
+    assert.equal(needsRead("doctor", chat({ lastSeq: 6, doctorReadSeq: 3 }), 4), true);
   });
 });
 
@@ -110,5 +116,24 @@ describe("copy helpers", () => {
   });
   test("fill replaces known placeholders only", () => {
     assert.equal(fill("{n} patients before you. {x}", { n: 2 }), "2 patients before you. {x}");
+  });
+});
+
+describe("the overview card's booking", () => {
+  const now = "2026-11-17T06:05:00.000Z", today = "2026-11-17";
+  test("a Firestore booking stays until it ends, not until it starts", () => {
+    const b = { at: "2026-11-17T06:00:00.000Z", startsAt: "2026-11-17T06:00:00.000Z", endsAt: "2026-11-17T06:30:00.000Z", status: "CONFIRMED" };
+    assert.equal(isStillAhead(b, now, today), true, "five minutes after the booked time, before the end");
+    assert.equal(isStillAhead(b, "2026-11-17T06:30:01.000Z", today), false);
+  });
+  test("cancelled, refused and completed bookings never show", () => {
+    for (const status of ["CANCELLED", "REJECTED", "COMPLETED"]) {
+      assert.equal(isStillAhead({ at: "2026-11-18T06:00:00.000Z", endsAt: "2026-11-18T06:30:00.000Z", status }, now, today), false, status);
+    }
+  });
+  test("rows from the earlier store, without an end, keep the old rule", () => {
+    assert.equal(isStillAhead({ at: "2026-11-17T06:00:00.000Z", status: "CONFIRMED" }, now, today), false);
+    assert.equal(isStillAhead({ date: "2026-11-17", status: "CONFIRMED" }, now, today), true);
+    assert.equal(isStillAhead({ date: "2026-11-16", status: "CONFIRMED" }, now, today), false);
   });
 });

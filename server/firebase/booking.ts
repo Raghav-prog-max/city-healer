@@ -36,6 +36,7 @@ import { firestore } from "./admin";
 import type { AuthUser, Role } from "./identity";
 import { ncrCities, writeAuditEvent } from "./patients";
 import { doctorUnread, isUrgent, patientUnread } from "./messages";
+import { istDayBounds } from "./istDay";
 
 const doctorsCol = () => firestore.collection("doctors");
 const slotsCol = () => firestore.collection("doctorSlots");
@@ -370,7 +371,18 @@ export function appointmentsRouter() {
   // The patient's name comes from their profile; nothing else about the patient is included.
   r.get("/doctor", allowRoles("DOCTOR"), notDemo, async (req, res) => {
     try {
-      const s = await appointmentsCol().where("doctorId", "==", user(req)!.uid).limit(300).get();
+      const uid = user(req)!.uid;
+      // Two reads. The general list is capped and unordered; today's bookings (Asia/Kolkata day)
+      // come from the indexed day query (doctorId, startsAt; firebase/firestore.indexes.json),
+      // so the Today card never misses a patient who is here, however many bookings the doctor has.
+      const { startIso, endIso } = istDayBounds(Date.now());
+      const [general, today] = await Promise.all([
+        appointmentsCol().where("doctorId", "==", uid).limit(300).get(),
+        appointmentsCol().where("doctorId", "==", uid).where("startsAt", ">=", startIso).where("startsAt", "<", endIso).orderBy("startsAt").limit(500).get(),
+      ]);
+      const byId = new Map(general.docs.map((d) => [d.id, d]));
+      for (const d of today.docs) byId.set(d.id, d);
+      const s = { docs: [...byId.values()] };
       const patientUids = [...new Set(s.docs.map((d) => String(d.get("patientUid"))))];
       const profiles = patientUids.length ? await firestore.getAll(...patientUids.map((uid) => firestore.collection("patientProfiles").doc(uid))) : [];
       const nameOf = new Map(profiles.map((p) => [p.id, p.exists ? String(p.get("fullName") || "") : ""]));
