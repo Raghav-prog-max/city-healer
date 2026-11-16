@@ -27,6 +27,7 @@ import { adminAuth, usingEmulators, firebaseConfigProblem, firebaseProjectId } f
 import { verifyFirebaseToken, ROLE_TO_CLAIM, type AuthUser, type Role } from "./server/firebase/identity";
 import { providerDoctorsRouter, appointmentsRouter, verifiedProviders } from "./server/firebase/booking";
 import { providerSelfRouter, adminProvidersRouter } from "./server/firebase/providers";
+import { consultationsRouter, prescriptionsRouter } from "./server/firebase/consultations";
 import { requireConsent } from "./server/firebase/consent";
 import { BUILD_INFO_FILE, frontendBuildProblem } from "./shared/buildEnv";
 import { patientRouter, getPatientProfile, savePatientProfile, legacyUserShape, patientProfileUpdateSchema, writeAuditEvent } from "./server/firebase/patients";
@@ -458,6 +459,12 @@ async function recommendHospitals(specialistType: string, urgencyLevel: string, 
 app.use("/api/v1/me", patientRouter());
 // Verified providers, slots and Firestore-transaction booking (City_Healer_Integrated_Doctor_Booking).
 app.use("/api/v1/doctors", providerDoctorsRouter());
+// What the doctor does with a booking (complete, cancel, prescribe, read the patient's records).
+// Mounted first: the booking router below is for patients only.
+app.use("/api/v1/appointments", consultationsRouter({
+  recordsOfPatient: (patientUid) => dbAll("SELECT * FROM medical_records WHERE patientId = ? ORDER BY date DESC", [patientUid]),
+}));
+app.use("/api/v1/prescriptions", prescriptionsRouter());
 app.use("/api/v1/appointments", appointmentsRouter());
 // Doctor and admin screens for provider onboarding (server/firebase/providers.ts).
 app.use("/api/v1/provider", providerSelfRouter());

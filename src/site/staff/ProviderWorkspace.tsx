@@ -21,9 +21,163 @@ type Application = {
   consultationTypes: string[]; verificationStatus: "pending" | "verified" | "rejected"; listingStatus: string; reviewNote: string;
 };
 type Slot = { id: string; startsAt: string; endsAt: string; consultationType: string; status: string };
-type Booking = { id: string; patientName: string; reason: string; startsAt: string; endsAt: string; consultationType: string; status: string };
+type Booking = { id: string; patientName: string; reason: string; startsAt: string; endsAt: string; consultationType: string; status: string; cancelledBy: string | null; hasPrescription: boolean };
+type Medicine = { name: string; dosage: string; frequency: string; duration: string };
+type Prescription = { doctorName: string; diagnosis: string; medicines: Partial<Medicine>[]; instructions: string; issuedAt: string };
+const emptyMedicine = (): Medicine => ({ name: "", dosage: "", frequency: "", duration: "" });
 
 const tomorrow = () => new Date(Date.now() + 86_400_000).toLocaleDateString("en-CA");
+
+/**
+ * One booking and what the doctor can do with it: complete it, cancel it with a reason, write
+ * the prescription, and read the patient's saved records (server/firebase/consultations.ts).
+ */
+function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> | void }) {
+  const { t, locale } = useI18n();
+  const p = t.staff.provider;
+  const [mode, setMode] = useState<"" | "cancel" | "prescribe" | "rx" | "records">("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [reason, setReason] = useState("");
+  const [diagnosis, setDiagnosis] = useState("");
+  const [medicines, setMedicines] = useState<Medicine[]>([emptyMedicine()]);
+  const [instructions, setInstructions] = useState("");
+  const [rx, setRx] = useState<Prescription | null>(null);
+  const [records, setRecords] = useState<any[] | null>(null);
+
+  // Completing and prescribing unlock when the appointment starts; while waiting, look at the
+  // clock again every few seconds so the doctor does not have to reload the page.
+  const [now, setNow] = useState(() => new Date().toISOString());
+  const started = b.startsAt <= now;
+  const open = b.status === "confirmed";
+  useEffect(() => {
+    if (started || b.status === "cancelled") return;
+    const timer = setInterval(() => setNow(new Date().toISOString()), 10_000);
+    return () => clearInterval(timer);
+  }, [started, b.status]);
+  const route = `/api/v1/appointments/${encodeURIComponent(b.id)}`;
+  const message = (e: any) => (e.message === "network" ? t.app.serverDown : e.message);
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true); setError("");
+    try { await fn(); setMode(""); await onChanged(); }
+    catch (e: any) {
+      setError(message(e));
+      // A refusal usually means the booking changed underneath (the patient cancelled or moved
+      // it, or it was handled in another tab): show its current state, not the stale one.
+      try { await onChanged(); } catch { /* the error above is what matters */ }
+    } finally { setBusy(false); }
+  };
+  const show = async (what: "rx" | "records") => {
+    if (mode === what) { setMode(""); return; }
+    setError("");
+    try {
+      if (what === "rx") setRx((await request<{ prescription: Prescription }>(`${route}/prescription`)).prescription);
+      else setRecords((await request<{ records: any[] }>(`${route}/records`)).records);
+      setMode(what);
+    } catch (e: any) { setError(message(e)); }
+  };
+  const setMed = (i: number, patch: Partial<Medicine>) => setMedicines((list) => list.map((m, j) => (j === i ? { ...m, ...patch } : m)));
+  // A row with anything typed in it counts, so a medicine missing its name or dosage blocks
+  // issuing instead of being dropped from a prescription that cannot be changed afterwards.
+  const filled = medicines.filter((m) => m.name.trim() || m.dosage.trim() || m.frequency.trim() || m.duration.trim());
+  const canIssue = diagnosis.trim().length >= 2 && filled.every((m) => m.name.trim() && m.dosage.trim());
+  const issue = () => run(() => request(`${route}/prescription`, {
+    body: {
+      diagnosis: diagnosis.trim(),
+      medicines: filled.map((m) => ({ name: m.name.trim(), dosage: m.dosage.trim(), ...(m.frequency.trim() ? { frequency: m.frequency.trim() } : {}), ...(m.duration.trim() ? { duration: m.duration.trim() } : {}) })),
+      ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
+    },
+  }));
+
+  const statusLabel = b.status === "confirmed" ? p.confirmed : b.status === "completed" ? p.completed : b.cancelledBy === "doctor" ? p.cancelledByYou : b.status === "cancelled" ? p.cancelled : b.status;
+  const small = "rounded-md border border-line px-2.5 py-1 text-xs font-semibold hover:border-care disabled:opacity-50";
+  const input = "mt-1 h-10 w-full rounded-lg border border-line bg-white px-2.5 text-[15px] outline-none focus:border-care focus:ring-4 focus:ring-care/15";
+
+  return (
+    <li className="py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold">{b.patientName || "—"}</span>
+        <Badge tone={b.status === "confirmed" ? "health" : b.status === "completed" ? "care" : "neutral"} className="ml-auto">{statusLabel}</Badge>
+      </div>
+      <p className="text-subtle">{formatSlot(b.startsAt, b.endsAt, locale)} · {b.consultationType === "online" ? p.online : p.inPerson}</p>
+      {b.reason && <p className="mt-0.5">{b.reason}</p>}
+
+      {b.status !== "cancelled" && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {open && <button className={small} disabled={busy || !started} onClick={() => run(() => request(`${route}/complete`, { method: "POST" }))}>{p.complete}</button>}
+          {!b.hasPrescription && <button className={small} disabled={busy || !started} onClick={() => setMode(mode === "prescribe" ? "" : "prescribe")}>{p.prescribe}</button>}
+          {b.hasPrescription && <button className={small} onClick={() => show("rx")}>{mode === "rx" ? p.close : p.viewPrescription}</button>}
+          <button className={small} onClick={() => show("records")}>{mode === "records" ? p.hideRecords : p.patientRecords}</button>
+          {open && <button className={`${small} hover:!border-danger hover:text-danger`} disabled={busy} onClick={() => setMode(mode === "cancel" ? "" : "cancel")}>{p.cancelBooking}</button>}
+        </div>
+      )}
+      {open && !started && <p className="mt-1.5 text-xs text-subtle">{p.notStarted}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
+
+      {mode === "cancel" && (
+        <div className="mt-3 rounded-lg border border-line bg-mist p-3">
+          <label className="block text-sm font-medium">{p.cancelReason}
+            <input className={input} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
+          </label>
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" variant="danger" loading={busy} disabled={reason.trim().length < 3} onClick={() => run(() => request(`${route}/doctor-cancel`, { body: { reason: reason.trim(), startsAt: b.startsAt } }))}>{p.confirmCancel}</Button>
+            <Button size="sm" variant="secondary" onClick={() => setMode("")}>{p.keep}</Button>
+          </div>
+        </div>
+      )}
+
+      {mode === "prescribe" && (
+        <div className="mt-3 space-y-3 rounded-lg border border-line bg-mist p-3">
+          <label className="block text-sm font-medium">{p.diagnosis}
+            <input className={input} value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} maxLength={200} />
+          </label>
+          <fieldset>
+            <legend className="text-sm font-medium">{p.medicines}</legend>
+            {medicines.map((m, i) => (
+              <div key={i} className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-[2fr_1fr_2fr_1fr_auto]">
+                <input className={input} aria-label={p.medName} placeholder={p.medName} value={m.name} onChange={(e) => setMed(i, { name: e.target.value })} maxLength={120} />
+                <input className={input} aria-label={p.dosage} placeholder={p.dosage} value={m.dosage} onChange={(e) => setMed(i, { dosage: e.target.value })} maxLength={120} />
+                <input className={input} aria-label={p.frequency} placeholder={p.frequency} value={m.frequency} onChange={(e) => setMed(i, { frequency: e.target.value })} maxLength={120} />
+                <input className={input} aria-label={p.duration} placeholder={p.duration} value={m.duration} onChange={(e) => setMed(i, { duration: e.target.value })} maxLength={60} />
+                {medicines.length > 1 && <button type="button" className={`${small} mt-1 h-10`} onClick={() => setMedicines((list) => list.filter((_, j) => j !== i))}>{p.remove}</button>}
+              </div>
+            ))}
+            {medicines.length < 20 && <button type="button" className={`${small} mt-2`} onClick={() => setMedicines((list) => [...list, emptyMedicine()])}>{p.addMedicine}</button>}
+          </fieldset>
+          <label className="block text-sm font-medium">{p.instructions}
+            <textarea className="mt-1 w-full rounded-lg border border-line bg-white p-2.5 text-[15px] outline-none focus:border-care focus:ring-4 focus:ring-care/15" rows={3} value={instructions} onChange={(e) => setInstructions(e.target.value)} maxLength={1000} />
+          </label>
+          <p className="text-xs text-subtle">{p.issueWarning}</p>
+          <div className="flex gap-2">
+            <Button size="sm" loading={busy} disabled={!canIssue} onClick={issue}>{p.issue}</Button>
+            <Button size="sm" variant="secondary" onClick={() => setMode("")}>{p.close}</Button>
+          </div>
+        </div>
+      )}
+
+      {mode === "rx" && rx && b.status !== "cancelled" && (
+        <div className="mt-3 rounded-lg border border-line bg-mist p-3">
+          <p><strong>{p.diagnosis}:</strong> {rx.diagnosis}</p>
+          {rx.medicines.length > 0 && <ul className="mt-1.5 list-disc pl-5">{rx.medicines.map((m, i) => <li key={i}>{[m.name, m.dosage, m.frequency, m.duration].filter(Boolean).join(" · ")}</li>)}</ul>}
+          {rx.instructions && <p className="mt-1.5">{rx.instructions}</p>}
+          <p className="mt-1.5 text-xs text-subtle">{rx.doctorName} · {new Date(rx.issuedAt).toLocaleDateString(locale === "hi" ? "hi-IN" : "en-IN")}</p>
+        </div>
+      )}
+
+      {/* Not for a cancelled booking: the server no longer gives access, so the screen does not keep showing them. */}
+      {mode === "records" && records && b.status !== "cancelled" && (
+        <div className="mt-3 rounded-lg border border-line bg-mist p-3">
+          {records.length === 0 ? <p className="text-subtle">{p.noRecords}</p> : (
+            <ul className="space-y-2">{records.map((r) => (
+              <li key={r.id}><p className="font-semibold">{r.title}</p><p className="text-xs text-subtle">{r.date} · {r.doctorName}</p><p>{r.diagnoseSummary}</p></li>
+            ))}</ul>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
 
 export default function ProviderWorkspace() {
   const { t, locale } = useI18n();
@@ -217,16 +371,7 @@ export default function ProviderWorkspace() {
                 <h2 className="text-lg font-semibold">{p.bookingsTitle}</h2>
                 {bookings.length === 0 ? <p className="mt-2 text-sm text-subtle">{p.noBookings}</p> : (
                   <ul className="mt-3 divide-y divide-line">
-                    {bookings.map((b) => (
-                      <li key={b.id} className="py-2.5 text-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold">{b.patientName || "—"}</span>
-                          <Badge tone={b.status === "confirmed" ? "health" : "neutral"} className="ml-auto">{b.status === "confirmed" ? p.confirmed : b.status === "cancelled" ? p.cancelled : b.status}</Badge>
-                        </div>
-                        <p className="text-subtle">{formatSlot(b.startsAt, b.endsAt, locale)} · {typeLabel(b.consultationType)}</p>
-                        {b.reason && <p className="mt-0.5">{b.reason}</p>}
-                      </li>
-                    ))}
+                    {bookings.map((b) => <BookingRow key={b.id} b={b} onChanged={load} />)}
                   </ul>
                 )}
               </Card>
