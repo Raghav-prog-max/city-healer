@@ -3,6 +3,7 @@ import "./env";
 
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dns from "dns";
@@ -26,6 +27,7 @@ import { adminAuth, usingEmulators, firebaseConfigProblem, firebaseProjectId } f
 import { verifyFirebaseToken, ROLE_TO_CLAIM, type AuthUser, type Role } from "./server/firebase/identity";
 import { providerDoctorsRouter, appointmentsRouter } from "./server/firebase/booking";
 import { requireConsent } from "./server/firebase/consent";
+import { BUILD_INFO_FILE, frontendBuildProblem } from "./shared/buildEnv";
 import { patientRouter, getPatientProfile, savePatientProfile, legacyUserShape, patientProfileUpdateSchema, writeAuditEvent } from "./server/firebase/patients";
 
 // Fix node localhost resolution issues
@@ -1916,6 +1918,13 @@ async function initServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    // Refuse to serve a frontend compiled for the wrong Firebase (for example one built with a
+    // developer's .env.local in emulator mode): it would load, and nobody could sign in.
+    let buildInfo: any = null;
+    try { buildInfo = JSON.parse(fs.readFileSync(path.join(distPath, BUILD_INFO_FILE), "utf8")); } catch { /* an older build has no record */ }
+    const buildProblem = frontendBuildProblem(buildInfo, { usingEmulators, projectId: firebaseProjectId });
+    if (buildProblem) throw new Error(`[FATAL] ${buildProblem}`);
+    if (!buildInfo) console.warn(`[Server] dist/${BUILD_INFO_FILE} not found: cannot confirm which Firebase the frontend was built for.`);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

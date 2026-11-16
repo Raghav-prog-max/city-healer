@@ -3,4 +3,15 @@ dist
 .git
 *.db
 *.db-journal
+
+# Local environment files never go into an image: Vite would compile their VITE_* values
+# (for example VITE_FIREBASE_EMULATORS=true from .env.local) into the production frontend.
+# The web config comes from build arguments instead; see the Dockerfile.
 .env
+.env.*
+!.env.example
+
+# Local tooling and data
+.claude
+.firebase-emulator-data
+*.log
