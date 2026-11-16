@@ -31,6 +31,7 @@ export default function AdminProviders() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
   const [rowError, setRowError] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState("");
 
   const load = async (f = filter) => {
     setError("");
@@ -50,18 +51,26 @@ export default function AdminProviders() {
     } catch (err: any) { setGrantMsg({ ok: false, text: err.message === "network" ? t.app.serverDown : err.message }); } finally { setGranting(false); }
   };
 
-  const decide = async (p: Provider, verificationStatus: "verified" | "rejected") => {
+  // retry: the doctor is already refused; send the refusal again only to cancel what is left.
+  const decide = async (p: Provider, verificationStatus: "verified" | "rejected", retry = false) => {
     const note = (notes[p.id] || "").trim();
-    if (note.length < 3) { setRowError((r) => ({ ...r, [p.id]: a.noteNeeded })); return; }
-    setBusy(p.id); setRowError((r) => ({ ...r, [p.id]: "" }));
+    if (!retry && note.length < 3) { setRowError((r) => ({ ...r, [p.id]: a.noteNeeded })); return; }
+    setBusy(p.id); setRowError((r) => ({ ...r, [p.id]: "" })); setNotice("");
     try {
-      await request(`/api/v1/doctors/${encodeURIComponent(p.id)}/verification`, {
+      const done = await request<{ cancelledAppointments?: number; startedAppointmentsLeft?: number; failedCancellations?: number }>(`/api/v1/doctors/${encodeURIComponent(p.id)}/verification`, {
         method: "PATCH",
-        body: { verificationStatus, listingStatus: verificationStatus === "verified" ? "active" : "hidden", reviewNote: note },
+        // A retry keeps the reason already recorded.
+        body: { verificationStatus, listingStatus: verificationStatus === "verified" ? "active" : "hidden", ...(retry ? {} : { reviewNote: note }) },
       });
       setNotes((n) => ({ ...n, [p.id]: "" }));
+      // The card leaves this list, so say here what the refusal did.
+      if (verificationStatus === "rejected") setNotice(a.cancelledCount(p.fullName, { cancelled: done.cancelledAppointments ?? 0, started: done.startedAppointmentsLeft ?? 0, failed: done.failedCancellations ?? 0 }));
       await load();
-    } catch (err: any) { setRowError((r) => ({ ...r, [p.id]: err.message })); } finally { setBusy(""); }
+    } catch (err: any) {
+      setRowError((r) => ({ ...r, [p.id]: err.message }));
+      // The decision may have been saved before the failure: show the doctor's real status.
+      try { await load(); } catch { /* the error above is what matters */ }
+    } finally { setBusy(""); }
   };
 
   const tone = { pending: "warn", verified: "health", rejected: "danger" } as const;
@@ -92,6 +101,7 @@ export default function AdminProviders() {
         </div>
         <p className="max-w-[720px] text-sm text-subtle">{a.checkFirst}</p>
         {error && <ErrorNote message={error} onRetry={() => load()} />}
+        {notice && <p role="status" className="rounded-lg border border-line bg-white px-3 py-2 text-sm">{notice}</p>}
         {providers === null ? <Spinner label={t.app.loading} /> : providers.length === 0 && !error ? <p className="text-subtle">{a.none}</p> : (
           <div className="grid gap-4 lg:grid-cols-2">
             {providers.map((p) => (
@@ -113,10 +123,12 @@ export default function AdminProviders() {
                 <label className="mt-4 block text-sm font-medium">{p.verificationStatus === "verified" ? a.noteReject : `${a.noteVerify} / ${a.noteReject}`}
                   <input className={fieldClass} value={notes[p.id] || ""} onChange={(e) => setNotes((n) => ({ ...n, [p.id]: e.target.value }))} maxLength={300} placeholder={p.verificationStatus === "verified" ? "" : a.noteVerifyHint} />
                 </label>
+                {p.verificationStatus !== "rejected" && <p className="mt-2 text-xs text-subtle">{a.refuseWarning}</p>}
                 {rowError[p.id] && <p role="alert" className="mt-2 text-sm text-danger">{rowError[p.id]}</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {p.verificationStatus !== "verified" && <Button size="sm" loading={busy === p.id} onClick={() => decide(p, "verified")}>{a.verify}</Button>}
                   {p.verificationStatus !== "rejected" && <Button size="sm" variant="secondary" disabled={busy === p.id} onClick={() => decide(p, "rejected")}>{p.verificationStatus === "verified" ? a.unlist : a.reject}</Button>}
+                  {p.verificationStatus === "rejected" && <Button size="sm" variant="secondary" disabled={busy === p.id} onClick={() => decide(p, "rejected", true)}>{a.retryCancel}</Button>}
                 </div>
               </Card>
             ))}

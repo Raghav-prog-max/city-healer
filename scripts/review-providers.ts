@@ -9,7 +9,8 @@
  *
  * Verify only after checking the registration number against the State Medical Council or
  * NMC register, the qualifications, and the doctor's consent to be listed. Verifying lists the
- * doctor publicly and lets them publish times; rejecting hides them and stops new bookings.
+ * doctor publicly and lets them publish times; rejecting hides them, stops new bookings and
+ * cancels their upcoming appointments (patients see it in their appointments; nothing is sent).
  * The same decision is available to an admin account at PATCH /api/v1/doctors/:id/verification.
  */
 import { parseArgs, loadFirebase } from "./firebase-cli";
@@ -30,6 +31,14 @@ async function main() {
     });
     await writeAuditEvent({ actorUid: "cli", action: `doctor.${verificationStatus}`, resourceType: "doctor", resourceId: uid });
     console.log(`${snap.get("fullName")} (${uid}): ${verificationStatus}.`);
+    if (verificationStatus === "rejected") {
+      // The same as a refusal from the admin screen: upcoming appointments are cancelled.
+      const { cancelOpenAppointmentsOfDoctor } = await import("../server/firebase/booking");
+      const r = await cancelOpenAppointmentsOfDoctor(uid, "cli");
+      console.log(`${r.cancelled} upcoming appointment${r.cancelled === 1 ? "" : "s"} cancelled. Patients see this in their appointments; no message is sent to them yet, so contact them if needed.`);
+      if (r.started) console.log(`${r.started} that had already started ${r.started === 1 ? "was" : "were"} left as ${r.started === 1 ? "it is" : "they are"}.`);
+      if (r.failed) console.log(`${r.failed} could not be cancelled. Run the same command again to retry.`);
+    }
   };
 
   if (args.verify) {

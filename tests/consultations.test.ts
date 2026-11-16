@@ -101,6 +101,8 @@ before(async () => {
   appt.bob = await book(a.bob, 30);
   appt.late = await book(a.alice, 32);
   appt.spare = await book(a.alice, 34);
+  appt.extra = await book(a.bob, 36);
+  appt.inProgress = await book(a.alice, 38);
 
   // Health-wallet records each patient saved themselves.
   assert.equal((await api("POST", "/api/records", a.alice.token, { title: "ALICE lab report", doctorName: "Self", diagnoseSummary: "alice private" })).status, 200);
@@ -432,33 +434,121 @@ describe("a doctor who is no longer verified", () => {
     assert.equal((await api("GET", `/api/v1/appointments/${appt.prescribe}/records`, a.dev.token)).status, 200);
   });
 
-  test("after a refusal they cannot complete, prescribe or read records, though they keep the doctor role", async () => {
+  test("while a new application is pending they cannot complete, prescribe or read records", async () => {
+    assert.equal((await api("POST", "/api/v1/doctors/applications", a.dev.token, application)).status, 202);
+    await refusedEverywhere("pending");
+    assert.equal((await mine(a.alice, appt.spare)).status, "confirmed", "a pending review does not cancel anything");
+  });
+
+  test("they can still cancel, which releases the patient", async () => {
+    const { startsAt } = await appointmentDoc(appt.extra);
+    const r = await api("POST", `/api/v1/appointments/${appt.extra}/doctor-cancel`, a.dev.token, { reason: "My listing is under review", startsAt });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal((await mine(a.bob, appt.extra)).cancelledBy, "doctor");
+  });
+
+  test("verifying a doctor cancels nothing", async () => {
+    // Dr Other applies, is verified, gets a booking; verifying again must leave it alone.
+    assert.equal((await api("POST", "/api/v1/doctors/applications", a.other.token, { ...application, fullName: "Dr. Other Provider", registrationNumber: "TEST-REG-0078" })).status, 202);
+    const verify = () => api("PATCH", `/api/v1/doctors/${a.other.uid}/verification`, a.admin.token, { verificationStatus: "verified", listingStatus: "active" });
+    assert.equal((await verify()).body.cancelledAppointments, 0);
+    const slot = await api("POST", `/api/v1/doctors/${a.other.uid}/slots`, a.other.token, { startsAt: inHours(50), endsAt: inHours(50.5), consultationType: "online" });
+    const booked = await api("POST", "/api/v1/appointments", a.bob.token, { doctorId: a.other.uid, slotId: slot.body.slotId, consultationType: "online" });
+    assert.equal(booked.status, 201);
+    assert.equal((await verify()).body.cancelledAppointments, 0);
+    assert.equal((await mine(a.bob, booked.body.appointmentId)).status, "confirmed");
+    appt.otherDoctor = booked.body.appointmentId;
+  });
+
+  test("a refusal cancels the doctor's upcoming appointments and queues a notice for each patient", async () => {
+    const { slotId } = await appointmentDoc(appt.spare);
+    assert.equal((await slotDoc(slotId)).status, "booked");
+    // One visit is under way (started, not yet closed by the doctor) when the refusal lands.
+    await startNow(appt.inProgress);
+    const inProgressSlot = (await appointmentDoc(appt.inProgress)).slotId;
+    const otherSlot = (await appointmentDoc(appt.otherDoctor)).slotId;
+    const before = Object.fromEntries((await api("GET", "/api/v1/appointments/mine", a.alice.token)).body.appointments.map((x: any) => [x.id, x.status]));
+
     const reject = await api("PATCH", `/api/v1/doctors/${a.dev.uid}/verification`, a.admin.token, { verificationStatus: "rejected", listingStatus: "hidden", reviewNote: "Registration could not be confirmed" });
     assert.equal(reject.status, 200);
+    assert.equal(reject.body.cancelledAppointments, 1, "only the one upcoming appointment");
+    assert.equal(reject.body.startedAppointmentsLeft, 1, "the visit under way is reported, not cancelled");
+    assert.equal(reject.body.failedCancellations, 0);
+
+    const spare = await mine(a.alice, appt.spare);
+    assert.equal(spare.status, "cancelled");
+    assert.equal(spare.cancelledBy, "city_healer");
+    assert.match(spare.cancelReason, /no longer available/);
+    assert.ok(!spare.cancelReason.includes("Registration could not be confirmed"), "the internal review note is not shown to patients");
+    const slot = await slotDoc(slotId);
+    assert.equal(slot.status, "withdrawn");
+    assert.equal(slot.appointmentId, undefined);
+
+    const { firestore } = await firebaseAdmin();
+    const outbox = await firestore.collection("notificationOutbox").where("appointmentId", "==", appt.spare).get();
+    assert.ok(outbox.docs.some((d) => d.get("type") === "appointment_cancelled_doctor_refused" && d.get("recipientUid") === a.alice.uid));
+    const audit = await firestore.collection("auditLogs").where("resourceId", "==", appt.spare).get();
+    assert.ok(audit.docs.some((d) => d.get("action") === "appointment.cancelled_doctor_refused" && d.get("actorUid") === a.admin.uid));
+
+    // A visit that had already started is not cancelled: it may have taken place.
+    const underWay = await mine(a.alice, appt.inProgress);
+    assert.equal(underWay.status, "confirmed");
+    assert.equal(underWay.cancelledBy, undefined);
+    assert.equal((await slotDoc(inProgressSlot)).status, "booked");
+    assert.equal((await firestore.collection("notificationOutbox").where("appointmentId", "==", appt.inProgress).get()).docs.filter((d) => d.get("type") === "appointment_cancelled_doctor_refused").length, 0);
+
+    // Another doctor's patients are untouched.
+    const others = await mine(a.bob, appt.otherDoctor);
+    assert.equal(others.status, "confirmed");
+    assert.equal(others.cancelledBy, undefined);
+    assert.equal((await slotDoc(otherSlot)).status, "booked");
+    assert.equal((await firestore.collection("notificationOutbox").where("appointmentId", "==", appt.otherDoctor).get()).docs.filter((d) => d.get("type") === "appointment_cancelled_doctor_refused").length, 0);
+    assert.equal((await firestore.collection("auditLogs").where("resourceId", "==", appt.otherDoctor).get()).docs.filter((d) => d.get("action") === "appointment.cancelled_doctor_refused").length, 0);
+
+    // Everything that was not open is exactly as it was.
+    const after = Object.fromEntries((await api("GET", "/api/v1/appointments/mine", a.alice.token)).body.appointments.map((x: any) => [x.id, x.status]));
+    for (const id of Object.keys(before)) if (id !== appt.spare) assert.equal(after[id], before[id], id);
+    assert.equal(Object.values(after).filter((st) => st === "confirmed").length, 1, "only the visit under way is still confirmed");
+    assert.equal(after[appt.complete], "completed");
+    assert.equal((await api("GET", `/api/v1/appointments/${appt.prescribe}/prescription`, a.alice.token)).status, 200, "prescriptions already written stay readable");
+    assert.equal((await mine(a.alice, appt.cancel)).cancelledBy, "doctor", "an earlier cancellation keeps its own reason");
+  });
+
+  test("after the refusal they cannot complete, prescribe or read records, though they keep the doctor role", async () => {
     assert.equal((await api("GET", "/api/v1/provider/me", a.dev.token)).status, 200, "still a doctor account");
     await refusedEverywhere("rejected");
     assert.equal((await api("GET", `/api/v1/appointments/${appt.late}/prescription`, a.alice.token)).status, 404, "no prescription was written");
   });
 
-  test("nor while a new application is pending", async () => {
-    assert.equal((await api("POST", "/api/v1/doctors/applications", a.dev.token, application)).status, 202);
-    await refusedEverywhere("pending");
+  test("a cancelled-by-City-Healer appointment cannot be cancelled again by anyone", async () => {
+    assert.equal((await api("POST", `/api/v1/appointments/${appt.spare}/cancel`, a.alice.token)).status, 409);
+    assert.equal((await api("POST", `/api/v1/appointments/${appt.spare}/doctor-cancel`, a.dev.token, { reason: "Too late" })).status, 409);
   });
 
-  test("they can still cancel, which releases the patient", async () => {
-    const { startsAt } = await appointmentDoc(appt.spare);
-    const r = await api("POST", `/api/v1/appointments/${appt.spare}/doctor-cancel`, a.dev.token, { reason: "No longer practising on City Healer", startsAt });
+  test("refusing again is safe: nothing more is cancelled and the reason on record is kept", async () => {
+    const again = await api("PATCH", `/api/v1/doctors/${a.dev.uid}/verification`, a.admin.token, { verificationStatus: "rejected", listingStatus: "hidden" });
+    assert.equal(again.status, 200);
+    assert.equal(again.body.cancelledAppointments, 0);
+    assert.equal(again.body.startedAppointmentsLeft, 1);
+    assert.equal((await api("GET", "/api/v1/provider/me", a.dev.token)).body.application.reviewNote, "Registration could not be confirmed");
+    assert.equal((await mine(a.alice, appt.inProgress)).status, "confirmed");
+  });
+
+  test("the visit that was under way is left to the doctor, who can still cancel it", async () => {
+    assert.equal((await api("POST", `/api/v1/appointments/${appt.inProgress}/complete`, a.dev.token)).status, 403, "not while refused");
+    const r = await api("POST", `/api/v1/appointments/${appt.inProgress}/doctor-cancel`, a.dev.token, { reason: "I am no longer listed on City Healer" });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.equal((await mine(a.alice, appt.spare)).status, "cancelled");
+    assert.equal((await mine(a.alice, appt.inProgress)).cancelledBy, "doctor");
   });
 
   test("a doctor account with no profile at all is refused too", async () => {
-    // "other" has the doctor role but never applied; give it an appointment as if one existed.
+    // A doctor-role account that never applied; give it an appointment as if one existed.
+    const never = await createActor("never@consult.invalid", "Dr Never Applied", "DOCTOR");
     const { firestore } = await firebaseAdmin();
     const ref = firestore.collection("appointments").doc();
-    await ref.set({ patientUid: a.bob.uid, doctorId: a.other.uid, doctorName: "Dr Other", specialty: "General Physician", slotId: "none", consultationType: "online", startsAt: inHours(-1), endsAt: inHours(-0.5), status: "confirmed" });
+    await ref.set({ patientUid: a.bob.uid, doctorId: never.uid, doctorName: "Dr Never", specialty: "General Physician", slotId: "none", consultationType: "online", startsAt: inHours(-1), endsAt: inHours(-0.5), status: "confirmed" });
     for (const [method, route, body] of [["POST", `/api/v1/appointments/${ref.id}/complete`, undefined], ["POST", `/api/v1/appointments/${ref.id}/prescription`, rx], ["GET", `/api/v1/appointments/${ref.id}/records`, undefined]] as const) {
-      assert.equal((await api(method, route, a.other.token, body)).status, 403, `${method} ${route}`);
+      assert.equal((await api(method, route, never.token, body)).status, 403, `${method} ${route}`);
     }
     await ref.delete();
   });
