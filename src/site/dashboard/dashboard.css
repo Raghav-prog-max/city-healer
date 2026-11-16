@@ -9,3 +9,19 @@
    their colour tokens are mapped onto this design's blue, and the surface is left to the dashboard. */
 .chd .ch-embed{--color-care:#0c91bb;--color-care-deep:#087da2;--color-text:#20323b;--color-subtle:#7d8c92;--color-line:#e8eff0;--color-mist:#f6f9fa;background:transparent;font-family:"DM Sans",sans-serif;color:#20323b}
 .chd .ch-embed .font-display{font-family:Manrope,sans-serif;letter-spacing:-.04em}
+
+/* Messages about an appointment and same-day check-in (AppointmentExtras.jsx). System notices are
+   a full-width amber note, never a bubble on either side; the red banner follows a flagged message. */
+.chd .msg-modal{width:min(560px,100%);max-height:calc(100vh - 40px);overflow:auto;padding:24px}.chd .msg-sub{font-size:9px;color:#8d9ba0;margin:-4px 0 12px}
+.chd .msg-thread{min-height:120px;max-height:320px;border:1px solid #edf1f2;border-radius:10px;padding:12px}.chd .msg-thread .bubble{white-space:pre-wrap;overflow-wrap:anywhere}
+.chd .msg-meta{font-size:8px;color:#98a5a9;margin-bottom:3px}.chd .msg-empty{font-size:9px;color:#98a5a9}
+.chd .msg-system{display:flex;gap:8px;align-items:flex-start;width:100%;background:#fff8e6;border:1px solid #f3d48b;color:#7a5a12;border-radius:10px;padding:10px 12px;font-size:9px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}.chd .msg-system>svg{flex-shrink:0;margin-top:2px;color:#c58a12}
+.chd .msg-read{font-size:8px;color:#8d9ba0;text-align:right;margin:6px 2px 0}
+.chd .msg-alert{background:#fdecec;border:1px solid #f3b4b4;color:#9b1c1c;border-radius:10px;padding:11px 12px;margin-top:12px;font-size:9px;line-height:1.7}.chd .msg-alert>div:first-child{display:flex;gap:8px;align-items:flex-start}.chd .msg-alert svg{flex-shrink:0}
+.chd .msg-alert-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}.chd .msg-alert-actions a,.chd .msg-alert-actions button{display:inline-flex;align-items:center;gap:6px;border-radius:7px;padding:8px 11px;font-size:9px;font-weight:700;cursor:pointer;text-decoration:none;border:1px solid #c53030;background:#c53030;color:#fff}.chd .msg-alert-actions button{background:#fff;color:#9b1c1c}.chd .msg-alert-actions .msg-dismiss{border-color:transparent;background:transparent;font-weight:500;margin-left:auto}
+.chd .msg-notice{background:#f4f8f8;border-radius:9px;padding:10px 12px;margin-top:12px;font-size:9px;line-height:1.7;color:#5f747b}.chd .msg-notice a{color:#b42318;font-weight:700}
+.chd .msg-compose{margin-top:10px}.chd .msg-compose textarea{width:100%;border:1px solid #e1e9eb;border-radius:9px;padding:10px;font:inherit;font-size:10px;color:#3c535c;resize:vertical;outline:0}.chd .msg-compose textarea:focus{border-color:#0c91bb}
+.chd .msg-compose-row{display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-size:8px;color:#98a5a9}.chd .msg-compose-row .primary-btn:disabled{opacity:.5;cursor:default}
+.chd .msg-closed{margin-top:10px;font-size:9px;line-height:1.7;color:#7d8c92;background:#f6f9fa;border-radius:9px;padding:10px 12px}.chd .msg-error{display:block;color:#b42318;font-size:9px;margin-top:8px}
+.chd .unread-dot{width:7px;height:7px;border-radius:50%;background:#0c91bb;display:inline-block;margin-left:2px}
+.chd .checkin-line{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:10px;font-size:9px;line-height:1.6;color:#4b626b}.chd .checkin-line b{color:#21815f}.chd .checkin-line .text-btn:disabled,.chd .checkin-line .primary-btn:disabled{opacity:.5}

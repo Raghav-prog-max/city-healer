@@ -10,6 +10,9 @@ import { useSession } from "../lib/session";
 import { request } from "../lib/api";
 import { Badge, Button, Card, ErrorNote, Spinner } from "../components/ui";
 import StaffShell, { fieldClass, formatSlot } from "./StaffShell";
+import BookingMessages from "./BookingMessages";
+import TodayCard from "./TodayCard";
+import { useVisiblePoll } from "../lib/usePoll";
 
 const CITIES = ["Delhi", "Gurugram", "Noida", "Greater Noida", "Ghaziabad", "Faridabad"];
 // The categories triage and the copilot route to (shared/specialties.ts); another can be typed.
@@ -21,21 +24,30 @@ type Application = {
   consultationTypes: string[]; verificationStatus: "pending" | "verified" | "rejected"; listingStatus: string; reviewNote: string;
 };
 type Slot = { id: string; startsAt: string; endsAt: string; consultationType: string; status: string };
-type Booking = { id: string; patientName: string; reason: string; startsAt: string; endsAt: string; consultationType: string; status: string; cancelledBy: string | null; hasPrescription: boolean };
+type Booking = {
+  id: string; patientName: string; reason: string; startsAt: string; endsAt: string; consultationType: string; status: string; cancelledBy: string | null; hasPrescription: boolean;
+  // Same-day check-in and messages (server/firebase/checkin.ts, messages.ts): flags only, never message text.
+  arrivedAt?: string | null; calledAt?: string | null; chat?: { unread: boolean; urgent: boolean };
+};
 type Medicine = { name: string; dosage: string; frequency: string; duration: string };
 type Prescription = { doctorName: string; diagnosis: string; medicines: Partial<Medicine>[]; instructions: string; issuedAt: string };
 const emptyMedicine = (): Medicine => ({ name: "", dosage: "", frequency: "", duration: "" });
 
 const tomorrow = () => new Date(Date.now() + 86_400_000).toLocaleDateString("en-CA");
 
+/** The Today card's list is refreshed this often while the page is visible. */
+const TODAY_POLL_MS = 30_000;
+
 /**
  * One booking and what the doctor can do with it: complete it, cancel it with a reason, write
- * the prescription, and read the patient's saved records (server/firebase/consultations.ts).
+ * the prescription, read the patient's saved records (server/firebase/consultations.ts), and
+ * read and answer the patient's messages (server/firebase/messages.ts). `onChatRead` refreshes
+ * only the bookings list, so marking a thread read does not reset the details form.
  */
-function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> | void }) {
+function BookingRow({ b, onChanged, onChatRead }: { b: Booking; onChanged: () => Promise<void> | void; onChatRead: () => void }) {
   const { t, locale } = useI18n();
   const p = t.staff.provider;
-  const [mode, setMode] = useState<"" | "cancel" | "prescribe" | "rx" | "records">("");
+  const [mode, setMode] = useState<"" | "cancel" | "prescribe" | "rx" | "records" | "chat">("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reason, setReason] = useState("");
@@ -98,6 +110,7 @@ function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<voi
     <li className="py-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold">{b.patientName || "—"}</span>
+        {b.chat?.urgent && b.status !== "cancelled" && <Badge tone="danger">{p.urgentTag}</Badge>}
         <Badge tone={b.status === "confirmed" ? "health" : b.status === "completed" ? "care" : "neutral"} className="ml-auto">{statusLabel}</Badge>
       </div>
       <p className="text-subtle">{formatSlot(b.startsAt, b.endsAt, locale)} · {b.consultationType === "online" ? p.online : p.inPerson}</p>
@@ -109,6 +122,10 @@ function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<voi
           {!b.hasPrescription && <button className={small} disabled={busy || !started} onClick={() => setMode(mode === "prescribe" ? "" : "prescribe")}>{p.prescribe}</button>}
           {b.hasPrescription && <button className={small} onClick={() => show("rx")}>{mode === "rx" ? p.close : p.viewPrescription}</button>}
           <button className={small} onClick={() => show("records")}>{mode === "records" ? p.hideRecords : p.patientRecords}</button>
+          <button className={`${small} relative`} aria-expanded={mode === "chat"} onClick={() => { setError(""); setMode(mode === "chat" ? "" : "chat"); }}>
+            {mode === "chat" ? p.hideMessages : p.messages}
+            {b.chat?.unread && mode !== "chat" && <span className="ml-1.5 inline-block h-2 w-2 rounded-full bg-care align-middle" role="img" aria-label={p.newMessage} />}
+          </button>
           {open && <button className={`${small} hover:!border-danger hover:text-danger`} disabled={busy} onClick={() => setMode(mode === "cancel" ? "" : "cancel")}>{p.cancelBooking}</button>}
         </div>
       )}
@@ -164,6 +181,9 @@ function BookingRow({ b, onChanged }: { b: Booking; onChanged: () => Promise<voi
           <p className="mt-1.5 text-xs text-subtle">{rx.doctorName} · {new Date(rx.issuedAt).toLocaleDateString(locale === "hi" ? "hi-IN" : "en-IN")}</p>
         </div>
       )}
+
+      {/* Not for a cancelled booking: the doctor loses access to the thread when it is cancelled. */}
+      {mode === "chat" && b.status !== "cancelled" && <BookingMessages appointmentId={b.id} patientName={b.patientName} onRead={onChatRead} />}
 
       {/* Not for a cancelled booking: the server no longer gives access, so the screen does not keep showing them. */}
       {mode === "records" && records && b.status !== "cancelled" && (
@@ -222,6 +242,17 @@ export default function ProviderWorkspace() {
     } catch (e: any) { setLoadError(e.message); }
   };
   useEffect(() => { if (uid) load(); }, [uid]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The bookings list alone, for the Today card's refresh and after a thread is marked read:
+  // unlike load(), it leaves the details form as the doctor is typing it.
+  // It throws, so the Today card can say a refresh failed; the background callers ignore a
+  // failure and keep the last list (the next poll tries again).
+  const loadBookings = async () => {
+    setBookings((await request<{ appointments: Booking[] }>("/api/v1/appointments/doctor")).appointments);
+  };
+  const quietlyLoadBookings = () => { loadBookings().catch(() => {}); };
+  // Not at once when it starts: load() has just fetched the same list.
+  useVisiblePoll(quietlyLoadBookings, TODAY_POLL_MS, !!uid && verified, false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -328,6 +359,8 @@ export default function ProviderWorkspace() {
             </Card>
 
             <div className="space-y-6">
+              {verified && <TodayCard bookings={bookings} onChanged={loadBookings} />}
+
               <Card className="p-5">
                 <h2 className="text-lg font-semibold">{p.timesTitle}</h2>
                 <p className="mt-1 text-sm text-subtle">{verified ? p.timesSub : p.needVerified}</p>
@@ -371,7 +404,7 @@ export default function ProviderWorkspace() {
                 <h2 className="text-lg font-semibold">{p.bookingsTitle}</h2>
                 {bookings.length === 0 ? <p className="mt-2 text-sm text-subtle">{p.noBookings}</p> : (
                   <ul className="mt-3 divide-y divide-line">
-                    {bookings.map((b) => <BookingRow key={b.id} b={b} onChanged={load} />)}
+                    {bookings.map((b) => <BookingRow key={b.id} b={b} onChanged={load} onChatRead={quietlyLoadBookings} />)}
                   </ul>
                 )}
               </Card>

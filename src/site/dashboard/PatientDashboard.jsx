@@ -15,6 +15,7 @@ import { useI18n } from "../i18n";
 import { useSession } from "../lib/session";
 import { request } from "../lib/api";
 import { useLocationConsent } from "../lib/location";
+import { MessagesModal, CheckInLine } from "./AppointmentExtras";
 import "./dashboard.css";
 
 const FindCarePage = lazy(() => import("../app/FindCarePage"));
@@ -47,7 +48,19 @@ const copy = {
     findSub: "Doctors and hospitals across Delhi NCR, nearest first.", apptSub: "Keep track of your upcoming and past care.", nutritionSub: "Indian meal plans for your condition.", medicinesSub: "Look up a medicine, its uses and substitutes.", emergencySub: "What to do now, and the nearest hospitals with emergency care.", settingsSub: "Manage account preferences and privacy.", modelsSub: "The models behind City Healer AI and how they were tested.",
     status: { PENDING: "Requested", CONFIRMED: "Confirmed", ACCEPTED: "Confirmed", COMPLETED: "Completed", CANCELLED: "Cancelled", REJECTED: "Declined" },
     familySoon: "Linking family members is not available yet. It will need the person's permission or appropriate legal authority.", noFamily: "No linked family members",
-    email: "Email", phone: "Mobile", city: "City", doctorsTab: "Doctors", bookTab: "Book appointment", hospitalsTab: "Hospitals", name: "Name", language: "Language", workspace: "Workspace", patientAccount: "Patient account", demoAccount: "Demo session", video: "Video consultation", inPerson: "In-person visit", view: "View", menu: "Menu" },
+    email: "Email", phone: "Mobile", city: "City", doctorsTab: "Doctors", bookTab: "Book appointment", hospitalsTab: "Hospitals", name: "Name", language: "Language", workspace: "Workspace", patientAccount: "Patient account", demoAccount: "Demo session", video: "Video consultation", inPerson: "In-person visit", view: "View", menu: "Menu",
+    // Messages about one appointment (server/firebase/messages.ts) and same-day check-in (checkin.ts).
+    messages: "Messages", messagesTitle: "Messages about this appointment", newMessage: "New message from the doctor", drPrefix: "Dr",
+    notMonitored: "Messages are not monitored live. {name} will only see them when they next open City Healer, which may not be before your appointment. This is not for emergencies: call 112 or use SOS.",
+    call112: "Call 112", openSos: "Open SOS", dismiss: "Dismiss",
+    redFlag: "What you wrote may be an emergency. Call 112 now or use Emergency SOS. Do not wait for a reply here. Your doctor has not been alerted.",
+    notOpened: "Not yet opened by the doctor", openedAt: "Opened by the doctor at {time}",
+    noMessages: "No messages yet.", you: "You", writeMessage: "Write a message", send: "Send", threadError: "Messages could not be loaded. Please try again.", serverDown: "City Healer could not be reached. Please try again.",
+    chatNotOpenYet: "You can message {name} from one day before your appointment.",
+    chatClosed: "Messaging for this appointment has closed. Book a follow-up, or call 112 in an emergency.",
+    chatCancelled: "This appointment was cancelled, so no messages can be sent about it. You can still read them.",
+    arrived: "I have arrived", checkedIn: "You are checked in.", aheadMany: "{n} patients before you.", aheadOne: "1 patient before you.", youAreNext: "You are next.",
+    notATime: "This is your place in the line, not a time.", bookedTime: "Your booked time is {time}.", doctorReady: "The doctor is ready for you.", leaveLine: "Leave the line" },
   hi: { prescription: "प्रिस्क्रिप्शन", rxInstructions: "निर्देश", cancelledByDoctor: "डॉक्टर ने रद्द किया", cancelledByCityHealer: "City Healer ने रद्द किया: यह डॉक्टर अब यहाँ उपलब्ध नहीं हैं। कृपया दूसरे डॉक्टर के साथ बुक करें।", apptLoadError: "आपके अपॉइंटमेंट लोड नहीं हो सके। कृपया फिर कोशिश करें।", overview: "होम", find: "देखभाल खोजें", appointments: "अपॉइंटमेंट", records: "हेल्थ वॉलेट", family: "परिवार की देखभाल", assistant: "AI सहायक", settings: "सेटिंग्स", nutrition: "पोषण", medicines: "दवाइयाँ", emergency: "आपातकाल", models: "AI मॉडल",
     morning: "सुप्रभात", afternoon: "नमस्कार", evening: "शुभ संध्या", headline: "आपकी सेहत, एक साथ।", sub: "आपकी देखभाल की जानकारी, एक ही जगह।", location: "दिल्ली NCR", nearYou: "आपके पास",
     search: "डॉक्टर, विशेषज्ञता, अस्पताल या सेवा खोजें", book: "डॉक्टर खोजें", lab: "लैब रिपोर्ट समझें", meds: "दवाइयाँ", emergencyHelp: "आपातकालीन सहायता",
@@ -66,7 +79,20 @@ const copy = {
     findSub: "दिल्ली NCR में डॉक्टर और अस्पताल, सबसे नज़दीकी पहले।", apptSub: "अपनी आगामी और पिछली देखभाल देखें।", nutritionSub: "आपकी स्थिति के लिए भारतीय भोजन योजना।", medicinesSub: "दवा, उसके उपयोग और विकल्प खोजें।", emergencySub: "अभी क्या करें, और आपातकालीन सेवा वाले नज़दीकी अस्पताल।", settingsSub: "अकाउंट और प्राइवेसी सेटिंग्स।", modelsSub: "City Healer AI के मॉडल और उनकी जाँच।",
     status: { PENDING: "अनुरोध भेजा", CONFIRMED: "पुष्टि हुई", ACCEPTED: "पुष्टि हुई", COMPLETED: "पूरा हुआ", CANCELLED: "रद्द", REJECTED: "अस्वीकार" },
     familySoon: "परिवार के सदस्यों को जोड़ने की सुविधा अभी उपलब्ध नहीं है। इसके लिए उस व्यक्ति की अनुमति या उचित कानूनी अधिकार चाहिए होगा।", noFamily: "कोई जुड़ा सदस्य नहीं",
-    email: "ईमेल", phone: "मोबाइल", city: "शहर", doctorsTab: "डॉक्टर", bookTab: "अपॉइंटमेंट बुक करें", hospitalsTab: "अस्पताल", name: "नाम", language: "भाषा", workspace: "कार्यक्षेत्र", patientAccount: "मरीज़ अकाउंट", demoAccount: "डेमो सत्र", video: "वीडियो परामर्श", inPerson: "अस्पताल में", view: "देखें", menu: "मेन्यू" },
+    email: "ईमेल", phone: "मोबाइल", city: "शहर", doctorsTab: "डॉक्टर", bookTab: "अपॉइंटमेंट बुक करें", hospitalsTab: "अस्पताल", name: "नाम", language: "भाषा", workspace: "कार्यक्षेत्र", patientAccount: "मरीज़ अकाउंट", demoAccount: "डेमो सत्र", video: "वीडियो परामर्श", inPerson: "अस्पताल में", view: "देखें", menu: "मेन्यू",
+    // Messages and check-in. HINDI BELOW NEEDS REVIEW BY A FLUENT SPEAKER BEFORE RELEASE: it was
+    // written by the developer, not by a reviewed translator.
+    messages: "संदेश", messagesTitle: "इस अपॉइंटमेंट के बारे में संदेश", newMessage: "डॉक्टर का नया संदेश", drPrefix: "डॉ.",
+    notMonitored: "संदेशों पर लगातार नज़र नहीं रखी जाती। {name} इन्हें तभी देखेंगे जब वे अगली बार City Healer खोलेंगे, और ऐसा आपके अपॉइंटमेंट से पहले न भी हो। यह आपातकाल के लिए नहीं है: 112 पर कॉल करें या SOS का उपयोग करें।",
+    call112: "112 पर कॉल करें", openSos: "SOS खोलें", dismiss: "हटाएँ",
+    redFlag: "आपने जो लिखा वह आपातकाल हो सकता है। अभी 112 पर कॉल करें या आपातकालीन SOS का उपयोग करें। यहाँ जवाब का इंतज़ार न करें। आपके डॉक्टर को सूचित नहीं किया गया है।",
+    notOpened: "डॉक्टर ने अभी तक नहीं खोला", openedAt: "डॉक्टर ने {time} पर खोला",
+    noMessages: "अभी कोई संदेश नहीं।", you: "आप", writeMessage: "संदेश लिखें", send: "भेजें", threadError: "संदेश लोड नहीं हो सके। कृपया फिर कोशिश करें।", serverDown: "City Healer से संपर्क नहीं हो सका। कृपया फिर कोशिश करें।",
+    chatNotOpenYet: "आप अपने अपॉइंटमेंट से एक दिन पहले से {name} को संदेश भेज सकते हैं।",
+    chatClosed: "इस अपॉइंटमेंट के लिए संदेश भेजना बंद हो गया है। फ़ॉलो-अप बुक करें, या आपातकाल में 112 पर कॉल करें।",
+    chatCancelled: "यह अपॉइंटमेंट रद्द हो गया है, इसलिए इसके बारे में संदेश नहीं भेजे जा सकते। आप उन्हें अब भी पढ़ सकते हैं।",
+    arrived: "मैं पहुँच गया/गई हूँ", checkedIn: "आपका चेक-इन हो गया है।", aheadMany: "आपसे पहले {n} मरीज़ हैं।", aheadOne: "आपसे पहले 1 मरीज़ है।", youAreNext: "अगली बारी आपकी है।",
+    notATime: "यह लाइन में आपकी जगह है, समय नहीं।", bookedTime: "आपका बुक किया गया समय {time} है।", doctorReady: "डॉक्टर आपसे मिलने के लिए तैयार हैं।", leaveLine: "लाइन छोड़ें" },
 };
 
 const NAV = [["overview", LayoutDashboard], ["find", Search], ["appointments", CalendarDays], ["records", FolderHeart], ["nutrition", Salad], ["medicines", Pill], ["family", Users], ["assistant", MessageCircle], ["emergency", Ambulance]];
@@ -176,7 +202,7 @@ export default function PatientDashboard() {
           <section className="quick-grid">{service.map((s, i) => <button className="quick-card" key={i} onClick={() => go(s.id)}><span className={"quick-icon " + s.tint}><s.icon size={20} /></span><span className="quick-copy"><b>{s.name}</b><small>{s.sub}</small></span><ArrowUpRight size={15} className="quick-arrow" /></button>)}</section>
 
           <div className="section-heading"><div><h2>{t.upcoming}</h2><p role={apptError ? "alert" : undefined}>{nextAppt ? (t.status[nextAppt.status] || nextAppt.status) : apptError ? t.apptLoadError : t.noUpcomingSub}</p></div><button className="text-btn" onClick={() => go("appointments")}>{t.viewAll}<ArrowRight size={14} /></button></div>
-          {nextAppt ? <AppointmentCard a={nextAppt} t={t} lang={lang} onView={() => go("appointments")} /> : (
+          {nextAppt ? <AppointmentCard a={nextAppt} t={t} lang={lang} onView={() => go("appointments")} onChanged={() => setApptTick((n) => n + 1)} onSOS={() => go("emergency")} /> : (
             <div className="appointment-card"><div className="appt-date"><b>—</b><span></span></div><div className="appt-info"><h3>{t.noUpcoming}</h3><p>{t.noUpcomingSub}</p></div><div className="appt-action"><button onClick={() => go("find", "?tab=doctors")}>{t.book}<ArrowRight size={14} /></button></div></div>
           )}
 
@@ -203,7 +229,7 @@ export default function PatientDashboard() {
         {active !== "overview" && <SectionView title={titles[active][0]} sub={titles[active][1]}>
           <Suspense fallback={<div className="empty-note"><Info size={17} />…</div>}>
             {active === "find" && <FindCareView t={t} />}
-            {active === "appointments" && <AppointmentsView list={sortedAppts} loading={appointments === null} error={apptError} onRetry={() => setApptTick((n) => n + 1)} t={t} lang={lang} onFind={() => go("find", "?tab=book")} />}
+            {active === "appointments" && <AppointmentsView list={sortedAppts} loading={appointments === null} error={apptError} onRetry={() => setApptTick((n) => n + 1)} t={t} lang={lang} onFind={() => go("find", "?tab=book")} onSOS={() => go("emergency")} />}
             {active === "records" && <>
               <Embed><WalletPage embedded onSaved={() => setRecordsTick((n) => n + 1)} /></Embed>
               <div className="section-heading" style={{ marginTop: 28 }}><div><h2>{t.wallet}</h2><p>{records?.length ? `${records.length} ${t.savedRecords}` : t.noRecordsSub}</p></div></div>
@@ -264,7 +290,11 @@ function FindCareView({ t }) {
 /** Dashboard-styled frame around the app's own pages; dashboard.css maps their colours to this design. */
 function Embed({ children }) { return <div className="ch ch-embed">{children}</div>; }
 
-/** A Firestore booking (server/firebase/booking.ts) in the shape the appointment card shows. */
+/**
+ * A Firestore booking (server/firebase/booking.ts, GET /mine) in the shape the appointment card
+ * shows. `source: "firestore"` marks the cards that get Messages and check-in; the merged rows
+ * from the earlier store never do.
+ */
 function fromBooking(b) {
   const start = new Date(b.startsAt);
   return {
@@ -274,6 +304,8 @@ function fromBooking(b) {
     type: b.consultationType === "online" ? "VIRTUAL" : "IN_PERSON",
     status: String(b.status || "").toUpperCase(),
     cancelledBy: b.cancelledBy || null, cancelReason: b.cancelReason || "",
+    source: "firestore", consultationType: b.consultationType, startsAt: b.startsAt, endsAt: b.endsAt,
+    arrivedAt: b.arrivedAt || null, calledAt: b.calledAt || null, chatUnread: !!b.chatUnread,
   };
 }
 
@@ -286,20 +318,30 @@ function fromPrescription(p, t) {
   };
 }
 
-function AppointmentCard({ a, t, lang, onView }) {
+function AppointmentCard({ a, t, lang, onView, onChanged, onSOS }) {
   const d = new Date(`${a.date}T00:00:00`);
+  const [messagesOpen, setMessagesOpen] = useState(false);
+  const firestore = a.source === "firestore";
+  // Cancelled bookings keep their thread, read-only; the server refuses a post.
+  const canMessage = firestore && ["CONFIRMED", "COMPLETED", "CANCELLED"].includes(a.status);
+  const canCheckIn = firestore && a.status === "CONFIRMED" && a.consultationType === "in_person";
+  const refresh = () => onChanged && onChanged();
   return <div className="appointment-card"><div className="appt-date"><b>{d.getDate()}</b><span>{d.toLocaleDateString("en-IN", { month: "short" }).toUpperCase()}</span></div>
     <div className="appt-info"><div className="appt-tag"><span />{a.type === "VIRTUAL" ? t.video : t.inPerson}</div><h3>{a.doctorName}</h3><p>{a.specialty}</p>
-      <div className="appt-meta"><span><CalendarDays size={14} />{d.toLocaleDateString(lang === "hi" ? "hi-IN" : "en-IN", { weekday: "long", day: "numeric", month: "long" })}</span><span><Clock size={14} />{a.time}</span></div>{a.cancelledBy === "doctor" && <p style={{ marginTop: 6 }}>{t.cancelledByDoctor}{a.cancelReason ? `: ${a.cancelReason}` : ""}</p>}{a.cancelledBy === "city_healer" && <p style={{ marginTop: 6 }}>{t.cancelledByCityHealer}</p>}</div>
-    <div className="appt-action"><span className="demo-chip">{t.status[a.status] || a.status}</span>{onView && <button onClick={onView}>{t.view}<ArrowRight size={14} /></button>}</div></div>;
+      <div className="appt-meta"><span><CalendarDays size={14} />{d.toLocaleDateString(lang === "hi" ? "hi-IN" : "en-IN", { weekday: "long", day: "numeric", month: "long" })}</span><span><Clock size={14} />{a.time}</span></div>{a.cancelledBy === "doctor" && <p style={{ marginTop: 6 }}>{t.cancelledByDoctor}{a.cancelReason ? `: ${a.cancelReason}` : ""}</p>}{a.cancelledBy === "city_healer" && <p style={{ marginTop: 6 }}>{t.cancelledByCityHealer}</p>}
+      {canCheckIn && <CheckInLine a={a} t={t} onChanged={refresh} />}</div>
+    <div className="appt-action"><span className="demo-chip">{t.status[a.status] || a.status}</span>
+      {canMessage && <button onClick={() => setMessagesOpen(true)}><MessageCircle size={14} />{t.messages}{a.chatUnread && <i className="unread-dot" role="img" aria-label={t.newMessage} />}</button>}
+      {onView && <button onClick={onView}>{t.view}<ArrowRight size={14} /></button>}</div>
+    {messagesOpen && <MessagesModal a={a} t={t} lang={lang} onClose={() => { setMessagesOpen(false); refresh(); }} onRead={refresh} onSOS={() => { setMessagesOpen(false); onSOS && onSOS(); }} />}</div>;
 }
 
-function AppointmentsView({ list, loading, error, onRetry, t, lang, onFind }) {
+function AppointmentsView({ list, loading, error, onRetry, t, lang, onFind, onSOS }) {
   if (loading) return <div className="empty-note"><Info size={17} />…</div>;
   // A failed load is said so: an empty list would read as "you have no appointments".
   if (error) return <div className="empty-note" role="alert"><Info size={17} />{t.apptLoadError} <button className="text-btn" onClick={onRetry}>↻</button></div>;
   if (!list.length) return <div className="record-empty"><span><CalendarDays size={27} /></span><h3>{t.noUpcoming}</h3><p>{t.noUpcomingSub}</p><button className="primary-btn" onClick={onFind}><Stethoscope size={15} />{t.book}</button></div>;
-  return <>{list.map((a) => <AppointmentCard key={a.id} a={a} t={t} lang={lang} />)}</>;
+  return <>{list.map((a) => <AppointmentCard key={a.id} a={a} t={t} lang={lang} onChanged={onRetry} onSOS={onSOS} />)}</>;
 }
 
 function Metric({ icon: Icon, label, value, unit, note, tint }) { return <div className="metric"><div className={"metric-icon " + tint}><Icon size={17} /></div><span className="metric-label">{label}</span><div className="metric-value">{value}<small>{unit}</small></div><span className="metric-note">{note}</span></div>; }
