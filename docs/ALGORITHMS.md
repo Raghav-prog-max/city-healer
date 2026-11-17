@@ -52,7 +52,7 @@ LLM test injects a fake model caller or a fake `fetch`). Server tests: `npm run 
 - **Source.** `server/ai/llm.ts:286` `llmTriage`; prompt `TRIAGE_SYSTEM_PROMPT` `:253`; schema
   `LlmTriageSchema` `:79`; Gemini REST caller `geminiCaller` `:217` (JSON response mode, key in the
   `x-goog-api-key` header, per-call timeout).
-- **Used by.** `POST /api/symptoms/check` (`server.ts:1596`). With no key the response is exactly
+- **Used by.** `POST /api/symptoms/check` (`server.ts:1176`). With no key the response is exactly
   the previous offline result plus `engine: "offline"`.
 - **Tests.** `tests/algorithms.test.ts`: "A1: a valid model reply becomes the triage result, tagged
   with the model", "A1: CRITICAL from the model always raises the SOS flag", "A1: the Gemini caller
@@ -79,7 +79,7 @@ LLM test injects a fake model caller or a fake `fetch`). Server tests: `npm run 
 - **Tests.** `tests/algorithms.test.ts` "A2: cough plus chest pain is treated as cardio-respiratory,
   never as a cold", "A2: unrecognised input is not guessed", "A2: emergency rules override the LLM -
   the model is never called"; `tests/triage-heuristic.test.ts`; `tests/emergency-safety.test.ts`
-  ("critical safety set: 100% recall required"; not part of `test:unit`, run it with `npx tsx --test`).
+  ("critical safety set: 100% recall required"; part of `test:unit`).
 - **Complexity.** O(k * m) for k terms and message length m.
 - **Limitations.** Keyword lists are not clinically validated; the safety set in
   `tests/fixtures/emergency_safety_set.json` is a draft awaiting clinician review.
@@ -116,7 +116,7 @@ LLM test injects a fake model caller or a fake `fetch`). Server tests: `npm run 
 - **Input.** Hospital rows, specialist, urgency, patient position (central Delhi if none).
   **Output.** Top 3 hospitals with `distanceKM`, `travelTimeMin`, `recommendationScore`, `matchReason`.
 - **Source.** `shared/hospitalRanking.ts:42` `scoreHospital`, `:74` `topK`, `:83` `scorePercent`;
-  called from `server.ts:351` `recommendHospitals`.
+  called from `server.ts:348` `recommendHospitals`.
 - **Used by.** `/api/symptoms/check`, the copilot and the consultation auto-reply.
 - **Tests.** "A5: a hospital with the needed department outranks a nearer one without it",
   "A5: ICU counts only for HIGH or CRITICAL; the maximum is 120", "A5: topK returns the k best,
@@ -133,7 +133,7 @@ LLM test injects a fake model caller or a fake `fetch`). Server tests: `npm run 
 - **Purpose.** On SOS, alert the hospital closest to the caller.
 - **Input.** Caller position, hospital list. **Output.** `{ item, distanceKm }` or null.
 - **Source.** `shared/geo.ts:56` `nearest` (Haversine `:18`).
-- **Used by.** `POST /api/emergency/sos` (`server.ts:1414`).
+- **Used by.** `POST /api/emergency/sos` (`server.ts:1059`, `nearest` call at `:1072`).
 - **Tests.** "A6: picks the closest point and reports its distance"; `tests/geo.test.ts`.
 - **Complexity.** O(n) time, O(1) space. **Limitations.** Ignores ambulance availability and
   traffic; a k-d tree or geohash only pays off at thousands of facilities.
@@ -209,7 +209,7 @@ LLM test injects a fake model caller or a fake `fetch`). Server tests: `npm run 
   `{answer, citations}`; an answer citing nothing or an id not retrieved is discarded (A9).
 - **Source.** `server/ai/rag.ts:44` `retrieveMedicinePassages`, `:62` `templatedAnswer`,
   `:78` `answerWithRetrieval`.
-- **Used by.** `POST /api/v1/knowledge/ask` (`server.ts:1714`, auth + `aiRateLimit`). The existing
+- **Used by.** `POST /api/v1/knowledge/ask` (`server.ts:1294`, auth + `aiRateLimit`). The existing
   copilot pipeline (`server/ai/orchestrator.ts`, also behind `/api/developer/ai-pipeline`) is the
   intent -> plan -> retrieve -> synthesise flow described in Milestone 4, implemented with the
   trained intent model and templated synthesis rather than an LLM.
@@ -246,13 +246,14 @@ LLM test injects a fake model caller or a fake `fetch`). Server tests: `npm run 
 - **Purpose.** Four roles (PATIENT, DOCTOR, HOSPITAL, ADMIN); each request is checked on the server,
   and data is scoped to its owner.
 - **Input.** Verified identity (A13) and the resource id. **Output.** 401 / 403 or the scoped data.
-- **Source.** `server.ts:132` `authenticateUser`, `:182` `requireRole`, `:264`
-  `callerAdministersHospital`, `:276` `callerControlsDoctor`, `:293` `doctorTreatsPatient`;
+- **Source.** `server.ts:128` `authenticateUser`, `:190` `requireRole`, `:272`
+  `callerAdministersHospital`, `:284` `callerControlsDoctor`; doctor-to-patient scoping inline in
+  `server/firebase/consultations.ts:203` (records only for the doctor's own appointment);
   `server/firebase/identity.ts` (role from the custom claim); per-route owner filters in
   `server/firebase/booking.ts`, `consultations.ts`, `patients.ts`; `firestore.rules`.
 - **Tests.** Server only (needs real tokens from the Auth emulator): `tests/access-matrix.test.ts`
   ("anonymous callers are rejected on every guarded route", "PATIENT is refused privileged
-  operations", "cross-patient isolation", "doctor scoping follows the clinical relationship"),
+  operations", "cross-patient isolation", "doctors get no patient records from the record list"),
   `tests/resource-ownership.test.ts` ("a hospital may act only on its own facility", ...).
   No unit test in `tests/algorithms.test.ts`: the checks are Express middleware over Firebase.
 - **Complexity.** O(1) role check; ownership checks are one indexed lookup.
@@ -292,8 +293,8 @@ What Milestone 4 describes (bcrypt-hashed passwords in SQLite, a self-signed 7-d
   `Retry-After` when refused.
 - **Algorithm.** Per key, a window opens at the first request and lasts one hour; at most
   `AI_RATE_LIMIT` (default 300) requests per window; expired windows pruned above 5,000 keys.
-- **Source.** `server/rateLimit.ts:26` `createFixedWindowLimiter`; middleware `server.ts:206`
-  `aiRateLimit` (limiter `:204`). Same behaviour and limits as before the move.
+- **Source.** `server/rateLimit.ts:26` `createFixedWindowLimiter`; middleware `server.ts:214`
+  `aiRateLimit` (limiter `:212`). Same behaviour and limits as before the move.
 - **Used by.** All AI routes (`/api/symptoms/check`, `/api/records/analyze`, `/api/medicines/*`,
   `/api/diet/recommend`, `/api/ai/copilot`, `/api/v1/*` AI routes, `/api/developer/ai-pipeline`,
   `/api/chat/:id`, `/api/v1/knowledge/ask`).

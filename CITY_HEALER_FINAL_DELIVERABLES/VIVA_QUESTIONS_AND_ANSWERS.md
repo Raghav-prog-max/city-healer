@@ -155,10 +155,10 @@ The final run had 225 unit and 309 server tests, with 0 failures and exit code 0
 **20. Performance?**
 
 These are local measurements (Intel Core Ultra 9, emulators), not production:
-- Triage at concurrency 1: 306 requests/s, p95 5.0 ms, up from about 51 requests/s at the first audit.
-- Copilot at concurrency 50: p95 105 ms.
+- Triage at concurrency 1: 150–306 requests/s across three runs (p95 5.0–9.9 ms), up from about 51 requests/s at the first audit. The range is honest: throughput on one laptop varies by about 2× from run to run.
+- Copilot at concurrency 50: p95 105–165 ms.
 - 0 % errors in every row.
-- Cold start: 4.05 s.
+- Cold start: 3.4–5.9 s.
 
 ## E. Honesty and scope
 

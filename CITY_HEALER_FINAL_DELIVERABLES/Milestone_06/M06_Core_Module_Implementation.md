@@ -77,7 +77,7 @@ See Milestone 5 (5.6). The source layout is:
 
 - **Triage.** `POST /api/symptoms/check` (`server.ts:1176`) calls `llmTriage()` (`server/ai/llm.ts:286`). Without a `GEMINI_API_KEY`, which is the current set-up, it makes no network call. It returns the offline result of `triage()` (`shared/triageModel.ts:180`) with `engine: "offline"`. The offline chain is:
   1. Emergency rules first.
-  2. The trained model, when confidence is at least 0.40 and at least 3 input terms are known (`triageModel.ts:38`).
+  2. The trained model, when confidence is at least 0.40 and at least 3 input terms are known (`triageModel.ts:38-39`).
   3. Otherwise the keyword rules, which answer "not assessed" when they recognise nothing.
 - **After triage.** `recommendHospitals()` and `recommendDoctors()` add the top-3 hospitals and doctors (verified doctors first).
 - **Copilot.** `POST /api/ai/copilot` and `/api/v1/copilot/chat` (`server.ts:1276`, `:1318`) call `orchestrate()` (`server/ai/orchestrator.ts:77`). The order is safety rules, then the intent classifier (threshold 0.35), then routing to triage, lab, medicine, diet or care lookup. The reply is a template in English or Hindi.
@@ -128,7 +128,7 @@ See Milestone 5 (5.6). The source layout is:
 - **Records.** `GET/POST /api/records` (`server.ts:861`, `:885`), scoped to the owner. Doctors read records only through a booking (PR #12).
 - **Lab analysis.** `POST /api/records/analyze` (`server.ts:1208`) uses `shared/labModels.ts`.
 - **Report reader.** `POST /api/v1/documents/extract` (`server.ts:1352`) feeds `server/ai/labValues.ts`. It reads TXT only (PDF only if `pdfjs-dist` is installed; there is no OCR). Pre-filled values must be confirmed before analysis (PR #6).
-- **Screen.** Health wallet (`src/site/app/WalletPage.tsx`), which also lists prescriptions in the patient's local date (PR #16).
+- **Screen.** Health wallet (`src/site/app/WalletPage.tsx`, rendered by `src/site/dashboard/PatientDashboard.jsx`). The dashboard loads the saved records together with the doctor-issued prescriptions (`PatientDashboard.jsx:135-139`, `fromPrescription` at `:314`) and lists them in the patient's local date (PR #16).
 - **Tests.** `tests/lab-values.test.ts`; `tests/booking.test.ts` "a report file is read without being stored".
 
 ### 6.7.6 Medicines, demo pharmacy and nutrition

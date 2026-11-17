@@ -65,7 +65,7 @@ PR #13 then implemented the LLM path as an optional layer. Its two key propertie
 1. **Data.** Public datasets with recorded licences, plus small project-written supplements for Hindi and everyday phrasing (`ml/README.md`).
 2. **Training.** Python 3.13 and scikit-learn scripts in `ml/` write JSON weights. Classifiers were compared by 5-fold cross-validation, and logistic regression was exported because it gives a probability for each class.
 3. **Inference.** Re-implemented in TypeScript (`shared/textClassifier.ts`, `shared/triageModel.ts`, `shared/intentModel.ts`, `shared/labModels.ts`, `shared/facilityModel.ts`), with parity tests against `ml/parity.json`.
-4. **Safety evaluation.** The draft emergency set (`tests/fixtures/emergency_safety_set.json`) has development, held-out and non-emergency parts. It is measured by `audit_scripts/eval_emergency.ts`.
+4. **Safety evaluation.** The draft emergency set (`tests/fixtures/emergency_safety_set.json`) has development, held-out and non-emergency parts. It is measured by `CITY_HEALER_AUDIT_REPORT/audit_scripts/eval_emergency.ts`.
 5. **Algorithm tests.** `tests/algorithms.test.ts` has 36 tests (PR #13), plus server tests.
 
 ## 7.6 Architecture
@@ -123,7 +123,7 @@ message ─► A2/A3 emergency rules (shared/emergencySafety.ts:104, shared/tria
 | A11 | Robust JSON extraction + schema validation | `server/ai/llm.ts:35`, `:56`, `:95` | LLM path | "A11: plain, fenced, prose-wrapped and trailing-comma JSON all parse"; "A11: schema validation rejects wrong types and unknown urgency levels" | Added |
 | A12 | RBAC + ownership | `server.ts:128`, `:190`; `server/firebase/*`; `firebase/firestore.rules` | All routes | `tests/access-matrix.test.ts`, `tests/resource-ownership.test.ts` | Implemented |
 | A13 | bcrypt + JWT | Firebase ID tokens (RS256) verified with revocation (`identity.ts:47`); bcrypt only in `scripts/legacy-passwords.ts` | Sign-in | "A13: a hash of the email-derived legacy password is detected" | Deviation, documented |
-| A14 | Fixed-window rate limiting | `server/rateLimit.ts:26`; write limits `server/httpHardening.ts:77` | AI quota (`server.ts:209`); write limits (`server.ts:176-188`) | "A14: allows `limit` requests per window, then refuses with Retry-After"; security-headers suite "the 4th record write in the window is a 429 with Retry-After" | Implemented |
+| A14 | Fixed-window rate limiting | `server/rateLimit.ts:26`; write limits `server/httpHardening.ts:77` | AI quota (`server.ts:214` middleware, limit constant `:209`); write limits (`server.ts:181-187`) | "A14: allows `limit` requests per window, then refuses with Retry-After"; security-headers suite "the 4th record write in the window is a 429 with Retry-After" | Implemented |
 
 ### 7.8.1 Hospital score (A5)
 

@@ -18,10 +18,10 @@ City Healer is tested at three levels:
 
 The final `npm test` passed 225 unit tests and 309 server tests, with 0 failures and exit code 0 (`../final-npm-test.log`). That run used the code of PR #15 merged with `main`, which is everything except the client-only PR #16. After PR #16, `tsc` was clean and the unit suite again passed 225/225.
 
-The final local backend audit (16 Nov 2026, 23:07 UTC) found the following:
+The final local backend audits (three local runs (16 Nov 23:07Z and 23:26Z, 17 Nov 00:19Z)) found the following:
 
 - 0 % errors in every load-test row.
-- Triage, which the first audit measured at about 51 requests per second (CPU-bound), now serves 306 requests per second at concurrency 1, with p95 5.0 ms.
+- Triage, which the first audit measured at about 51 requests per second (CPU-bound), now serves 150–306 requests per second at concurrency 1, with p95 5.0–9.9 ms.
 - Exactly one booking was created out of 20 simultaneous attempts in every round.
 - Security checks: 25 of 25 pass on the corrected audit script (23:26Z); the earlier 23:07Z run recorded 19 of 23. The four checks marked FAIL are explained in 8.12.3: the server under test ran in development mode, and two probes target routes that were deliberately removed.
 
@@ -60,7 +60,7 @@ Milestone 3 (O6) set a target of "all 85 access-control and ownership test cases
 - **Server suite** (`test:server`). Throwaway Auth and Firestore emulators are started first. These files then run one after another: `security-headers`, `access-matrix`, `resource-ownership`, `booking`, `consent`, `provider-admin`, `consultations`, `messages`, `checkin`.
 - **Mutation-style checks.** PR #11 broke each guard in turn and confirmed that a test failed each time.
 - **Multi-lens reviews.** These were run before merging PR #11 (9 findings) and PR #15 (9 findings), and all findings were fixed.
-- **Audit scripts.** `audit_scripts/eval_ai.ts`, `eval_emergency.ts` and `backend_audit.ts` were re-run on the final code.
+- **Audit scripts.** `CITY_HEALER_AUDIT_REPORT/audit_scripts/eval_ai.ts`, `eval_emergency.ts` and `backend_audit.ts` were re-run on the final code, and again on 17 Nov at `81f23c0`.
 
 ## 8.6 Architecture of the test set-up
 
@@ -179,38 +179,38 @@ See Milestone 7 (7.7). In summary:
 | Lab-report reader | 96.4 % precision and recall |
 | Entity extraction | F1 88.2 % |
 
-### 8.12.5 Backend performance (local, 23:07 UTC)
+### 8.12.5 Backend performance (local, three runs)
 
-Error rate was 0 in all 40 rows of `load_tests`. Server working set: 228–349 MB. Cold start to healthy: 4.05 s (first audit: 9.0 s).
+The audit was run three times on the same machine: 16 Nov 23:07Z, 16 Nov 23:26Z and 17 Nov 00:19Z. The error rate was 0 in all 120 rows (40 per run). Server working set: 190–349 MB. Cold start to healthy: 3.4–5.9 s (first audit: 9.0 s). Throughput varies by up to about 2× between runs on one laptop, so each cell gives the range over the three runs rather than the best run.
 
-| Endpoint | c | req/s | p50 ms | p95 ms | p99 ms |
-|---|---|---|---|---|---|
-| `GET /api/health` | 1 | 2,169 | 0.4 | 0.8 | 1.9 |
-| 〃 | 50 | 4,771 | 7.5 | 27.5 | 30.2 |
-| `GET /api/hospitals` (990 listings, SQLite) | 1 | 550 | 1.7 | 2.5 | 5.7 |
-| 〃 | 50 | 776 | 60.1 | 86.5 | 99.7 |
-| `GET /api/v1/doctors` (Firestore) | 1 | 66 | 15.4 | 20.8 | 34.2 |
-| 〃 | 50 | 1,256 | 37.8 | 52.6 | 55.5 |
-| `POST /api/v1/nlp/analyze` | 1 | 563 | 1.4 | 2.9 | 7.4 |
-| 〃 | 50 | 1,733 | 28.1 | 37.2 | 39.7 |
-| `POST /api/v1/copilot/chat` | 1 | 294 | 3.0 | 4.6 | 8.4 |
-| 〃 | 50 | 615 | 77.5 | 104.9 | 124.3 |
-| `POST /api/symptoms/check` (triage) | 1 | 306 | 2.9 | 5.0 | 12.4 |
-| 〃 | 50 | 595 | 83.6 | 100.9 | 106.2 |
-| `POST /api/v1/documents/extract` (1 KB) | 1 | 872 | 1.1 | 1.6 | 2.2 |
-| 〃 | 50 | 1,439 | 23.4 | 91.8 | 104.1 |
-| `GET /api/v1/appointments/mine` (Firestore) | 1 | 64 | 15.5 | 18.9 | 28.7 |
-| 〃 | 50 | 632 | 57.5 | 152.9 | 156.3 |
+| Endpoint | c | req/s (range) | p50 ms (range) | p95 ms (range) |
+|---|---|---|---|---|
+| `GET /api/health` | 1 | 1,273–2,169 | 0.4–0.7 | 0.8–1.3 |
+| 〃 | 50 | 2,560–4,771 | 7.5–14.8 | 27.5–35.3 |
+| `GET /api/hospitals` (990 listings, SQLite) | 1 | 322–550 | 1.5–2.7 | 2.5–4 |
+| 〃 | 50 | 423–798 | 59–101 | 76–154 |
+| `GET /api/v1/doctors` (Firestore) | 1 | 65–71 | 15.1–15.5 | 19.8–21.9 |
+| 〃 | 50 | 615–1,256 | 37.8–73 | 52.6–161 |
+| `POST /api/v1/nlp/analyze` | 1 | 358–612 | 1.3–2.6 | 2.9–4.2 |
+| 〃 | 50 | 1,084–1,733 | 26.7–40.7 | 37.2–64.3 |
+| `POST /api/v1/copilot/chat` | 1 | 196–350 | 2.6–4.8 | 3.6–6.5 |
+| 〃 | 50 | 373–615 | 77.5–129 | 105–165 |
+| `POST /api/symptoms/check` (triage) | 1 | 150–306 | 2.9–6.2 | 5–9.9 |
+| 〃 | 50 | 211–595 | 83.6–232 | 101–262 |
+| `POST /api/v1/documents/extract` (1 KB txt) | 1 | 230–872 | 1.1–4.3 | 1.6–5.7 |
+| 〃 | 50 | 845–1,439 | 23.4–56.1 | 73.2–96.7 |
+| `GET /api/v1/appointments/mine` (Firestore query) | 1 | 63–64 | 15.5–15.6 | 18.9–23 |
+| 〃 | 50 | 390–632 | 57.5–122 | 146–174 |
 
-The full table at concurrency 1, 5, 10, 25 and 50 is in `results/backend_audit.json`.
+The full tables at concurrency 1, 5, 10, 25 and 50 are in `results/backend_audit_2026-11-16T2307Z.json`, `results/backend_audit.json` (23:26Z) and `results/backend_audit_2026-11-17T0019Z.json`.
 
 **Comparison with the first audit** (same machine, 16 Nov 2026):
 
-| Measure | First audit | Final audit |
+| Measure | First audit | Final audits (range of three runs) |
 |---|---|---|
-| Triage at c = 1 | 51 req/s, p95 23.2 ms | 306 req/s, p95 5.0 ms |
-| Copilot at c = 50 | p95 999 ms | p95 105 ms |
-| `/api/hospitals` at c = 1 | 40 req/s | 550 req/s |
+| Triage at c = 1 | 51 req/s, p95 23.2 ms | 150–306 req/s, p95 5.0–9.9 ms |
+| Copilot at c = 50 | p95 999 ms | p95 105–165 ms |
+| `/api/hospitals` at c = 1 | 40 req/s | 322–550 req/s |
 | `/api/hospitals` payload | 918 KB | 51 KB |
 
 The reason for the improvement is not documented in any PR body read for this report. PENDING: the team should state which change produced it, for example caching or the payload change, before attributing it.
@@ -238,7 +238,6 @@ Paint metrics were not re-measured on the final build. The last figures are from
 - The post-vs-cancel race test may not catch the regression it targets (PR #15).
 - The AI test sets are small and mostly team-written. The emergency set is a draft and has not been reviewed by a clinician.
 - Performance figures are local best cases.
-- `backend_audit.ts` still contains two probes for removed routes and runs the server in development mode.
 
 ## 8.14 Conclusion
 

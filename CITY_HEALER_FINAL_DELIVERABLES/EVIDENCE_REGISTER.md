@@ -23,7 +23,7 @@ This register lists every technical claim in the deliverables with the evidence 
 |---|---|---|---|
 | E-01 | One Express process serves the API and the built frontend | `server.ts:1459` `initServer`; `express.static` at `:1488` | Verified |
 | E-02 | Security headers on every response; HSTS and CSP in production only | `server/httpHardening.ts:17-50`; mounted at `server.ts:77`; tests in `tests/security-headers.test.ts` | Verified |
-| E-03 | JSON 400 for malformed JSON, JSON 404 for unknown `/api` routes, JSON 500 without stack | `httpHardening.ts:52`, `:59`; `server.ts:1466`, `:1495`; test "malformed JSON is a JSON 400 INVALID_JSON without the parser message" | Verified |
+| E-03 | JSON 400 for malformed JSON, JSON 404 for unknown `/api` routes, JSON 500 without stack | `httpHardening.ts:52`, `:59`; `server.ts:1467`, `:1495`; test "malformed JSON is a JSON 400 INVALID_JSON without the parser message" | Verified |
 | E-04 | Public GET allow-list | `server.ts:113` | Verified |
 | E-05 | Firebase ID token verified with a revocation check | `server/firebase/identity.ts:47` | Verified |
 | E-06 | Roles come from admin-set claims; a role change revokes sessions | `identity.ts:1-37`; test "an administrator's role change revokes the account's existing sessions" | Verified |
@@ -87,8 +87,8 @@ This register lists every technical claim in the deliverables with the evidence 
 | E-49 | SOS: nearest hospital; simulated ambulance reference; the UI says to call 112 | `server.ts:1059-1110`; `EmergencyPage.tsx:1-5` | Verified |
 | E-50 | SOS alerts are scoped to the desk's own facility | `server.ts:1114-1160`; test "a hospital desk sees and updates only the SOS alerts routed to its own facility" | Verified |
 | E-51 | Hospital workspace and facility route | `src/site/staff/HospitalWorkspace.tsx`; `server.ts:573` | Verified |
-| E-52 | Write limits: 120 per 10 min (bookings, records, reports, orders); 10 per 10 min (SOS) | `server.ts:176-188`; PR #14 | Verified |
-| E-53 | AI quota 300 per hour per user | `server.ts:209-245` | Verified |
+| E-52 | Write limits: 120 per 10 min (bookings, records, reports, orders); 10 per 10 min (SOS) | `server.ts:181-187`; PR #14 | Verified |
+| E-53 | AI quota 300 per hour per user | `server.ts:209-237` | Verified |
 | E-54 | Session restored on reload; prescriptions shown in the patient's local date | PR #16; `src/site/lib/session.tsx` | Verified |
 | E-55 | Sample hospital and directory-doctor data are labelled as such in the UI | Coordinator's final facts; README "Sample directory" | Verified (secondary source) |
 
@@ -100,8 +100,8 @@ This register lists every technical claim in the deliverables with the evidence 
 | E-57 | After PR #16: `tsc` clean, 225 unit tests pass | Coordinator's final facts | Verified (secondary source) |
 | E-58 | Per-PR test counts | PR bodies #8–#11, #13–#15; #12 from the coordinator | Verified |
 | E-59 | The emergency-safety suite is in `test:unit` | `package.json` on `origin/main`; PR #13 | Verified |
-| E-60 | Load tests: 0 % errors in all 40 rows; triage at c=1 306 req/s with p95 5.0 ms; `/api/hospitals` at c=1 550 req/s | `backend_audit.json` `load_tests` (23:07 UTC, local) | Measured |
-| E-61 | Cold start 4.05 s; working set 228–349 MB; hospitals payload 51 KB | `backend_audit.json` | Measured |
+| E-60 | Load tests: 0 % errors in all 120 rows of three local runs (16 Nov 23:07Z and 23:26Z, 17 Nov 00:19Z); triage at c=1 150–306 req/s, p95 5.0–9.9 ms; `/api/hospitals` at c=1 322–550 req/s | `results/backend_audit_2026-11-16T2307Z.json`, `results/backend_audit.json` (23:26Z) and `results/backend_audit_2026-11-17T0019Z.json` (local) | Measured |
+| E-61 | Cold start 3.4–5.9 s; working set 190–349 MB (three runs); hospitals payload 51 KB | `results/backend_audit_2026-11-16T2307Z.json`, `results/backend_audit.json` (23:26Z) and `results/backend_audit_2026-11-17T0019Z.json` | Measured |
 | E-62 | Security checks 25/25 pass on the corrected audit (23:26Z); the earlier 23:07Z run had 19/23 (4 FAILs: development-mode headers and probes of removed routes) | `backend_audit.json` `security_checks` | Measured (the coordinator summary said 23/23; corrected here) |
 | E-63 | First-audit performance: triage about 51–61 req/s; `/api/hospitals` 918 KB | First-audit PERFORMANCE_AND_EFFICIENCY.md | Measured (first audit) |
 | E-64 | Vite build: main 691.9 kB (197.0 kB gzip), jsPDF 390.6 kB, CSS 61.6 kB, `dist/` 1.9 MB, 5.8 s | Coordinator's final facts | Verified (secondary source) |
@@ -111,6 +111,6 @@ This register lists every technical claim in the deliverables with the evidence 
 | E-68 | Post-vs-cancel race test may not catch its target regression | PR #15 | Known issue |
 | E-69 | Hindi wording needs fluent review | PR bodies #5–#15 | Known issue |
 | E-70 | First-audit scores (15 categories) predate PRs #5–#16 | `results/scorecard.json` | Measured (outdated) |
-| E-71 | 18 screenshots captured from the running app (local emulators, synthetic accounts) | `screenshots/fig-01…fig-18*.jpg` | Verified |
+| E-71 | 28 figures: 25 screenshots captured from the running app (local emulators, synthetic accounts), the architecture diagram (fig-19), the test-output capture (fig-26) and the title slide (fig-28) | `screenshots/fig-01…fig-28` | Verified |
 | E-72 | Demo accounts and `scripts/seed-demo.ts` | Coordinator's final facts. The file is in the local checkout but was not on `origin/main` at `55443ec` | PENDING (merge) |
 | E-73 | Nothing is clinically validated | `shared/emergencySafety.ts:1-5`; `ml/README.md`; PR #13 | Verified |

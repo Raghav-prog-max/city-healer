@@ -1,0 +1,844 @@
+{
+  "generated_at": "2026-11-17T00:19:07.465Z",
+  "environment": {
+    "node": "v25.2.1",
+    "cpus": 22,
+    "cpu_model": "Intel(R) Core(TM) Ultra 9 185H",
+    "total_mem_gb": 34,
+    "platform": "win32 10.0.26300"
+  },
+  "notes": [],
+  "server_cold_start_ms_to_healthy": 5910,
+  "response_headers_sample": {
+    "route": "/api/health",
+    "headers": {
+      "permissions-policy": "camera=(), microphone=(self), geolocation=(self)",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    }
+  },
+  "production_headers_sample": {
+    "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://apis.google.com https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://images.unsplash.com https://www.gstatic.com; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.googleapis.com; frame-src 'self' https://*.firebaseapp.com https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/; worker-src 'self' blob:",
+    "hsts": "max-age=31536000; includeSubDomains"
+  },
+  "firestore_rules_probe": {
+    "read_own_patientProfile": 200,
+    "read_other_patientProfile": 403,
+    "write_own_patientProfile": 403,
+    "read_auditLogs": 403,
+    "list_doctors": 403,
+    "write_doctorSlot": 403,
+    "read_appointments": 403,
+    "write_doctor_as_doctor": 403
+  },
+  "concurrent_booking": {
+    "application_status": 202,
+    "patients": 20,
+    "rounds": [
+      {
+        "attempts": 20,
+        "created_201": 1,
+        "conflict_409": 19,
+        "other": [],
+        "wall_ms": 7755,
+        "p50_ms": 6663,
+        "max_ms": 7753
+      },
+      {
+        "attempts": 20,
+        "created_201": 1,
+        "conflict_409": 19,
+        "other": [],
+        "wall_ms": 3633,
+        "p50_ms": 3208,
+        "max_ms": 3630
+      },
+      {
+        "attempts": 20,
+        "created_201": 1,
+        "conflict_409": 19,
+        "other": [],
+        "wall_ms": 3594,
+        "p50_ms": 3287,
+        "max_ms": 3593
+      },
+      {
+        "attempts": 20,
+        "created_201": 1,
+        "conflict_409": 19,
+        "other": [],
+        "wall_ms": 3610,
+        "p50_ms": 3255,
+        "max_ms": 3607
+      },
+      {
+        "attempts": 20,
+        "created_201": 1,
+        "conflict_409": 19,
+        "other": [],
+        "wall_ms": 3586,
+        "p50_ms": 3240,
+        "max_ms": 3584
+      }
+    ]
+  },
+  "ai_first_call_ms": {
+    "copilot": 50,
+    "nlp": 7
+  },
+  "load_tests": [
+    {
+      "endpoint": "GET /api/health",
+      "results": [
+        {
+          "concurrency": 1,
+          "requests": 400,
+          "rps": 1273,
+          "mean_ms": 0.8,
+          "p50_ms": 0.7,
+          "p95_ms": 1.3,
+          "p99_ms": 2.6,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 55,
+          "server_working_set_mb": 196
+        },
+        {
+          "concurrency": 5,
+          "requests": 400,
+          "rps": 2853,
+          "mean_ms": 1.7,
+          "p50_ms": 1.3,
+          "p95_ms": 3.4,
+          "p99_ms": 9.3,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 89,
+          "server_working_set_mb": 195
+        },
+        {
+          "concurrency": 10,
+          "requests": 400,
+          "rps": 3358,
+          "mean_ms": 2.9,
+          "p50_ms": 2.5,
+          "p95_ms": 5.1,
+          "p99_ms": 6.4,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 92,
+          "server_working_set_mb": 196
+        },
+        {
+          "concurrency": 25,
+          "requests": 400,
+          "rps": 2926,
+          "mean_ms": 8.3,
+          "p50_ms": 6.5,
+          "p95_ms": 23.7,
+          "p99_ms": 28.3,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 114,
+          "server_working_set_mb": 196
+        },
+        {
+          "concurrency": 50,
+          "requests": 400,
+          "rps": 2560,
+          "mean_ms": 19,
+          "p50_ms": 14.8,
+          "p95_ms": 35.3,
+          "p99_ms": 45.7,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 80,
+          "server_working_set_mb": 195
+        }
+      ]
+    },
+    {
+      "endpoint": "GET /api/hospitals (990 listings, SQLite)",
+      "results": [
+        {
+          "concurrency": 1,
+          "requests": 200,
+          "rps": 322,
+          "mean_ms": 3.1,
+          "p50_ms": 2.7,
+          "p95_ms": 4,
+          "p99_ms": 16.8,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 71,
+          "server_working_set_mb": 197
+        },
+        {
+          "concurrency": 5,
+          "requests": 200,
+          "rps": 485,
+          "mean_ms": 10.2,
+          "p50_ms": 9.2,
+          "p95_ms": 19.5,
+          "p99_ms": 28.5,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 133,
+          "server_working_set_mb": 198
+        },
+        {
+          "concurrency": 10,
+          "requests": 200,
+          "rps": 529,
+          "mean_ms": 18.6,
+          "p50_ms": 17.5,
+          "p95_ms": 28.8,
+          "p99_ms": 40,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 149,
+          "server_working_set_mb": 207
+        },
+        {
+          "concurrency": 25,
+          "requests": 200,
+          "rps": 506,
+          "mean_ms": 47.1,
+          "p50_ms": 45.7,
+          "p95_ms": 66.8,
+          "p99_ms": 72.3,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 111,
+          "server_working_set_mb": 207
+        },
+        {
+          "concurrency": 50,
+          "requests": 200,
+          "rps": 423,
+          "mean_ms": 107,
+          "p50_ms": 101.2,
+          "p95_ms": 154.4,
+          "p99_ms": 192.2,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 132,
+          "server_working_set_mb": 224
+        }
+      ]
+    },
+    {
+      "endpoint": "GET /api/v1/doctors (Firestore)",
+      "results": [
+        {
+          "concurrency": 1,
+          "requests": 200,
+          "rps": 65,
+          "mean_ms": 15.4,
+          "p50_ms": 15.5,
+          "p95_ms": 19.8,
+          "p99_ms": 26.5,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 38,
+          "server_working_set_mb": 224
+        },
+        {
+          "concurrency": 5,
+          "requests": 200,
+          "rps": 472,
+          "mean_ms": 10.5,
+          "p50_ms": 10.1,
+          "p95_ms": 15.2,
+          "p99_ms": 20.4,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 85,
+          "server_working_set_mb": 235
+        },
+        {
+          "concurrency": 10,
+          "requests": 200,
+          "rps": 518,
+          "mean_ms": 18.9,
+          "p50_ms": 18.1,
+          "p95_ms": 27.8,
+          "p99_ms": 30.7,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 109,
+          "server_working_set_mb": 245
+        },
+        {
+          "concurrency": 25,
+          "requests": 200,
+          "rps": 648,
+          "mean_ms": 37.4,
+          "p50_ms": 38.1,
+          "p95_ms": 48.7,
+          "p99_ms": 51.5,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 111,
+          "server_working_set_mb": 250
+        },
+        {
+          "concurrency": 50,
+          "requests": 200,
+          "rps": 615,
+          "mean_ms": 75.6,
+          "p50_ms": 73,
+          "p95_ms": 112.2,
+          "p99_ms": 116.8,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 144,
+          "server_working_set_mb": 255
+        }
+      ]
+    },
+    {
+      "endpoint": "POST /api/v1/nlp/analyze",
+      "results": [
+        {
+          "concurrency": 1,
+          "requests": 400,
+          "rps": 358,
+          "mean_ms": 2.8,
+          "p50_ms": 2.6,
+          "p95_ms": 4.2,
+          "p99_ms": 6.5,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 49,
+          "server_working_set_mb": 276
+        },
+        {
+          "concurrency": 5,
+          "requests": 400,
+          "rps": 995,
+          "mean_ms": 5,
+          "p50_ms": 4.1,
+          "p95_ms": 8.5,
+          "p99_ms": 14.9,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 93,
+          "server_working_set_mb": 304
+        },
+        {
+          "concurrency": 10,
+          "requests": 400,
+          "rps": 1128,
+          "mean_ms": 8.8,
+          "p50_ms": 7.8,
+          "p95_ms": 12.9,
+          "p99_ms": 31.1,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 101,
+          "server_working_set_mb": 305
+        },
+        {
+          "concurrency": 25,
+          "requests": 400,
+          "rps": 1159,
+          "mean_ms": 21.1,
+          "p50_ms": 20,
+          "p95_ms": 28.5,
+          "p99_ms": 30.3,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 100,
+          "server_working_set_mb": 305
+        },
+        {
+          "concurrency": 50,
+          "requests": 400,
+          "rps": 1084,
+          "mean_ms": 44.4,
+          "p50_ms": 40.7,
+          "p95_ms": 64.3,
+          "p99_ms": 81,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 97,
+          "server_working_set_mb": 306
+        }
+      ]
+    },
+    {
+      "endpoint": "POST /api/v1/copilot/chat",
+      "results": [
+        {
+          "concurrency": 1,
+          "requests": 300,
+          "rps": 196,
+          "mean_ms": 5.1,
+          "p50_ms": 4.8,
+          "p95_ms": 6.5,
+          "p99_ms": 16.4,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 72,
+          "server_working_set_mb": 306
+        },
+        {
+          "concurrency": 5,
+          "requests": 300,
+          "rps": 371,
+          "mean_ms": 13.4,
+          "p50_ms": 13.2,
+          "p95_ms": 16.6,
+          "p99_ms": 22.3,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 127,
+          "server_working_set_mb": 307
+        },
+        {
+          "concurrency": 10,
+          "requests": 300,
+          "rps": 381,
+          "mean_ms": 26,
+          "p50_ms": 25.3,
+          "p95_ms": 32,
+          "p99_ms": 47.2,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 133,
+          "server_working_set_mb": 308
+        },
+        {
+          "concurrency": 25,
+          "requests": 300,
+          "rps": 371,
+          "mean_ms": 66.1,
+          "p50_ms": 63.3,
+          "p95_ms": 91,
+          "p99_ms": 99.7,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 130,
+          "server_working_set_mb": 308
+        },
+        {
+          "concurrency": 50,
+          "requests": 300,
+          "rps": 378,
+          "mean_ms": 128.6,
+          "p50_ms": 127.6,
+          "p95_ms": 164.7,
+          "p99_ms": 182.1,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 106,
+          "server_working_set_mb": 317
+        }
+      ]
+    },
+    {
+      "endpoint": "POST /api/symptoms/check (triage)",
+      "results": [
+        {
+          "concurrency": 1,
+          "requests": 300,
+          "rps": 181,
+          "mean_ms": 5.5,
+          "p50_ms": 5.3,
+          "p95_ms": 7.6,
+          "p99_ms": 9.7,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 70,
+          "server_working_set_mb": 317
+        },
+        {
+          "concurrency": 5,
+          "requests": 300,
+          "rps": 368,
+          "mean_ms": 13.6,
+          "p50_ms": 12.7,
+          "p95_ms": 19.4,
+          "p99_ms": 22.9,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 123,
+          "server_working_set_mb": 319
+        },
+        {
+          "concurrency": 10,
+          "requests": 300,
+          "rps": 398,
+          "mean_ms": 24.9,
+          "p50_ms": 24,
+          "p95_ms": 35.1,
+          "p99_ms": 42.5,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 126,
+          "server_working_set_mb": 318
+        },
+        {
+          "concurrency": 25,
+          "requests": 300,
+          "rps": 354,
+          "mean_ms": 69.8,
+          "p50_ms": 65.9,
+          "p95_ms": 115.2,
+          "p99_ms": 135.8,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 118,
+          "server_working_set_mb": 320
+        },
+        {
+          "concurrency": 50,
+          "requests": 300,
+          "rps": 211,
+          "mean_ms": 228.7,
+          "p50_ms": 232.1,
+          "p95_ms": 262.3,
+          "p99_ms": 287.8,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 118,
+          "server_working_set_mb": 321
+        }
+      ]
+    },
+    {
+      "endpoint": "POST /api/v1/documents/extract (1 KB txt)",
+      "results": [
+        {
+          "concurrency": 1,
+          "requests": 300,
+          "rps": 230,
+          "mean_ms": 4.3,
+          "p50_ms": 4.3,
+          "p95_ms": 5.7,
+          "p99_ms": 6.2,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 49,
+          "server_working_set_mb": 323
+        },
+        {
+          "concurrency": 5,
+          "requests": 300,
+          "rps": 614,
+          "mean_ms": 8.1,
+          "p50_ms": 7.7,
+          "p95_ms": 11,
+          "p99_ms": 22.7,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 96,
+          "server_working_set_mb": 321
+        },
+        {
+          "concurrency": 10,
+          "requests": 300,
+          "rps": 787,
+          "mean_ms": 12.6,
+          "p50_ms": 12,
+          "p95_ms": 20.5,
+          "p99_ms": 22.5,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 111,
+          "server_working_set_mb": 324
+        },
+        {
+          "concurrency": 25,
+          "requests": 300,
+          "rps": 825,
+          "mean_ms": 29.6,
+          "p50_ms": 29.4,
+          "p95_ms": 36.1,
+          "p99_ms": 58.2,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 103,
+          "server_working_set_mb": 323
+        },
+        {
+          "concurrency": 50,
+          "requests": 300,
+          "rps": 845,
+          "mean_ms": 56.1,
+          "p50_ms": 56.1,
+          "p95_ms": 73.2,
+          "p99_ms": 96.7,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 88,
+          "server_working_set_mb": 322
+        }
+      ]
+    },
+    {
+      "endpoint": "GET /api/v1/appointments/mine (Firestore query)",
+      "results": [
+        {
+          "concurrency": 1,
+          "requests": 200,
+          "rps": 63,
+          "mean_ms": 15.9,
+          "p50_ms": 15.6,
+          "p95_ms": 23,
+          "p99_ms": 30.9,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 22,
+          "server_working_set_mb": 322
+        },
+        {
+          "concurrency": 5,
+          "requests": 200,
+          "rps": 274,
+          "mean_ms": 18.1,
+          "p50_ms": 17.7,
+          "p95_ms": 27.1,
+          "p99_ms": 35.6,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 101,
+          "server_working_set_mb": 323
+        },
+        {
+          "concurrency": 10,
+          "requests": 200,
+          "rps": 306,
+          "mean_ms": 32.1,
+          "p50_ms": 31.3,
+          "p95_ms": 43.5,
+          "p99_ms": 58.5,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 108,
+          "server_working_set_mb": 329
+        },
+        {
+          "concurrency": 25,
+          "requests": 200,
+          "rps": 320,
+          "mean_ms": 76.1,
+          "p50_ms": 72.7,
+          "p95_ms": 106.3,
+          "p99_ms": 127.5,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 102,
+          "server_working_set_mb": 336
+        },
+        {
+          "concurrency": 50,
+          "requests": 200,
+          "rps": 390,
+          "mean_ms": 120.8,
+          "p50_ms": 121.8,
+          "p95_ms": 174.1,
+          "p99_ms": 180.7,
+          "error_rate": 0,
+          "server_cpu_percent_of_one_core": 119,
+          "server_working_set_mb": 341
+        }
+      ]
+    }
+  ],
+  "hospitals_payload_kb": 51,
+  "security_checks": [
+    {
+      "name": "protected routes refuse calls without a token (DEMO_MODE=false)",
+      "result": "PASS",
+      "detail": [
+        [
+          "GET",
+          "/api/appointments",
+          401
+        ],
+        [
+          "GET",
+          "/api/records",
+          401
+        ],
+        [
+          "GET",
+          "/api/v1/me",
+          401
+        ],
+        [
+          "GET",
+          "/api/v1/appointments/mine",
+          401
+        ],
+        [
+          "POST",
+          "/api/v1/nlp/analyze",
+          401
+        ],
+        [
+          "POST",
+          "/api/ai/copilot",
+          401
+        ],
+        [
+          "GET",
+          "/api/queue",
+          401
+        ],
+        [
+          "GET",
+          "/api/medicines/orders",
+          401
+        ],
+        [
+          "GET",
+          "/api/emergency/alerts",
+          401
+        ],
+        [
+          "GET",
+          "/api/ai/monitoring",
+          401
+        ]
+      ]
+    },
+    {
+      "name": "garbage bearer token is refused",
+      "result": "PASS",
+      "detail": 401
+    },
+    {
+      "name": "IDOR: patient cannot read another patient's user record",
+      "result": "PASS",
+      "detail": {
+        "own": 404,
+        "other": 404
+      }
+    },
+    {
+      "name": "privilege escalation: patient cannot make themselves ADMIN",
+      "result": "PASS",
+      "detail": {
+        "put": 404,
+        "roleAfter": "patient"
+      }
+    },
+    {
+      "name": "patient cannot verify a doctor",
+      "result": "PASS",
+      "detail": 403
+    },
+    {
+      "name": "patient cannot read AI monitoring (admin only)",
+      "result": "PASS",
+      "detail": 403
+    },
+    {
+      "name": "hospital account cannot read platform-wide demand forecast (admin only)",
+      "result": "PASS",
+      "detail": 403
+    },
+    {
+      "name": "hospital staff cannot change another hospital's beds",
+      "result": "PASS",
+      "detail": 403
+    },
+    {
+      "name": "malformed JSON does not leak a stack trace",
+      "result": "PASS",
+      "detail": {
+        "status": 400,
+        "body": "{\"error\":\"INVALID_JSON\"}"
+      }
+    },
+    {
+      "name": "over-long NLP input is rejected",
+      "result": "PASS",
+      "detail": 400
+    },
+    {
+      "name": "upload over 5 MB is refused",
+      "result": "PASS",
+      "detail": 413
+    },
+    {
+      "name": "executable upload is refused (unsupported_type)",
+      "result": "PASS",
+      "detail": 200
+    },
+    {
+      "name": "unexpected content type is not parsed as a document",
+      "result": "PASS",
+      "detail": 400
+    },
+    {
+      "name": "no permissive CORS header for a foreign origin",
+      "result": "PASS",
+      "detail": "(none)"
+    },
+    {
+      "name": "baseline headers present (nosniff, frame DENY, referrer policy)",
+      "result": "PASS",
+      "detail": {
+        "nosniff": "nosniff",
+        "frame": "DENY",
+        "referrer": "strict-origin-when-cross-origin"
+      }
+    },
+    {
+      "name": "no CSP in development (Vite needs inline scripts and websockets)",
+      "result": "PASS",
+      "detail": "(none)"
+    },
+    {
+      "name": "production: Content-Security-Policy present, no unsafe-eval, frames denied",
+      "result": "PASS",
+      "detail": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://apis.google.com https://www.google.com/recaptcha/ https://www.gstatic.com/"
+    },
+    {
+      "name": "production: Strict-Transport-Security present",
+      "result": "PASS",
+      "detail": "max-age=31536000; includeSubDomains"
+    },
+    {
+      "name": "non-AI routes have a rate limit (150 rapid report submissions)",
+      "result": "PASS",
+      "detail": [
+        201,
+        409,
+        429
+      ]
+    },
+    {
+      "name": "Firestore: own profile readable, others' not",
+      "result": "PASS",
+      "detail": {
+        "read_own_patientProfile": 200,
+        "read_other_patientProfile": 403,
+        "write_own_patientProfile": 403,
+        "read_auditLogs": 403,
+        "list_doctors": 403,
+        "write_doctorSlot": 403,
+        "read_appointments": 403,
+        "write_doctor_as_doctor": 403
+      }
+    },
+    {
+      "name": "Firestore: clients cannot write profiles, slots, doctors or read audit/appointments",
+      "result": "PASS",
+      "detail": {
+        "read_own_patientProfile": 200,
+        "read_other_patientProfile": 403,
+        "write_own_patientProfile": 403,
+        "read_auditLogs": 403,
+        "list_doctors": 403,
+        "write_doctorSlot": 403,
+        "read_appointments": 403,
+        "write_doctor_as_doctor": 403
+      }
+    },
+    {
+      "name": "20 concurrent bookings of one slot: exactly one succeeds (5 rounds)",
+      "result": "PASS",
+      "detail": [
+        "1/19/",
+        "1/19/",
+        "1/19/",
+        "1/19/",
+        "1/19/"
+      ]
+    },
+    {
+      "name": "retired SQLite booking route answers 404 (cannot book a directory doctor)",
+      "result": "PASS",
+      "detail": {
+        "status": 404,
+        "code": "NOT_FOUND"
+      }
+    },
+    {
+      "name": "retired SQLite booking route answers 404 for any date",
+      "result": "PASS",
+      "detail": 404
+    },
+    {
+      "name": "AI rate limit enforced per user (quota 5)",
+      "result": "PASS",
+      "detail": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        429,
+        429
+      ]
+    }
+  ],
+  "server_log_lines_containing_message_text": 0
+}

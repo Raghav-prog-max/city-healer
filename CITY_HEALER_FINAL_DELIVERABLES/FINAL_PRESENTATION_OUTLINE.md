@@ -27,7 +27,7 @@ Speakers have not been assigned (PENDING). The team decides; nothing has been as
 | 15 | Security | Defaults deny access; consent gate; write limits; CSP and HSTS in production; every critical, high and medium audit finding closed in code | Milestone 9 | PENDING |
 | 16 | Live demo | `DEMO_SCRIPT.md` parts A–E, about 7–8 minutes | Fig 1–18 | PENDING |
 | 17 | Testing | 109 + 128 tests at the first audit → 225 + 309 at the final run, all passing | `final-npm-test.log`; Fig 26 | PENDING |
-| 18 | Performance (local) | Triage: 51 → 306 requests/s at concurrency 1; 0 % errors in every row | Milestone 8, §8.12.5 | PENDING |
+| 18 | Performance (local) | Triage: about 51 → 150–306 requests/s at concurrency 1 across three runs; 0 % errors in every row | Milestone 8, §8.12.5 | PENDING |
 | 19 | Limitations | Synthetic data; no clinical validation; no ambulance dispatch; notifications not delivered; Hindi wording not reviewed; not deployed; LLM never run against a real key | Final report §12 | PENDING |
 | 20 | Future work | The ordered list from the final report | Final report §13 | PENDING |
 | 21 | Team contributions | One line per member, with evidence | Milestone 10, §10.14.1 | PENDING |
