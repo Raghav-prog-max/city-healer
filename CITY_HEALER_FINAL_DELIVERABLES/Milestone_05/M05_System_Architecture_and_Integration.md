@@ -271,7 +271,7 @@ All screenshots were captured from the running app against local emulators with 
 
 - **Final test run** (`npm test` on the code of PR #15 merged with `main`, which is everything except the client-only PR #16): 225 unit tests pass and 309 server tests pass, with 0 failures and exit code 0. Source: `../final-npm-test.log`.
 - **After PR #16:** `npx tsc` is clean and `npm run test:unit` passes 225 of 225 (coordinator's final facts).
-- **Final local backend audits** (`results/backend_audit_2026-11-16T2307Z.json`, `results/backend_audit.json` (23:26Z) and `results/backend_audit_2026-11-17T0019Z.json`; local emulators, not production):
+- **Final local backend audits** (`results/backend_audit_2026-11-16T2307Z.json`, `results/backend_audit.json` (23:26Z), `results/backend_audit_2026-11-17T0019Z.json` and `results/backend_audit_2026-11-17T0100Z.json`; local emulators, not production):
   - cold start to healthy took 3.4–5.9 s;
   - the Firestore rules probe denied everything except a patient reading their own profile;
   - 20 concurrent bookings per round created exactly 1 booking with 19 conflicts, in every round;

@@ -121,7 +121,7 @@ The rules decide emergencies first. Trained models answer within their range and
 ## 8. Testing, Evaluation and Performance (Milestone 8)
 
 - The final run passed 225 unit and 309 server tests with 0 failures.
-- In three local runs (16 Nov 23:07Z and 23:26Z, 17 Nov 00:19Z) of the final local load test, no request failed in any row. Triage served 150–306 requests per second at concurrency 1 (p95 5.0–9.9 ms), compared with about 51 at the first audit. Throughput on this machine varies by about 2× between runs, so the range is reported rather than the best run.
+- In four local runs (16 Nov 23:07Z and 23:26Z; 17 Nov 00:19Z and 01:00Z) of the final local load test, no request failed in any row. Triage served 150–306 requests per second at concurrency 1 (p95 5.0–9.9 ms), compared with about 51 at the first audit. Throughput on this machine varies by about 2× between runs, so the range is reported rather than the best run.
 
 See `Milestone_08/`.
 
@@ -145,7 +145,7 @@ See `Milestone_10/` and `DEMO_SCRIPT.md`. The demo uses four synthetic demo acco
 | Intent model | 93.8 % held-out | same |
 | Copilot | Route accuracy 81.1 %; emergency recall 100 %; false positives 4.8 % (37 messages) | same |
 | Lab-report reader | Precision and recall 96.4 %, up from 84 % / 75 % before PR #6 | same; first audit |
-| Performance (local) | Triage c=1: 150–306 req/s, p95 5.0–9.9 ms. Copilot c=50: p95 105–165 ms. 0 % errors in all rows. Cold start 3.4–5.9 s (three runs). | the three `backend_audit*.json` files |
+| Performance (local) | Triage c=1: 150–306 req/s, p95 5.0–9.9 ms. Copilot c=50: p95 105–506 ms. 0 % errors in all rows. Cold start 3.4–5.9 s (four runs). | the four `backend_audit*.json` files |
 | Build | Main JS 691.9 kB (197.0 kB gzip); `dist/` 1.9 MB | Vite build (coordinator's final facts) |
 
 **Discussion.**
