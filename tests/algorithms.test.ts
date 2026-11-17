@@ -51,6 +51,37 @@ describe("A1 LLM structured JSON triage", () => {
     assert.equal(r.flagUrgentSOS, true);
   });
 
+  test("A1: the model cannot lower the urgency the offline engine assessed", async () => {
+    const text = "high fever with stiff neck and severe headache";
+    const offline = triage(text, "en");
+    assert.equal(offline.urgencyLevel, "HIGH"); // precondition: the trained model assesses it HIGH
+    assert.ok(!offline.notAssessed);
+    const reply = JSON.stringify({ ...JSON.parse(GOOD_TRIAGE), urgencyLevel: "LOW" });
+    const r = await llmTriage(text, "en", { config: cfg(), callModel: async () => reply, backoff: noSleep });
+    assert.equal(r.engine, "llm:model-a"); // the model's answer is still used...
+    assert.equal(r.suspectedCondition, "Possible migraine");
+    assert.equal(r.urgencyLevel, "HIGH"); // ...but not its lower urgency
+    assert.equal(r.modelUrgencyOverruled, "LOW");
+  });
+
+  test("A1: the model may still raise the urgency above the offline assessment", async () => {
+    const reply = JSON.stringify({ ...JSON.parse(GOOD_TRIAGE), urgencyLevel: "HIGH" });
+    const r = await llmTriage(NON_EMERGENCY, "en", { config: cfg(), callModel: async () => reply, backoff: noSleep });
+    assert.equal(triage(NON_EMERGENCY, "en").urgencyLevel, "LOW"); // precondition
+    assert.equal(r.urgencyLevel, "HIGH");
+    assert.equal(r.modelUrgencyOverruled, undefined);
+  });
+
+  test("A1: input the offline engine could not assess is left to the model", async () => {
+    const text = "asdf qwerty";
+    const offline = triage(text, "en");
+    assert.ok(offline.notAssessed); // precondition: offline only placed a cautious default
+    const reply = JSON.stringify({ ...JSON.parse(GOOD_TRIAGE), urgencyLevel: "LOW" });
+    const r = await llmTriage(text, "en", { config: cfg(), callModel: async () => reply, backoff: noSleep });
+    assert.equal(r.urgencyLevel, "LOW");
+    assert.equal(r.modelUrgencyOverruled, undefined);
+  });
+
   test("A1: the Gemini caller asks for JSON and sends the key in a header, not the URL", async () => {
     let url = "", init: any = null;
     const fakeFetch = async (u: string, i: any) => { url = u; init = i; return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: GOOD_TRIAGE }] } }] }) }; };

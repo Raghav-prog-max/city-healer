@@ -266,7 +266,14 @@ export type EngineTriage = (TriageResult | (Omit<TriageResult, "source"> & { sou
   engine: Engine;
   /** Why the offline engine answered although a key is configured. */
   engineFallbackReason?: string;
+  /**
+   * Set when the model answered with a lower urgency than the offline engine had assessed:
+   * the model's level, which was overruled. The result keeps the offline urgency.
+   */
+  modelUrgencyOverruled?: TriageResult["urgencyLevel"];
 };
+
+const URGENCY_RANK: Record<TriageResult["urgencyLevel"], number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
 
 export interface LlmTriageOptions {
   config?: LlmConfig | null;
@@ -281,7 +288,10 @@ export interface LlmTriageOptions {
  *  - Emergency rules run first (inside triage()); if they decide, the model is not called.
  *  - No key: returns triage() unchanged plus engine "offline".
  *  - Key: generateWithFailover -> parseTriageJson; any error -> offline + engineFallbackReason.
- *  - A model may escalate (CRITICAL always sets flagUrgentSOS), never de-escalate a rule.
+ *  - A model may escalate (CRITICAL always sets flagUrgentSOS), never de-escalate: the safety
+ *    rules never reach it, and when the offline engine assessed the symptoms (trained model or
+ *    keyword heuristic, not `notAssessed`), its urgency and SOS flag are a floor the model's
+ *    answer cannot go below. Input the offline engine could not assess is left to the model.
  */
 export async function llmTriage(symptomsText: string, lang?: Lang, opts: LlmTriageOptions = {}): Promise<EngineTriage> {
   const language: Lang = lang || detectLang(symptomsText);
@@ -301,17 +311,22 @@ export async function llmTriage(symptomsText: string, lang?: Lang, opts: LlmTria
     const parsed = parseTriageJson(text);
     if (!parsed.ok) return { ...offline, engine: "offline", engineFallbackReason: `invalid_model_output (${parsed.error})` };
     const v = parsed.value;
+    // Never de-escalate an offline assessment: its urgency and SOS flag are the floor.
+    const assessed = !offline.notAssessed;
+    const overruled = assessed && URGENCY_RANK[offline.urgencyLevel] > URGENCY_RANK[v.urgencyLevel];
+    const urgencyLevel = overruled ? offline.urgencyLevel : v.urgencyLevel;
     return {
       suspectedCondition: v.suspectedCondition,
       explanation: v.explanation,
       specialistType: v.specialistType,
       specialistEn: v.specialistEn || v.specialistType,
-      urgencyLevel: v.urgencyLevel,
+      urgencyLevel,
       recommendations: v.recommendations,
-      flagUrgentSOS: v.flagUrgentSOS || v.urgencyLevel === "CRITICAL",
+      flagUrgentSOS: v.flagUrgentSOS || urgencyLevel === "CRITICAL" || (assessed && offline.flagUrgentSOS),
       source: "llm",
       lang: language,
       engine: `llm:${model}`,
+      ...(overruled ? { modelUrgencyOverruled: v.urgencyLevel } : {}),
     };
   } catch (err) {
     return { ...offline, engine: "offline", engineFallbackReason: err instanceof Error ? err.message : "llm_error" };
