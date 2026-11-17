@@ -42,7 +42,7 @@ No real patient data was used. Nothing was sent to an external AI service (none 
 | S-06 | Medium | No Content-Security-Policy; no HSTS | Open |
 | S-07 | Medium | `DEMO_MODE="true"` in the local `.env.local` default; demo identity serves anonymous callers | Open (configuration) |
 | S-08 | Medium | Legacy client falls back to a localStorage "database" on API errors (integrity and confusion; data in browser storage) | Open (BUG-012) |
-| S-09 | Low | Unused `firebase-applet-config.json` (real project id + web API key) committed; stale root `firestore.rules` | Open (BUG-020) |
+| S-09 | Low | Unused `firebase-applet-config.json` (real project id + web API key) committed; stale root `firestore.rules` | Partly fixed: `firebase-applet-config.json` removed 17 Nov 2026 (still in git history); root `firestore.rules` remains (BUG-020) |
 | S-10 | Low | Malformed-JSON responses are HTML with parser text; dev mode includes stack traces | Open (BUG-015) |
 | S-11 | Low | Binary content named `.txt` is accepted and decoded | Open |
 | S-12 | Informational | `trust proxy = 1` assumes exactly one proxy hop | Note |
