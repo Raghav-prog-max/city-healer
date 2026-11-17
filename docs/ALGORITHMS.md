@@ -56,12 +56,16 @@ LLM test injects a fake model caller or a fake `fetch`). Server tests: `npm run 
   the previous offline result plus `engine: "offline"`.
 - **Tests.** `tests/algorithms.test.ts`: "A1: a valid model reply becomes the triage result, tagged
   with the model", "A1: CRITICAL from the model always raises the SOS flag", "A1: the Gemini caller
-  asks for JSON and sends the key in a header, not the URL"; server: `tests/access-matrix.test.ts`
-  "with no LLM key the offline engine answers and says so".
+  asks for JSON and sends the key in a header, not the URL", "A1: the model cannot lower the
+  urgency the offline engine assessed", "A1: the model may still raise the urgency above the
+  offline assessment", "A1: input the offline engine could not assess is left to the model";
+  server: `tests/access-matrix.test.ts` "with no LLM key the offline engine answers and says so".
 - **Complexity.** One prompt per attempt; local work O(n) in the reply length (A11).
 - **Limitations.** Never exercised against the real Gemini API in this repository (no key; tests
-  use fakes). The model may escalate urgency but is never consulted when the rules fire (A2).
-  A model answer is not checked against the trained model; it replaces it when valid.
+  use fakes). The model is never consulted when the rules fire (A2). It may raise urgency but never
+  lower it: when the trained model or keyword heuristic assessed the symptoms, their urgency and SOS
+  flag are a floor, and an overruled lower level is reported as `modelUrgencyOverruled`. The
+  model's text (condition, explanation, specialist, advice) replaces the offline text when valid.
 
 ## A2. Severity-ordered emergency rules
 
