@@ -125,7 +125,7 @@ Several of the twelve payloads in `security_spec.md` name collections that no lo
 | Booking, messages and check-in run in transactions | `server/firebase/booking.ts:143`; `messages.ts:216`; `checkin.ts:147` |
 | Refusal cancellations survive partial failure and can be retried | PR #11 |
 | Session restored on reload | PR #16 (`src/site/lib/session.tsx`) |
-| Load tests: 0 % errors in all 120 rows of three runs; cold start 3.4–5.9 s; working set 190–349 MB | `results/backend_audit_2026-11-16T2307Z.json`, `results/backend_audit.json` (23:26Z) and `results/backend_audit_2026-11-17T0019Z.json` (local) |
+| Load tests: 0 % errors in all 160 rows of four runs; cold start 3.4–5.9 s; working set 190–373 MB | `results/backend_audit_2026-11-16T2307Z.json`, `results/backend_audit.json` (23:26Z), `results/backend_audit_2026-11-17T0019Z.json` and `results/backend_audit_2026-11-17T0100Z.json` (local) |
 
 Weaknesses:
 

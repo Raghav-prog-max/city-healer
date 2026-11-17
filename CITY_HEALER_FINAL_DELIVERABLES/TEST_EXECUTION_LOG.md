@@ -38,6 +38,7 @@ All times are UTC on 16 Nov 2026. Add 5 h 30 min for IST.
 | 14 | after 23:12 | PR #16 (`55443ec`) | `npx tsc`; `npm run test:unit` | `tsc` clean; 225 unit pass, 0 fail. Server suite not re-run (client-only change) | Coordinator's final facts |
 | 15 | after 23:12 | `main` | `npx vite build` | Main JS 691.9 kB (197.0 kB gzip). jsPDF chunk 390.6 kB (128.8 kB gzip). CSS 61.6 kB (13.5 kB gzip). `dist/` 1.9 MB. Built in 5.8 s | Coordinator's final facts |
 | 16 | 17 Nov 00:14–00:23 | `main` (`81f23c0`, independent handover audit) | typecheck / unit / server / build / both evaluations / `backend_audit.ts` | `tsc` clean; 225 unit and 309 server pass, 0 fail, 0 skipped; build exit 0; every accuracy figure reproduced; 25/25 checks; triage c=1 181 req/s; cold start 5.9 s | `results/backend_audit_2026-11-17T0019Z.json` and the handover test logs |
+| 17 | 17 Nov 00:57–01:03 | `main` (`193f5cd`, after the LLM no-de-escalation fix in PR #21) | typecheck / unit / server / build / both evaluations / `backend_audit.ts` | `tsc` clean; 228 unit and 309 server pass, 0 fail, 0 skipped; build exit 0; every accuracy figure reproduced; 25/25 checks; triage c=1 176 req/s; cold start 3.6 s; higher c=50 latencies (the dev server was running alongside) | `results/backend_audit_2026-11-17T0100Z.json` and the handover test logs |
 
 ## 3. Final run (summary of `final-npm-test.log`)
 
