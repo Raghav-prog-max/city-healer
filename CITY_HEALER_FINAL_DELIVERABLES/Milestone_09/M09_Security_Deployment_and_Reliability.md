@@ -60,9 +60,9 @@ Several of the twelve payloads in `security_spec.md` name collections that no lo
 | Layer | Control | Source |
 |---|---|---|
 | Headers | nosniff, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy (`camera=()`, microphone and geolocation self), COOP same-origin; in production, HSTS (1 year) and `PRODUCTION_CSP` | `server/httpHardening.ts:17-50`; mounted `server.ts:77` |
-| Errors | Malformed JSON → `400 INVALID_JSON`; unknown `/api` route → JSON 404; unhandled error → JSON 500 without stack | `httpHardening.ts:52`, `:59`; `server.ts:1466`, `:1495` |
-| Write limits | Per user (per IP when anonymous): bookings, records, hospital reports and orders 120 per 10 min; SOS 10 per 10 min; 429 with Retry-After | `server.ts:176-188`; `server/rateLimit.ts:26` |
-| AI quota | 300 requests per hour per user | `server.ts:209-245` |
+| Errors | Malformed JSON → `400 INVALID_JSON`; unknown `/api` route → JSON 404; unhandled error → JSON 500 without stack | `httpHardening.ts:52`, `:59`; `server.ts:1467`, `:1495` |
+| Write limits | Per user (per IP when anonymous): bookings, records, hospital reports and orders 120 per 10 min; SOS 10 per 10 min; 429 with Retry-After | `server.ts:181-187`; `server/rateLimit.ts:26` |
+| AI quota | 300 requests per hour per user | `server.ts:209-237` |
 | Authentication | `verifyIdToken(token, true)`: 401 if the token is rejected, 503 if Firebase cannot be reached | `identity.ts:47`; `server.ts:128-168` |
 | Consent | Patients only; default-deny with exact exemptions; refuses when consent cannot be checked | `server/firebase/consent.ts:1-60` |
 | Authorisation | `requireRole`; roles from custom claims set by admins only | `server.ts:190`; `identity.ts:1-37` |
@@ -125,7 +125,7 @@ Several of the twelve payloads in `security_spec.md` name collections that no lo
 | Booking, messages and check-in run in transactions | `server/firebase/booking.ts:143`; `messages.ts:216`; `checkin.ts:147` |
 | Refusal cancellations survive partial failure and can be retried | PR #11 |
 | Session restored on reload | PR #16 (`src/site/lib/session.tsx`) |
-| Load tests: 0 % errors in all 40 rows; cold start 4.05 s; working set 228–349 MB | `results/backend_audit.json` (local) |
+| Load tests: 0 % errors in all 120 rows of three runs; cold start 3.4–5.9 s; working set 190–349 MB | `results/backend_audit_2026-11-16T2307Z.json`, `results/backend_audit.json` (23:26Z) and `results/backend_audit_2026-11-17T0019Z.json` (local) |
 
 Weaknesses:
 
@@ -177,7 +177,7 @@ Figure 27 shows real responses from the running server (local emulators, `DEMO_M
   - Every concurrent-booking round created exactly 1 booking.
   - No log line contained message text.
   - 25 of 25 checks pass on the corrected audit script (23:26Z). The earlier 23:07Z run recorded 19 of 23. The 4 marked FAIL come from development-mode headers and probes of removed routes (Milestone 8, 8.12.3).
-- PENDING: re-run the audit with the production header mode and the removed-route probes updated, to obtain a clean 23/23 record.
+- Done: the audit now probes a production-mode server for CSP and HSTS and expects 404 from the removed routes. It records 25 of 25 checks passing (23:26Z, and again 17 Nov 00:19Z).
 - PENDING: an updated security score. The 78/100 and 50/100 scores date from before PRs #5–#16.
 
 ## 9.13 Limitations

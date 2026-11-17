@@ -37,6 +37,7 @@ All times are UTC on 16 Nov 2026. Add 5 h 30 min for IST.
 | 13 | 23:07 | `main` | `backend_audit.ts` | Cold start 4.05 s. 19/23 checks pass (see §4; corrected and re-run as 13b: 25/25). Rules probe denies everything except reading one's own profile. Booking: 1 × 201 and 19 × 409 in every round. 0 log lines with message text. 0 % errors in all 40 load rows | `backend_audit.json` (`generated_at` 23:07:02Z) |
 | 14 | after 23:12 | PR #16 (`55443ec`) | `npx tsc`; `npm run test:unit` | `tsc` clean; 225 unit pass, 0 fail. Server suite not re-run (client-only change) | Coordinator's final facts |
 | 15 | after 23:12 | `main` | `npx vite build` | Main JS 691.9 kB (197.0 kB gzip). jsPDF chunk 390.6 kB (128.8 kB gzip). CSS 61.6 kB (13.5 kB gzip). `dist/` 1.9 MB. Built in 5.8 s | Coordinator's final facts |
+| 16 | 17 Nov 00:14–00:23 | `main` (`81f23c0`, independent handover audit) | typecheck / unit / server / build / both evaluations / `backend_audit.ts` | `tsc` clean; 225 unit and 309 server pass, 0 fail, 0 skipped; build exit 0; every accuracy figure reproduced; 25/25 checks; triage c=1 181 req/s; cold start 5.9 s | `results/backend_audit_2026-11-17T0019Z.json` and the handover test logs |
 
 ## 3. Final run (summary of `final-npm-test.log`)
 
@@ -57,7 +58,7 @@ All times are UTC on 16 Nov 2026. Add 5 h 30 min for IST.
 | "legacy SQLite booking refuses an unverified directory doctor" | The route was removed in PR #12, so it now answers 404 |
 | "legacy booking refuses a past date" | Same reason: the route was removed and answers 404 |
 
-**PENDING:** update `backend_audit.ts` so it checks headers in production mode and no longer probes the removed routes, then re-run it.
+**Done:** `backend_audit.ts` now checks the headers on a production-mode server and expects 404 from the removed routes. The 23:26Z re-run (`results/backend_audit.json`) and the 17 Nov 00:19Z run both pass 25 of 25.
 
 ## 5. Not run
 

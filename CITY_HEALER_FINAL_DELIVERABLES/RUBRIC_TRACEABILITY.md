@@ -45,7 +45,7 @@ PENDING: confirm the other two copies of the rubric file are identical to this o
 | R6 | Consultation messages with safety notice | `messages.ts` | messages; appointment-thread | Fig 6, 8 | M06 §6.7.4 | Done |
 | R6 | Prescription and PDF | `consultations.ts:137`; `prescriptionPdf.ts` | consultations; prescription-pdf | Fig 9 (writing form Fig 20) | M06 §6.7.4 | Done, with stated limits: no Devanagari in the PDF |
 | R6 | Medicine order (demo pharmacy) | `PharmacyOrder.tsx`; `server.ts:970` | order integrity | Fig 10 (confirmation Fig 21) | M06 §6.7.6 | Done, with stated limits: demo only; trusts `prescriptionAttached` |
-| R6 | Health records and lab reader | `WalletPage.tsx`; `labValues.ts` | lab-values | Fig 9 (Fig 25) | M06 §6.7.5 | Done (TXT only) |
+| R6 | Health records and lab reader | `WalletPage.tsx`, `PatientDashboard.jsx:135-139`; `labValues.ts` | lab-values | Fig 9 (Fig 25) | M06 §6.7.5 | Done (TXT only) |
 | R6 | Emergency / SOS | `EmergencyPage.tsx`; `server.ts:1059`, `:1114-1160` | access-matrix SOS scoping; algorithms A6 | Fig 11, 12 | M06 §6.7.7 | Done, with stated limits: no dispatch; directs to 112 |
 | R6 | Hospital workspace | `HospitalWorkspace.tsx`; `server.ts:515`, `:573` | access-matrix bed census and facility route | Fig 12, 13 | M06 §6.7.8 | Done |
 | R6 | Admin screens | `AdminProviders.tsx`, `AdminHospitals.tsx` | provider-admin | Fig 14, 15 | M06 §6.7.8 | Done |

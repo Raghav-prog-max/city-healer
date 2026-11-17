@@ -15,7 +15,7 @@ This milestone prepares City Healer for its final demonstration and assessment. 
 - a map from each demonstration step to its module, source file, test and screenshot;
 - the documentation set.
 
-The demonstration runs on local Firebase emulators with synthetic data. The final automated run passed 225 unit and 309 server tests (`../final-npm-test.log`), and 18 screenshots have been captured from the running app.
+The demonstration runs on local Firebase emulators with synthetic data. The final automated run passed 225 unit and 309 server tests (`../final-npm-test.log`), and 28 figures (screenshots and diagrams) have been captured from the running app.
 
 Some things will not be shown, because the system cannot do them:
 
@@ -61,7 +61,7 @@ There is no real Firebase project, so local emulators are the only supported env
 
    The password and a one-command way to recreate the accounts are in `scripts/seed-demo.ts` in the repository. The password is deliberately not written in these deliverables.
 
-   PENDING: `scripts/seed-demo.ts` exists in the local checkout but was not yet on `origin/main` at `55443ec`. Confirm that it is merged.
+   `scripts/seed-demo.ts` is merged on `main` (PR #17) and runs with `npm run seed-demo`.
 4. **Rehearsal.** PENDING: rehearse `../DEMO_SCRIPT.md` twice and record pass or fail for TC10-01 to TC10-08.
 5. **Backup.** PENDING: record a backup screen video.
 
@@ -80,8 +80,8 @@ As in Milestone 5 (5.6). The demonstration exercises every layer: browser → Fi
 | Doctor, booking | Booking | `booking.ts:141` | booking "a slot is booked once, even when two patients try at the same moment" | 7 |
 | Same-day check-in | Check-in, A7 | `checkin.ts:147`; `waitTime.ts:56` | checkin suite | 5, 7 |
 | Consultation messages | Messages | `messages.ts:216` | messages suite | 6, 8 |
-| Prescription and PDF | Consultation | `consultations.ts:137`; `prescriptionPdf.ts:95` | consultations; prescription-pdf | 9 (writing form: 20, PENDING) |
-| Medicine order | Demo pharmacy | `PharmacyOrder.tsx`; `server.ts:970` | order integrity | 10 (confirmation: 21, PENDING) |
+| Prescription and PDF | Consultation | `consultations.ts:137`; `prescriptionPdf.ts:95` | consultations; prescription-pdf | 9 (writing form: 20) |
+| Medicine order | Demo pharmacy | `PharmacyOrder.tsx`; `server.ts:970` | order integrity | 10 (confirmation: 21) |
 | Health record | Wallet | `WalletPage.tsx` | lab-values | 9 |
 | SOS | Emergency | `EmergencyPage.tsx`; `server.ts:1059` | access-matrix SOS scoping | 11 |
 | Hospital desk | Hospital workspace | `HospitalWorkspace.tsx`; `server.ts:515`, `:573` | access-matrix bed census and facility route | 12, 13 |

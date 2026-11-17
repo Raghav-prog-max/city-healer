@@ -84,7 +84,7 @@ Milestone 3 (3.4) proposed three tiers and five modules behind one role-checked 
 | NFR2 | No dependency on external AI | In-process models; the LLM is optional and falls back offline |
 | NFR3 | Low cost | One process; open-source libraries; emulators for development |
 | NFR4 | Safe release builds | `shared/buildEnv.ts`; `Dockerfile`; `railway.json` |
-| NFR5 | Abuse resistance | Write limits (`server.ts:176-188`); AI quota (`server.ts:209-245`) |
+| NFR5 | Abuse resistance | Write limits (`server.ts:181-187`); AI quota (`server.ts:209-237`) |
 
 ## 5.5 Methodology
 
@@ -114,8 +114,8 @@ Express (server.ts, one Node process)
    ├─ express.json 512 kB + bodyParserErrors → JSON 400 INVALID_JSON (server.ts:78-80)
    ├─ authenticateUser: Firebase ID token with revocation (server.ts:128; identity.ts:47)
    ├─ requireConsent: patients, default-deny, fails closed (server.ts:173; consent.ts:54)
-   ├─ write limits per user: bookings, records, reports, orders 120/10 min; SOS 10/10 min (server.ts:176-188)
-   ├─ requireRole(...) (server.ts:190); aiRateLimit 300/h per user (server.ts:209-245)
+   ├─ write limits per user: bookings, records, reports, orders 120/10 min; SOS 10/10 min (server.ts:181-187)
+   ├─ requireRole(...) (server.ts:190); aiRateLimit 300/h per user (server.ts:209-237)
    │
    ├─ Triage & copilot ─ shared/triage*.ts, emergencySafety.ts, server/ai/orchestrator.ts, llm.ts (optional)
    ├─ Knowledge (RAG over the medicine index) ─ server/ai/rag.ts, POST /api/v1/knowledge/ask (server.ts:1294)
@@ -124,7 +124,7 @@ Express (server.ts, one Node process)
    ├─ Records, lab reader ─ server/ai/labValues.ts, shared/labModels.ts ──► SQLite
    ├─ Medicines, pharmacy, diet ─ medicineIndex.ts, /api/medicines/*, dietRecommender.ts ──► SQLite / JSON
    ├─ Emergency ─ /api/emergency/sos, /api/emergency/alerts (per-facility) ──► SQLite
-   └─ Unknown /api route → JSON 404 (server.ts:1466); finalErrorHandler → JSON 500 without stack (server.ts:1495)
+   └─ Unknown /api route → JSON 404 (server.ts:1467); finalErrorHandler → JSON 500 without stack (server.ts:1495)
    ▼
 Static frontend (dist/) served by the same process (server.ts:1488)
 ```
@@ -271,8 +271,8 @@ All screenshots were captured from the running app against local emulators with 
 
 - **Final test run** (`npm test` on the code of PR #15 merged with `main`, which is everything except the client-only PR #16): 225 unit tests pass and 309 server tests pass, with 0 failures and exit code 0. Source: `../final-npm-test.log`.
 - **After PR #16:** `npx tsc` is clean and `npm run test:unit` passes 225 of 225 (coordinator's final facts).
-- **Final local backend audit** (`results/backend_audit.json`, 16 Nov 2026 23:07 UTC; local emulators, not production):
-  - cold start to healthy took 4.05 s;
+- **Final local backend audits** (`results/backend_audit_2026-11-16T2307Z.json`, `results/backend_audit.json` (23:26Z) and `results/backend_audit_2026-11-17T0019Z.json`; local emulators, not production):
+  - cold start to healthy took 3.4–5.9 s;
   - the Firestore rules probe denied everything except a patient reading their own profile;
   - 20 concurrent bookings per round created exactly 1 booking with 19 conflicts, in every round;
   - every load-test row had a 0 % error rate.
