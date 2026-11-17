@@ -254,7 +254,7 @@ LLM test injects a fake model caller or a fake `fetch`). Server tests: `npm run 
   `callerAdministersHospital`, `:284` `callerControlsDoctor`; doctor-to-patient scoping inline in
   `server/firebase/consultations.ts:203` (records only for the doctor's own appointment);
   `server/firebase/identity.ts` (role from the custom claim); per-route owner filters in
-  `server/firebase/booking.ts`, `consultations.ts`, `patients.ts`; `firestore.rules`.
+  `server/firebase/booking.ts`, `consultations.ts`, `patients.ts`; `firebase/firestore.rules`.
 - **Tests.** Server only (needs real tokens from the Auth emulator): `tests/access-matrix.test.ts`
   ("anonymous callers are rejected on every guarded route", "PATIENT is refused privileged
   operations", "cross-patient isolation", "doctors get no patient records from the record list"),

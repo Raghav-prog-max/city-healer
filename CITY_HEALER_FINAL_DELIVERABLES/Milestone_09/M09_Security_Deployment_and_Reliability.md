@@ -91,7 +91,7 @@ Several of the twelve payloads in `security_spec.md` name collections that no lo
 | Item | Status |
 |---|---|
 | S-07: nothing refuses `DEMO_MODE` in production (`consent.ts:10` comment) | Open. It must not be set on a deployment. |
-| S-09: unused `firebase-applet-config.json` and stale root `firestore.rules` | `firebase-applet-config.json` was removed on 17 Nov 2026, but it remains in the git history; restricting or deleting its Google Cloud project is for the project owner. The stale root `firestore.rules` is still on `main` |
+| S-09: unused `firebase-applet-config.json` and stale root `firestore.rules` | Both removed on 17 Nov 2026. The active rules are `firebase/firestore.rules`, which `firebase.json` deploys. `firebase-applet-config.json` remains in the git history; restricting or deleting its Google Cloud project is for the project owner |
 | S-11: binary content named `.txt` is accepted | Open (`ai_ml_evaluation.json` failure mode `binary_named_txt = extracted`) |
 | S-13: no data export or deletion; no retention policy | Open |
 | Order route trusts `prescriptionAttached` (`server.ts:1017`) | Open (PR #14 "Not done") |
